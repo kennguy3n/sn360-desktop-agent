@@ -1,0 +1,15 @@
+[package]
+name = "sda-event-bus"
+description = "Async event bus for inter-module communication in SDA"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+bytes = { workspace = true }
+thiserror = { workspace = true }

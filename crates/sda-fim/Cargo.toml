@@ -1,0 +1,26 @@
+[package]
+name = "sda-fim"
+description = "File Integrity Monitoring module for SDA"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sda-event-bus = { workspace = true }
+sda-pal = { workspace = true }
+sda-core = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+rusqlite = { workspace = true }
+sha2 = { workspace = true }
+chrono = { workspace = true }
+notify = { workspace = true }
+walkdir = "2"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["rt-multi-thread"] }

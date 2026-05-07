@@ -1,0 +1,40 @@
+[package]
+name = "sda-rootcheck"
+description = "Rootkit detection module for SDA"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sda-event-bus = { workspace = true }
+sda-core = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+sha2 = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+nix = { workspace = true }
+
+# macOS hidden-process enumeration goes through sysctl
+# CTL_KERN/KERN_PROC/KERN_PROC_ALL which is only exposed in `libc`.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
+# Windows hidden-process enumeration uses the Toolhelp32Snapshot
+# family (CreateToolhelp32Snapshot + Process32FirstW/Process32NextW)
+# plus OpenProcess for the existence probe.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["rt-multi-thread"] }
