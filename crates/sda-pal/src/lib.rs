@@ -3,7 +3,9 @@
 //! Provides cross-platform traits and implementations for filesystem watching,
 //! system information, power status, and service management.
 
+pub mod admin_manager;
 pub mod fs_watcher;
+pub mod posture;
 pub mod power;
 pub mod sysinfo;
 pub mod types;

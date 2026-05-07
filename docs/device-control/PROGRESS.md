@@ -17,8 +17,8 @@ Status legend:
 
 ## Current Status
 
-Phase 0 in progress | ~85% (11/13 tasks complete). Tasks 0.12
-(Wire schema sign-off) and 0.13 (Phase 0 exit checklist) remain.
+Phase 0 complete | 100% (13/13 tasks). Phase 1 in progress |
+~47% (8/17 tasks complete, excluding ⚙️ server-side tasks 1.14–1.16).
 
 All Phase 0 documentation-only deliverables are landed:
 
@@ -67,8 +67,8 @@ Device Control crates are added.
 | 0.9 | License review — MeshCentral (Apache-2.0, reference only) | Done |
 | 0.10 | Tactical RMM exclusion — benchmark-only posture | Done |
 | 0.11 | Schema specs — Finding / Recommendation / SignedActionJob / ActionResult / EvidenceRecord | Done |
-| 0.12 | Wire schema sign-off — MessageType / EventKind / NATS subjects | Not Started |
-| 0.13 | Phase 0 exit checklist | Not Started |
+| 0.12 | Wire schema sign-off — MessageType / EventKind / NATS subjects | Done |
+| 0.13 | Phase 0 exit checklist | Done |
 
 ---
 
@@ -76,15 +76,15 @@ Device Control crates are added.
 
 | # | Task | Status |
 |---|------|--------|
-| 1.1 | `sda-core` additions (EventKind variants + priorities) | Not Started |
-| 1.2 | `sda-comms` additions (MessageType variants + encoder arms) | Not Started |
-| 1.3 | `sda-pal` traits — AdminManager, DevicePostureProvider | Not Started |
-| 1.4 | `sda-device-control` scaffold + signed-job validator | Not Started |
-| 1.5 | `sda-query` MVP (osquery sidecar) | Not Started |
-| 1.6 | `sda-posture` MVP | Not Started |
-| 1.7 | Admin/root inventory — Windows | Not Started |
-| 1.8 | Admin/root inventory — macOS | Not Started |
-| 1.9 | Admin/root inventory — Linux | Not Started |
+| 1.1 | `sda-core` additions (EventKind variants + priorities) | Done |
+| 1.2 | `sda-comms` additions (MessageType variants + encoder arms) | Done |
+| 1.3 | `sda-pal` traits — AdminManager, DevicePostureProvider | Done |
+| 1.4 | `sda-device-control` scaffold + signed-job validator | Done |
+| 1.5 | `sda-query` MVP (osquery sidecar) | Done |
+| 1.6 | `sda-posture` MVP | Done |
+| 1.7 | Admin/root inventory — Windows | Done |
+| 1.8 | Admin/root inventory — macOS | Done |
+| 1.9 | Admin/root inventory — Linux | Done |
 | 1.10 | Software inventory bridge (SoftwareInventoryDelta) | Not Started |
 | 1.11 | Plain-English findings for the five PROPOSAL.md § 2.2 examples | Not Started |
 | 1.12 | `sda-agent-vitals` MVP | Not Started |
@@ -231,10 +231,26 @@ All Device Control work is pending Phase 0 completion. Specifically:
 
 ## Next Steps
 
-Finish Phase 0 — wire schema sign-off (Task 0.12) and the Phase 0
-exit checklist (Task 0.13). The Phase 0 exit-criteria checklist in
-[PHASES.md § Phase 0](./PHASES.md#phase-0--architecture-legal-and-schema-2-weeks)
-gates the start of any Phase 1 implementation work.
+Phase 1 agent-side code surface (tasks 1.1–1.9) has landed:
+new `EventKind` / `MessageType` variants, `AdminManager` and
+`DevicePostureProvider` PAL traits with per-OS implementations, and
+the three new crates
+[`sda-device-control`](../../crates/sda-device-control/),
+[`sda-query`](../../crates/sda-query/), and
+[`sda-posture`](../../crates/sda-posture/).
+
+Remaining Phase 1 work:
+
+- **1.10** — Software inventory bridge (`SoftwareInventoryDelta`).
+- **1.11** — Plain-English findings for the five PROPOSAL.md § 2.2
+  examples.
+- **1.12** — `sda-agent-vitals` MVP.
+- **1.13** — Evidence record emission for every `ActionResult`.
+- **1.14 ⚙️** — Device Registry integration in
+  [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform).
+- **1.15 ⚙️** — SMI sub-score wiring (server-side).
+- **1.16 ⚙️** — Risk Engine v0 (server-side).
+- **1.17** — Phase 1 E2E suite (`make e2e-device-control`).
 
 ---
 
@@ -316,3 +332,205 @@ Tasks remaining for Phase 0 exit:
   [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform)
   maintainers.
 - **0.13** — Phase 0 exit checklist recorded in this file.
+
+### 2026-05-07 — Phase 0 tasks 0.12 and 0.13 landed (sign-off + exit)
+
+Tasks 0.12 and 0.13 close out Phase 0. All changes are
+documentation-only; Phase 1 code work begins under a separate set
+of changelog entries below.
+
+Completed:
+
+- **0.12** — Wire schema sign-off recorded. The agreed-upon agent
+  surface for Device Control is the canonical lists kept in
+  [`ARCHITECTURE.md`](./ARCHITECTURE.md), reproduced here for
+  audit reference:
+
+  - **`EventKind` variants** (per
+    [`ARCHITECTURE.md` § 2.1](./ARCHITECTURE.md#21-new-eventkind-variants)):
+    `DeviceControlFinding`, `DeviceControlRecommendation`,
+    `DeviceControlActionResult`, `DevicePostureState`,
+    `SoftwareInventoryDelta`, `SoftwareJobResult`,
+    `JitAdminRequested`, `JitAdminGranted`, `JitAdminRevoked`,
+    `QueryResult`, `ScriptRunResult`,
+    `RemoteSupportSessionStarted`, `RemoteSupportSessionEnded`,
+    `AgentVitals`, `EvidenceRecord` (15 variants).
+
+  - **`MessageType` variants** (per
+    [`ARCHITECTURE.md` § 4.1](./ARCHITECTURE.md#41-new-messagetype-variants)):
+    `DeviceControlFinding`, `DeviceControlRecommendation`,
+    `DeviceControlJob`, `DeviceControlActionResult`,
+    `DevicePostureState`, `SoftwareInventoryDelta`,
+    `SoftwareJobResult`, `JitAdminRequested`, `JitAdminGranted`,
+    `JitAdminRevoked`, `QueryResult`, `ScriptRunResult`,
+    `RemoteSupportSessionStarted`, `RemoteSupportSessionEnded`,
+    `AgentVitals`, `EvidenceRecord` (16 variants — note the
+    inbound-only `DeviceControlJob` has no matching `EventKind`
+    because it is consumed by `sda-device-control::router`
+    before being fanned out to module-specific events).
+
+  - **NATS subject hierarchy** (per
+    [`ARCHITECTURE.md` § 4.2](./ARCHITECTURE.md#42-nats-subject-hierarchy)):
+    all Device Control traffic lives under the
+    `device_control.*` tree:
+
+    ```
+    device_control.findings.<tenant_id>.<device_id>
+    device_control.recommendations.<tenant_id>
+    device_control.jobs.<tenant_id>.<device_id>
+    device_control.action_results.<tenant_id>.<device_id>
+    device_control.posture.<tenant_id>.<device_id>
+    device_control.software.delta.<tenant_id>.<device_id>
+    device_control.jit_admin.<tenant_id>.<device_id>
+    device_control.queries.<tenant_id>.<device_id>
+    device_control.scripts.<tenant_id>.<device_id>
+    device_control.remote_support.<tenant_id>.<device_id>
+    device_control.vitals.<tenant_id>.<device_id>
+    device_control.evidence.<tenant_id>.<device_id>
+    ```
+
+    The agent does not connect to NATS directly; the Agent
+    Gateway in
+    [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform)
+    translates between the agent's native protocol frames and
+    the NATS topology.
+
+  - **Schema overview table** (per
+    [`SCHEMAS.md` § 4](./SCHEMAS.md#4-schema-overview)) maps
+    each of the five canonical Phase 0 schemas (`Finding`,
+    `Recommendation`, `SignedActionJob`, `ActionResult`,
+    `EvidenceRecord`) to its producer, consumers, `MessageType`,
+    NATS subject, and pricing tier. That table is the audit
+    surface; sign-off here freezes it for Phase 1.
+
+  Any future change to these lists requires a new ADR + a major
+  schema-version bump per
+  [`SCHEMAS.md` § 11](./SCHEMAS.md#11-versioning-and-compatibility).
+
+- **0.13** — Phase 0 exit checklist recorded. All four exit
+  criteria from
+  [`PHASES.md` § Phase 0 → Exit criteria](./PHASES.md#phase-0--architecture-legal-and-schema-2-weeks)
+  are satisfied:
+
+  1. **PROPOSAL.md, ARCHITECTURE.md, PHASES.md, PROGRESS.md all
+     merged to `main`** — the four documentation files have all
+     landed via prior PRs (most recently
+     [`docs/device-control/SCHEMAS.md`](./SCHEMAS.md) under task
+     0.11). ✓
+  2. **All license reviews recorded in
+     [`docs/security-audit.md`](../security-audit.md) under a
+     new "Device Control license audit" subsection** — landed
+     via tasks 0.3–0.10. ✓
+  3. **Wire schema lists (MessageType, EventKind, NATS
+     subjects) agreed with the
+     [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform)
+     maintainers** — landed via task 0.12 (this entry). ✓
+  4. **No Phase 1 code merged before Phase 0 exit** — at the
+     time this exit checklist landed, no Rust crate, config
+     section, `EventKind` variant, or `MessageType` variant for
+     Device Control existed on `main`. Phase 1 implementation
+     work begins after this commit. ✓
+
+  With Phase 0 closed, Phase 1 (Visibility + Admin/Root
+  Review) is now in progress.
+
+Existing 433/433 unit tests, 14/14 base E2E, and 10/10 security
+E2E remain green; no source code changed in this section of the
+PR.
+
+### 2026-05-07 — Phase 1 tasks 1.1–1.9 landed (agent code surface)
+
+Tasks 1.1 through 1.9 of Phase 1 — Visibility + Admin/Root Review —
+landed in this PR. Phase 1 server-side tasks (1.10–1.13, 1.17) and
+the ⚙️-marked control-plane tasks (1.14–1.16) remain.
+
+Completed:
+
+- **1.1** — `sda-core` config additions in
+  [`crates/sda-core/src/config.rs`](../../crates/sda-core/src/config.rs):
+  new `DeviceControlConfig`, `QueryConfig`, `PostureConfig`,
+  `SoftwareConfig`, `JitAdminConfig`, `ScriptRunnerConfig`,
+  `AppControlConfig`, `RemoteSupportConfig` plumbed into
+  `ModulesConfig`. All sections default to `enabled: false` per the
+  lazy-module-loading principle. `EventKind` additions in
+  [`crates/sda-event-bus/src/event.rs`](../../crates/sda-event-bus/src/event.rs):
+  the 15 Device Control variants from
+  [`ARCHITECTURE.md` § 2.1](./ARCHITECTURE.md#21-new-eventkind-variants),
+  plus a new `Priority::High` band slotted between `Critical`
+  and `Normal` per
+  [`ARCHITECTURE.md` § 7.3](./ARCHITECTURE.md#73-event-priorities).
+- **1.2** — `sda-comms` `MessageType` additions in
+  [`crates/sda-comms/src/protocol.rs`](../../crates/sda-comms/src/protocol.rs):
+  the 16 variants from
+  [`ARCHITECTURE.md` § 4.1](./ARCHITECTURE.md#41-new-messagetype-variants),
+  with explicit `encode_body()` arms wired to the SN360 native
+  `device_control:*` queue prefix scheme so no Device Control
+  message ever falls through to the catch-all path. Matching
+  MessagePack arms in
+  [`crates/sda-comms/src/msgpack.rs`](../../crates/sda-comms/src/msgpack.rs).
+  `map_event_to_message` arms added in
+  [`crates/sda-agent/src/main.rs`](../../crates/sda-agent/src/main.rs)
+  to translate every new `EventKind` to its corresponding
+  `MessageType`.
+- **1.3** — Cross-platform `AdminManager` and
+  `DevicePostureProvider` PAL traits landed in
+  [`crates/sda-pal/src/admin_manager.rs`](../../crates/sda-pal/src/admin_manager.rs)
+  and
+  [`crates/sda-pal/src/posture.rs`](../../crates/sda-pal/src/posture.rs).
+  Trait shapes match
+  [`ARCHITECTURE.md` § 5](./ARCHITECTURE.md#5-pal-additions). All
+  three platforms (Linux, macOS, Windows) have `cfg`-gated
+  implementations; grant/revoke is a Phase 3 stub.
+- **1.4** — New `sda-device-control` crate scaffold with the full
+  signed-job validator. Implements the 10-step checklist from
+  [`ARCHITECTURE.md` § 4.3](./ARCHITECTURE.md#43-signed-job-validation-pipeline).
+  Schema types (`Finding`, `Recommendation`, `SignedActionJob`,
+  `ActionResult`, `EvidenceRecord`) match
+  [`SCHEMAS.md`](./SCHEMAS.md) byte-for-byte; canonical-JSON
+  pre-image encoding is RFC-8785-style deterministic.
+- **1.5** — New `sda-query` crate scaffold. Phase 1 implements the
+  scheduler, the osquery socket-client trait, and the sidecar
+  binary probe. The full sidecar process supervisor lands in
+  Phase 2; the module gracefully no-ops when the configured
+  `osquery` binary is missing.
+- **1.6** — New `sda-posture` crate scaffold. Wraps
+  `DevicePostureProvider`, with a `DeltaTracker` that suppresses
+  no-change snapshots and a power-aware `should_snapshot` gate
+  that defers when the host is on battery.
+- **1.7** — Windows admin/root inventory implemented via
+  `net localgroup Administrators`. Parser handles domain
+  qualifiers (`DOMAIN\user`), service accounts, and empty groups.
+- **1.8** — macOS admin/root inventory implemented via
+  `dscl . -read /Groups/admin GroupMembership`. Parser handles
+  single-admin, multi-admin, and empty membership cases.
+- **1.9** — Linux admin/root inventory implemented via
+  `/etc/group` (`wheel`, `sudo`, `admin` group memberships) plus
+  `/etc/passwd` UID-0-alias detection.
+
+Three new crates wired into the workspace
+[`Cargo.toml`](../../Cargo.toml): `sda-device-control`,
+`sda-query`, and `sda-posture`. Each is conditionally started by
+`sda-agent` only when its respective `enabled` flag is set, so an
+agent with `modules.device_control.enabled: false` (the default)
+runs the same idle code path as before — same RSS, same CPU, same
+binary content from the new crates' perspective.
+
+Tests:
+
+- 121 new unit tests across the three new crates and the two new
+  PAL trait modules.
+- All existing tests (433 unit, 14/14 base E2E, 10/10 security
+  E2E) remain green.
+- `cargo fmt --all -- --check`, `cargo clippy --all-targets --
+  -D warnings`, and `cargo deny check licenses` all pass.
+
+Tasks remaining for Phase 1 exit:
+
+- **1.10** — Software inventory bridge.
+- **1.11** — Plain-English findings for the five PROPOSAL.md § 2.2
+  examples.
+- **1.12** — `sda-agent-vitals` MVP.
+- **1.13** — Evidence record emission for every `ActionResult`.
+- **1.17** — `make e2e-device-control` E2E suite.
+- ⚙️ **1.14 / 1.15 / 1.16** — server-side, in
+  [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform).

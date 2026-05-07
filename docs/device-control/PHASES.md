@@ -91,8 +91,8 @@ intentionally short and document-only.
 | 0.9 | License review — MeshCentral | Apache-2.0 reference; clean-room re-implementation in `sda-remote-support`; documented in [`docs/security-audit.md` § Device Control License Audit](../security-audit.md#device-control-license-audit). | Done |
 | 0.10 | Tactical RMM exclusion | Document benchmark-only posture; no source dependency; covered by [`deny.toml`](../../deny.toml) `[bans]` and [`docs/security-audit.md` § Device Control License Audit](../security-audit.md#device-control-license-audit). | Done |
 | 0.11 | Schema specs | Finalise `Finding`, `Recommendation`, `SignedActionJob`, `ActionResult`, `EvidenceRecord`. Canonical wire spec lives in [`SCHEMAS.md`](./SCHEMAS.md); cross-referenced from [`PROPOSAL.md` § 8](./PROPOSAL.md#8-data-model), [`ARCHITECTURE.md` § 3](./ARCHITECTURE.md#3-data-model), [`ADR-001-functional-port.md`](./ADR-001-functional-port.md), and [`fleet-capability-mapping.md` § 4](./fleet-capability-mapping.md#4-authorities-and-audit-trail). | Done |
-| 0.12 | Wire schema sign-off | Agree `MessageType` + `EventKind` additions and NATS subjects. | Not Started |
-| 0.13 | Phase 0 exit checklist | Record exit criteria + sign-off in PROGRESS.md. | Not Started |
+| 0.12 | Wire schema sign-off | Agree `MessageType` + `EventKind` additions and NATS subjects. | Done |
+| 0.13 | Phase 0 exit checklist | Record exit criteria + sign-off in PROGRESS.md. | Done |
 
 ### Exit criteria
 
@@ -142,15 +142,15 @@ records flowing for every observation.
 
 | # | Task | Description | Status |
 |---|------|-------------|--------|
-| 1.1 | `sda-core` additions | New `EventKind` variants (Finding, Recommendation, ActionResult, PostureState, SoftwareInventoryDelta, AgentVitals, EvidenceRecord); event-priority assignments. | Not Started |
-| 1.2 | `sda-comms` additions | New `MessageType` variants + canonical encoder arms. | Not Started |
-| 1.3 | `sda-pal` traits | `AdminManager`, `DevicePostureProvider` trait surfaces + per-OS implementations. | Not Started |
-| 1.4 | `sda-device-control` scaffold | Crate skeleton, signed-job validator, `JobRefused` plumbing. | Not Started |
-| 1.5 | `sda-query` MVP | osquery sidecar wrapper, schedule loop, `QueryResult` event. | Not Started |
-| 1.6 | `sda-posture` MVP | Snapshot loop using `DevicePostureProvider`; emit `DevicePostureState`. | Not Started |
-| 1.7 | Admin/root inventory — Windows | Enumerate `Administrators` group via `NetLocalGroupGetMembers`. | Not Started |
-| 1.8 | Admin/root inventory — macOS | Enumerate `admin` group via Open Directory. | Not Started |
-| 1.9 | Admin/root inventory — Linux | Enumerate `wheel` / `sudo` / non-root UID 0. | Not Started |
+| 1.1 | `sda-core` additions | New `EventKind` variants (Finding, Recommendation, ActionResult, PostureState, SoftwareInventoryDelta, AgentVitals, EvidenceRecord); event-priority assignments. | Done |
+| 1.2 | `sda-comms` additions | New `MessageType` variants + canonical encoder arms. | Done |
+| 1.3 | `sda-pal` traits | `AdminManager`, `DevicePostureProvider` trait surfaces + per-OS implementations. | Done |
+| 1.4 | `sda-device-control` scaffold | Crate skeleton, signed-job validator, `JobRefused` plumbing. | Done |
+| 1.5 | `sda-query` MVP | osquery sidecar wrapper, schedule loop, `QueryResult` event. | Done |
+| 1.6 | `sda-posture` MVP | Snapshot loop using `DevicePostureProvider`; emit `DevicePostureState`. | Done |
+| 1.7 | Admin/root inventory — Windows | Enumerate `Administrators` group via `NetLocalGroupGetMembers`. | Done |
+| 1.8 | Admin/root inventory — macOS | Enumerate `admin` group via Open Directory. | Done |
+| 1.9 | Admin/root inventory — Linux | Enumerate `wheel` / `sudo` / non-root UID 0. | Done |
 | 1.10 | Software inventory bridge | Re-export `sda-enhanced-inventory` deltas as `SoftwareInventoryDelta`. | Not Started |
 | 1.11 | Plain-English findings | Implement Finding text for the five PROPOSAL.md § 2.2 examples. | Not Started |
 | 1.12 | `sda-agent-vitals` MVP | Heartbeat, queue depth, watchdog faults emitted as `AgentVitals`. | Not Started |
