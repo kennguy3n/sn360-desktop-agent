@@ -171,8 +171,10 @@ When in doubt, the order of precedence is:
    summary in the Device Control proposal.
 5. **[`ARCHITECTURE.md` § 9](./ARCHITECTURE.md#9-open-source-engine-policy)**
    — engine policy table.
-6. **This document** — operational mapping.
-7. **[`deny.toml`](../../deny.toml)** at the workspace root —
+6. **[`SCHEMAS.md`](./SCHEMAS.md)** — canonical, versioned wire
+   spec for the five Device Control schemas.
+7. **This document** — operational mapping.
+8. **[`deny.toml`](../../deny.toml)** at the workspace root —
    mechanically enforces the licence allow-list.
 
 If any item below this list contradicts an item above it, the higher

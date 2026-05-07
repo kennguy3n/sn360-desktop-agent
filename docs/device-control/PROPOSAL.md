@@ -395,6 +395,16 @@ pub struct ActionResult {
 `EvidenceRecord` is documented in § 16; it is the audit projection of
 `ActionResult` plus the `SignedActionJob` it executed.
 
+> **Canonical wire spec.** The above is the high-level shape only.
+> The stable, versioned wire spec (full Rust definitions, supporting
+> enums, signature pre-images, per-`ActionKind` `args` sub-schemas,
+> validation rules, redaction rules, and `schema_version` policy)
+> lives in
+> [`SCHEMAS.md`](./SCHEMAS.md). Any divergence between this section
+> and `SCHEMAS.md` is resolved in favour of `SCHEMAS.md` per the
+> authority list in
+> [`SCHEMAS.md` § 14](./SCHEMAS.md#14-authority-and-audit-trail).
+
 ---
 
 ## 9. Core capabilities

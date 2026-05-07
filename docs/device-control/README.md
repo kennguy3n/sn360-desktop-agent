@@ -258,8 +258,11 @@ runs whatever the gateway authorises.
 
 - [PROPOSAL.md](./PROPOSAL.md) — full technical proposal, sections 1–22.
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — target shape of the code: crates, traits, events, protocol.
+- [SCHEMAS.md](./SCHEMAS.md) — canonical, versioned wire spec for `Finding`, `Recommendation`, `SignedActionJob`, `ActionResult`, `EvidenceRecord`.
 - [PHASES.md](./PHASES.md) — phased delivery plan and risk register.
 - [PROGRESS.md](./PROGRESS.md) — delivery log against PHASES.md.
+- [ADR-001-functional-port.md](./ADR-001-functional-port.md) — ADR-001 (binding): clean-room functional port; no Fleet source vendored.
+- [fleet-capability-mapping.md](./fleet-capability-mapping.md) — Fleet → SDA / SN360 capability map and do-not-port list.
 
 ### Parent docs
 

@@ -132,6 +132,18 @@ the catch-all is forbidden.
 
 ## 3. Data model
 
+> **Canonical wire spec.** The structs in this section are the
+> architectural sketch. The stable, versioned wire spec — full Rust
+> definitions, supporting enums (`Severity`, `Platform`,
+> `AgentVersion`, `FindingKind`, `ActionKind`, `ActionStatus`,
+> `JobRefused`), signature pre-images, per-`ActionKind` `args`
+> sub-schemas, validation rules, redaction rules, and
+> `schema_version` policy — lives in
+> [`SCHEMAS.md`](./SCHEMAS.md). Any divergence between this section
+> and `SCHEMAS.md` is resolved in favour of `SCHEMAS.md` per the
+> authority list in
+> [`SCHEMAS.md` § 14](./SCHEMAS.md#14-authority-and-audit-trail).
+
 ### 3.1 `SignedActionJob`
 
 ```rust

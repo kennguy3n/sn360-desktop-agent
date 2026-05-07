@@ -17,9 +17,8 @@ Status legend:
 
 ## Current Status
 
-Phase 0 in progress | ~77% (10/13 tasks complete). Tasks 0.11
-(Schema specs), 0.12 (Wire schema sign-off), and 0.13 (Phase 0 exit
-checklist) remain.
+Phase 0 in progress | ~85% (11/13 tasks complete). Tasks 0.12
+(Wire schema sign-off) and 0.13 (Phase 0 exit checklist) remain.
 
 All Phase 0 documentation-only deliverables are landed:
 
@@ -36,6 +35,12 @@ All Phase 0 documentation-only deliverables are landed:
 - Workspace-root [`deny.toml`](../../deny.toml) added so the
   `cargo deny check licenses` gate planned in Phase 7.8 has
   something to enforce.
+- Canonical, versioned wire spec for the five Device Control
+  schemas (`Finding`, `Recommendation`, `SignedActionJob`,
+  `ActionResult`, `EvidenceRecord`) landed in
+  [`SCHEMAS.md`](./SCHEMAS.md), with stub references in
+  [`PROPOSAL.md` § 8](./PROPOSAL.md#8-data-model) and
+  [`ARCHITECTURE.md` § 3](./ARCHITECTURE.md#3-data-model).
 
 No new crates, config sections, `EventKind` variants, or
 `MessageType` variants exist yet — Phase 0 is intentionally
@@ -61,7 +66,7 @@ Device Control crates are added.
 | 0.8 | License review — Santa / North Pole Santa (Apache-2.0) | Done |
 | 0.9 | License review — MeshCentral (Apache-2.0, reference only) | Done |
 | 0.10 | Tactical RMM exclusion — benchmark-only posture | Done |
-| 0.11 | Schema specs — Finding / Recommendation / SignedActionJob / ActionResult / EvidenceRecord | Not Started |
+| 0.11 | Schema specs — Finding / Recommendation / SignedActionJob / ActionResult / EvidenceRecord | Done |
 | 0.12 | Wire schema sign-off — MessageType / EventKind / NATS subjects | Not Started |
 | 0.13 | Phase 0 exit checklist | Not Started |
 
@@ -226,9 +231,9 @@ All Device Control work is pending Phase 0 completion. Specifically:
 
 ## Next Steps
 
-Finish Phase 0 — schema specs (Task 0.11), wire schema sign-off
-(Task 0.12), and the Phase 0 exit checklist (Task 0.13). The Phase 0
-exit-criteria checklist in [PHASES.md § Phase 0](./PHASES.md#phase-0--architecture-legal-and-schema-2-weeks)
+Finish Phase 0 — wire schema sign-off (Task 0.12) and the Phase 0
+exit checklist (Task 0.13). The Phase 0 exit-criteria checklist in
+[PHASES.md § Phase 0](./PHASES.md#phase-0--architecture-legal-and-schema-2-weeks)
 gates the start of any Phase 1 implementation work.
 
 ---
@@ -279,3 +284,35 @@ Tasks remaining for Phase 0 exit:
 
 Existing 433/433 unit tests, 14/14 base E2E, and 10/10 security E2E
 remain green; no source code changed in this PR.
+
+### 2026-05-07 — Phase 0 task 0.11 landed (schema specs)
+
+Task 0.11 of Phase 0 — Architecture, Legal, and Schema — landed in
+this PR. All changes are documentation-only.
+
+Completed:
+
+- **0.11** — Canonical, versioned wire spec for the five Device
+  Control schemas (`Finding`, `Recommendation`, `SignedActionJob`,
+  `ActionResult`, `EvidenceRecord`) landed in
+  [`SCHEMAS.md`](./SCHEMAS.md). The spec covers full Rust
+  definitions, supporting enums (`Severity`, `Platform`,
+  `AgentVersion`, `FindingKind`, `ActionKind`, `ActionStatus`,
+  `JobRefused`), MessagePack and canonical-JSON encoding rules,
+  signature pre-images for `SignedActionJob` and `EvidenceRecord`,
+  per-`ActionKind` `args` sub-schemas, the 10-step validation
+  checklist, redaction rules for PII-bearing fields, and the
+  `schema_version` policy.
+- Cross-references added in
+  [`PROPOSAL.md` § 8](./PROPOSAL.md#8-data-model),
+  [`ARCHITECTURE.md` § 3](./ARCHITECTURE.md#3-data-model),
+  [`ADR-001-functional-port.md`](./ADR-001-functional-port.md), and
+  [`fleet-capability-mapping.md` § 4](./fleet-capability-mapping.md#4-authorities-and-audit-trail).
+
+Tasks remaining for Phase 0 exit:
+
+- **0.12** — Wire schema sign-off (`MessageType` + `EventKind` +
+  NATS subjects) with the
+  [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform)
+  maintainers.
+- **0.13** — Phase 0 exit checklist recorded in this file.
