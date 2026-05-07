@@ -104,6 +104,13 @@ impl StateMachine {
             (GrantState::Approved, StateTransition::DriftDetected { .. }) => {
                 GrantState::DriftDetected
             }
+            // Boot-time and supervisory expiry — when a request or
+            // approval has aged past its `until` boundary without
+            // ever being grant-finalised, finalise it as `Expired`.
+            // No OS-level privilege was ever active, so `Revoke` is
+            // semantically wrong here.
+            (GrantState::Requested, StateTransition::Expire)
+            | (GrantState::Approved, StateTransition::Expire) => GrantState::Expired,
             (from, _) => {
                 return Err(TransitionError::Invalid {
                     from,
@@ -137,7 +144,13 @@ fn target_for(t: &StateTransition) -> GrantState {
 fn transition_reason(t: &StateTransition) -> Option<String> {
     /// Hard cap on stored reason length so a misbehaving server
     /// cannot pump the on-disk ledger full of garbage.
-    const MAX_REASON_LEN: usize = 256;
+    ///
+    /// The cap is measured in Unicode scalar values (chars), not
+    /// bytes. Slicing a `String` at an arbitrary byte offset would
+    /// panic when the cut falls inside a multi-byte UTF-8 sequence
+    /// (CJK, emoji, accented Latin, …); the control-plane reason
+    /// strings are not sanitised before they reach this layer.
+    const MAX_REASON_CHARS: usize = 256;
 
     let raw = match t {
         StateTransition::Approve { reason } | StateTransition::Deny { reason } => reason.clone(),
@@ -151,8 +164,9 @@ fn transition_reason(t: &StateTransition) -> Option<String> {
         ),
     };
     raw.map(|s| {
-        if s.len() > MAX_REASON_LEN {
-            format!("{}…", &s[..MAX_REASON_LEN])
+        if s.chars().count() > MAX_REASON_CHARS {
+            let truncated: String = s.chars().take(MAX_REASON_CHARS).collect();
+            format!("{truncated}…")
         } else {
             s
         }
@@ -305,5 +319,96 @@ mod tests {
         let stored = r2.last_reason.as_deref().unwrap();
         assert!(stored.len() < big.len(), "must be truncated");
         assert!(stored.ends_with('…'));
+        assert_eq!(stored.chars().count(), 257, "256 chars + ellipsis");
+    }
+
+    /// Regression — `transition_reason` used to slice the reason
+    /// `String` at byte offset 256, which panics whenever the cut
+    /// falls inside a multi-byte UTF-8 sequence. The control plane
+    /// is allowed to send arbitrary text, so this must never panic.
+    #[test]
+    fn multibyte_reason_strings_truncate_without_panicking() {
+        let sm = StateMachine;
+        let r = fresh();
+        // Each "汉" is three bytes — 1024 chars = 3072 bytes, so
+        // the byte cut at 256 lands inside a code point.
+        let big = "汉".repeat(1024);
+        let r2 = sm
+            .apply(
+                &r,
+                StateTransition::Deny {
+                    reason: Some(big.clone()),
+                },
+                Utc::now(),
+            )
+            .expect("must not panic on multi-byte truncation");
+        let stored = r2.last_reason.as_deref().unwrap();
+        assert!(stored.ends_with('…'));
+        assert_eq!(stored.chars().count(), 257, "256 chars + ellipsis");
+    }
+
+    /// Boot-sweep finalisation paths. The supervisor's boot sweep
+    /// hits records that are still in `Requested` or `Approved`
+    /// when their `until` has passed. The state machine must accept
+    /// `Expire` from those states so the ledger can move them to
+    /// `Expired` instead of leaving them as permanent non-terminal
+    /// stragglers.
+    #[test]
+    fn expire_finalises_requested_records() {
+        let sm = StateMachine;
+        let r = fresh();
+        assert_eq!(r.state, GrantState::Requested);
+        let r2 = sm
+            .apply(&r, StateTransition::Expire, Utc::now())
+            .expect("Requested → Expired must be accepted");
+        assert_eq!(r2.state, GrantState::Expired);
+        assert!(r2.state.is_terminal());
+        assert_eq!(r2.last_reason.as_deref(), Some("expire"));
+    }
+
+    #[test]
+    fn expire_finalises_approved_records() {
+        let sm = StateMachine;
+        let mut r = fresh();
+        r.state = GrantState::Approved;
+        let r2 = sm
+            .apply(&r, StateTransition::Expire, Utc::now())
+            .expect("Approved → Expired must be accepted");
+        assert_eq!(r2.state, GrantState::Expired);
+        assert!(r2.state.is_terminal());
+    }
+
+    #[test]
+    fn revoke_still_rejected_from_non_granted_states() {
+        // The matrix extension intentionally only adds Expire from
+        // Requested/Approved — Revoke remains restricted to
+        // Granted, since "revoke" implies an active OS-level
+        // privilege we need to drop.
+        use crate::watchdog::RevocationReason;
+        let sm = StateMachine;
+        let r0 = fresh();
+        let err = sm
+            .apply(
+                &r0,
+                StateTransition::Revoke {
+                    reason: RevocationReason::BootSweep,
+                },
+                Utc::now(),
+            )
+            .expect_err("Requested → Revoked must still be rejected");
+        assert!(matches!(err, TransitionError::Invalid { .. }));
+
+        let mut r1 = fresh();
+        r1.state = GrantState::Approved;
+        let err = sm
+            .apply(
+                &r1,
+                StateTransition::Revoke {
+                    reason: RevocationReason::BootSweep,
+                },
+                Utc::now(),
+            )
+            .expect_err("Approved → Revoked must still be rejected");
+        assert!(matches!(err, TransitionError::Invalid { .. }));
     }
 }

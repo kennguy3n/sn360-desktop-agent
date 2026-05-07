@@ -241,20 +241,39 @@ struct Supervisor {
 
 impl Supervisor {
     async fn boot_sweep(&self, now: DateTime<Utc>) {
-        let reqs = {
+        // Snapshot (id, state) so we hold the lock briefly and then
+        // dispatch each record through the right finalisation path.
+        // Boot-sweep records can be in three non-terminal states:
+        //   - Granted   → drop the OS-level privilege via `do_revoke`
+        //                 (this also calls `AdminManager::revoke_admin`)
+        //   - Approved  → no OS privilege ever activated; finalise
+        //                 the ledger via `StateTransition::Expire`.
+        //   - Requested → control plane never followed up; same
+        //                 expiry path as `Approved`.
+        let snapshots: Vec<(String, GrantState)> = {
             let store = self.store.lock().await;
-            self.wd.boot_sweep(store.records(), now)
+            self.wd
+                .boot_sweep(store.records(), now)
+                .into_iter()
+                .filter_map(|req| store.get(&req.grant_id).map(|r| (req.grant_id, r.state)))
+                .collect()
         };
-        for req in reqs {
-            // Boot-sweep records may be in `Granted` (privilege
-            // outlived the agent), `Approved` (request was approved
-            // but never grant-finalised), or `Requested` (control
-            // plane never followed up). For each, drive a revoke
-            // attempt; the state-machine layer will silently no-op
-            // on records that are not in a state that accepts
-            // `Revoke`.
-            self.do_revoke(&req.grant_id, RevocationReason::BootSweep, now)
-                .await;
+        for (id, state) in snapshots {
+            match state {
+                GrantState::Granted => {
+                    self.do_revoke(&id, RevocationReason::BootSweep, now).await;
+                }
+                GrantState::Requested | GrantState::Approved => {
+                    self.do_expire(&id, now).await;
+                }
+                // Terminal states are filtered out by
+                // `RevocationWatchdog::boot_sweep`; this arm is only
+                // here for exhaustiveness if a future state is added.
+                GrantState::Denied
+                | GrantState::Revoked
+                | GrantState::Expired
+                | GrantState::DriftDetected => {}
+            }
         }
     }
 
@@ -500,6 +519,49 @@ impl Supervisor {
         }
         self.emit_event(EventKind::JitAdminRevoked {
             payload: serde_json::to_string(&revoked).unwrap_or_default(),
+        });
+    }
+
+    /// Boot-sweep finaliser for records that were never grant-
+    /// finalised — i.e. still in `Requested` or `Approved` when the
+    /// agent restarted past their `until`. There is no OS-level
+    /// privilege to drop, so we move the ledger to `Expired` and
+    /// emit a single terminal `JitAdminRevoked` payload (mirroring
+    /// `do_deny`'s convention so the server only has to subscribe
+    /// to one terminal event kind).
+    async fn do_expire(&self, id: &str, now: DateTime<Utc>) {
+        let record = {
+            let store = self.store.lock().await;
+            store.get(id).cloned()
+        };
+        let Some(record) = record else {
+            debug!(
+                grant_id = id,
+                "jit_admin: expire for unknown grant — ignored"
+            );
+            return;
+        };
+        if record.state.is_terminal() {
+            debug!(
+                grant_id = id,
+                state = ?record.state,
+                "jit_admin: expire ignored (already terminal)",
+            );
+            return;
+        }
+        let expired = match self.sm.apply(&record, StateTransition::Expire, now) {
+            Ok(r) => r,
+            Err(err) => {
+                warn!(grant_id = id, error = %err, "jit_admin: expire transition rejected");
+                return;
+            }
+        };
+        if let Err(err) = self.persist(&expired).await {
+            warn!(grant_id = id, error = %err, "jit_admin: failed to persist expire");
+            return;
+        }
+        self.emit_event(EventKind::JitAdminRevoked {
+            payload: serde_json::to_string(&expired).unwrap_or_default(),
         });
     }
 
@@ -874,6 +936,84 @@ mod tests {
         controller.shutdown();
         h.module.task.await.unwrap().unwrap();
         assert_eq!(admin.revokes.lock().unwrap().len(), 1);
+    }
+
+    /// Pre-populate the ledger with three overdue, non-terminal
+    /// records and confirm the supervisor's boot sweep finalises
+    /// each one through the right path:
+    ///
+    /// - `Granted`   → `AdminManager::revoke_admin` is called and
+    ///                 the record becomes `Revoked`.
+    /// - `Approved`  → no admin call; record becomes `Expired`.
+    /// - `Requested` → no admin call; record becomes `Expired`.
+    ///
+    /// Regression — the supervisor used to send
+    /// `StateTransition::Revoke` for every state, which the state
+    /// machine rejects from `Requested`/`Approved`, so those records
+    /// stayed non-terminal forever and produced a warning log on
+    /// every boot.
+    #[tokio::test(flavor = "current_thread")]
+    async fn boot_sweep_finalises_overdue_records_by_state() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("grants.json");
+        let past = Utc::now() - chrono::Duration::hours(1);
+
+        // Pre-populate the on-disk ledger.
+        {
+            let mut store = GrantStore::open(&path).unwrap();
+            let mut requested =
+                GrantRecord::new_requested("g-req", "ops", user("alice"), past, past);
+            requested.state = GrantState::Requested;
+            store.upsert(requested).unwrap();
+
+            let mut approved =
+                GrantRecord::new_requested("g-app", "ops", user("alice"), past, past);
+            approved.state = GrantState::Approved;
+            store.upsert(approved).unwrap();
+
+            let mut granted = GrantRecord::new_requested("g-grn", "ops", user("alice"), past, past);
+            granted.state = GrantState::Granted;
+            granted.handle = Some(handle("h-grn", past));
+            store.upsert(granted).unwrap();
+        }
+
+        let cfg = cfg(true, Some(path.clone()));
+        let (bus, mut server_rx) = EventBus::new(16, 16);
+        let (controller, signal) = ShutdownController::new();
+        let admin = Arc::new(FakeAdmin::default());
+
+        let h = JitAdminModule::start(&cfg, bus, signal, admin.clone(), tmp.path().to_path_buf());
+
+        // Give the boot sweep time to run before draining.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let _ = drain_server(&mut server_rx).await;
+        controller.shutdown();
+        h.module.task.await.unwrap().unwrap();
+
+        // Only the Granted record produces an OS-level revoke call.
+        let revokes = admin.revokes.lock().unwrap();
+        assert_eq!(
+            revokes.len(),
+            1,
+            "Granted should revoke once, others should not"
+        );
+        assert_eq!(revokes[0].id, "h-grn");
+        assert!(
+            admin.grants.lock().unwrap().is_empty(),
+            "boot sweep must not call grant_admin",
+        );
+
+        // All three records are terminal on disk.
+        let store = GrantStore::open(&path).unwrap();
+        let req = store.get("g-req").expect("requested record persisted");
+        let app = store.get("g-app").expect("approved record persisted");
+        let grn = store.get("g-grn").expect("granted record persisted");
+        assert_eq!(req.state, GrantState::Expired);
+        assert_eq!(app.state, GrantState::Expired);
+        assert_eq!(grn.state, GrantState::Revoked);
+        assert!(req.state.is_terminal());
+        assert!(app.state.is_terminal());
+        assert!(grn.state.is_terminal());
     }
 
     #[test]
