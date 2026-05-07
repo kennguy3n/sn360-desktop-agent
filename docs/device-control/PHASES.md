@@ -78,16 +78,16 @@ intentionally short and document-only.
 
 | # | Task | Description | Status |
 |---|------|-------------|--------|
-| 0.1 | Land ADR | Functional port, not Fleet source-code port; PROPOSAL.md § 3.2. | Not Started |
-| 0.2 | Fleet capability mapping | Concepts-to-port table + do-not-port list; PROPOSAL.md § 4. | Not Started |
-| 0.3 | License review — Fleet MIT | Confirm MIT-licensed Fleet code is not vendored; document in `docs/security-audit.md` § License audit. | Not Started |
-| 0.4 | License review — Fleet EE | Bar Fleet EE source from this repo; CI license check covers it. | Not Started |
-| 0.5 | License review — MakeMeAdmin (GPL) | Reference-only; clean-room re-implementation in `sda-jit-admin`. | Not Started |
-| 0.6 | License review — SAP Privileges | Reference-only; clean-room re-implementation in `sda-jit-admin`. | Not Started |
-| 0.7 | License review — Munki | Apache-2.0 reference; clean-room re-implementation in `sda-software`. | Not Started |
-| 0.8 | License review — Santa / North Pole Santa | Apache-2.0; integrate on macOS, clean-room equivalents elsewhere. | Not Started |
-| 0.9 | License review — MeshCentral | Apache-2.0 reference; clean-room re-implementation in `sda-remote-support`. | Not Started |
-| 0.10 | Tactical RMM exclusion | Document benchmark-only posture; no source dependency. | Not Started |
+| 0.1 | Land ADR | Functional port, not Fleet source-code port; PROPOSAL.md § 3.2 + standalone [ADR-001-functional-port.md](./ADR-001-functional-port.md). | Done |
+| 0.2 | Fleet capability mapping | Concepts-to-port table + do-not-port list; PROPOSAL.md § 4 + standalone [fleet-capability-mapping.md](./fleet-capability-mapping.md). | Done |
+| 0.3 | License review — Fleet MIT | Confirm MIT-licensed Fleet code is not vendored; document in [`docs/security-audit.md` § Device Control License Audit](../security-audit.md#device-control-license-audit). | Done |
+| 0.4 | License review — Fleet EE | Bar Fleet EE source from this repo; [`deny.toml`](../../deny.toml) `[bans]` entries cover it; CI `cargo deny check licenses` gate is wired in Phase 7.8. | Done |
+| 0.5 | License review — MakeMeAdmin (GPL) | Reference-only; clean-room re-implementation in `sda-jit-admin`; documented in [`docs/security-audit.md` § Device Control License Audit](../security-audit.md#device-control-license-audit). | Done |
+| 0.6 | License review — SAP Privileges | Reference-only; clean-room re-implementation in `sda-jit-admin`; documented in [`docs/security-audit.md` § Device Control License Audit](../security-audit.md#device-control-license-audit). | Done |
+| 0.7 | License review — Munki | Apache-2.0 reference; clean-room re-implementation in `sda-software`; documented in [`docs/security-audit.md` § Device Control License Audit](../security-audit.md#device-control-license-audit). | Done |
+| 0.8 | License review — Santa / North Pole Santa | Apache-2.0; integrate on macOS, clean-room equivalents elsewhere; documented in [`docs/security-audit.md` § Device Control License Audit](../security-audit.md#device-control-license-audit). | Done |
+| 0.9 | License review — MeshCentral | Apache-2.0 reference; clean-room re-implementation in `sda-remote-support`; documented in [`docs/security-audit.md` § Device Control License Audit](../security-audit.md#device-control-license-audit). | Done |
+| 0.10 | Tactical RMM exclusion | Document benchmark-only posture; no source dependency; covered by [`deny.toml`](../../deny.toml) `[bans]` and [`docs/security-audit.md` § Device Control License Audit](../security-audit.md#device-control-license-audit). | Done |
 | 0.11 | Schema specs | Finalise `Finding`, `Recommendation`, `SignedActionJob`, `ActionResult`, `EvidenceRecord`. | Not Started |
 | 0.12 | Wire schema sign-off | Agree `MessageType` + `EventKind` additions and NATS subjects. | Not Started |
 | 0.13 | Phase 0 exit checklist | Record exit criteria + sign-off in PROGRESS.md. | Not Started |
