@@ -68,8 +68,10 @@ intentionally short and document-only.
   North Pole Santa (Apache-2.0); MeshCentral (Apache-2.0, clean-room
   reference); Tactical RMM (**benchmark-only, never base**).
 - Schema specs for `Finding`, `Recommendation`, `SignedActionJob`,
-  `ActionResult`, `EvidenceRecord` (PROPOSAL.md § 8 + ARCHITECTURE.md
-  § 3) reviewed and stable.
+  `ActionResult`, `EvidenceRecord` reviewed and stable. Canonical
+  wire spec lives in [`SCHEMAS.md`](./SCHEMAS.md); high-level
+  summaries are kept in [`PROPOSAL.md` § 8](./PROPOSAL.md#8-data-model)
+  and [`ARCHITECTURE.md` § 3](./ARCHITECTURE.md#3-data-model).
 - New `MessageType` and `EventKind` variant lists agreed
   (ARCHITECTURE.md § 2.1, § 4.1).
 - Phase 0 exit-criteria document recorded in PROGRESS.md.
@@ -88,7 +90,7 @@ intentionally short and document-only.
 | 0.8 | License review — Santa / North Pole Santa | Apache-2.0; integrate on macOS, clean-room equivalents elsewhere; documented in [`docs/security-audit.md` § Device Control License Audit](../security-audit.md#device-control-license-audit). | Done |
 | 0.9 | License review — MeshCentral | Apache-2.0 reference; clean-room re-implementation in `sda-remote-support`; documented in [`docs/security-audit.md` § Device Control License Audit](../security-audit.md#device-control-license-audit). | Done |
 | 0.10 | Tactical RMM exclusion | Document benchmark-only posture; no source dependency; covered by [`deny.toml`](../../deny.toml) `[bans]` and [`docs/security-audit.md` § Device Control License Audit](../security-audit.md#device-control-license-audit). | Done |
-| 0.11 | Schema specs | Finalise `Finding`, `Recommendation`, `SignedActionJob`, `ActionResult`, `EvidenceRecord`. | Not Started |
+| 0.11 | Schema specs | Finalise `Finding`, `Recommendation`, `SignedActionJob`, `ActionResult`, `EvidenceRecord`. Canonical wire spec lives in [`SCHEMAS.md`](./SCHEMAS.md); cross-referenced from [`PROPOSAL.md` § 8](./PROPOSAL.md#8-data-model), [`ARCHITECTURE.md` § 3](./ARCHITECTURE.md#3-data-model), [`ADR-001-functional-port.md`](./ADR-001-functional-port.md), and [`fleet-capability-mapping.md` § 4](./fleet-capability-mapping.md#4-authorities-and-audit-trail). | Done |
 | 0.12 | Wire schema sign-off | Agree `MessageType` + `EventKind` additions and NATS subjects. | Not Started |
 | 0.13 | Phase 0 exit checklist | Record exit criteria + sign-off in PROGRESS.md. | Not Started |
 

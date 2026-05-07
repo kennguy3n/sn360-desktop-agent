@@ -222,10 +222,12 @@ All Priority 3 tasks have landed. Phase 5 is complete.
 | P4.1 | Phase 0: ADR, license review, schema design | In Progress |
 | P4.2 | Phase 1: Visibility + admin/root review | Not Started |
 
-> **Phase 0 status.** 10/13 Phase 0 tasks complete (ADR + Fleet
+> **Phase 0 status.** 11/13 Phase 0 tasks complete (ADR + Fleet
 > capability map + per-engine license reviews + workspace-root
-> `deny.toml`). Schema specs (Task 0.11), wire schema sign-off
-> (Task 0.12), and the Phase 0 exit checklist (Task 0.13) remain.
+> `deny.toml` + canonical wire spec for the five Device Control
+> schemas in [`docs/device-control/SCHEMAS.md`](./docs/device-control/SCHEMAS.md)).
+> Wire schema sign-off (Task 0.12) and the Phase 0 exit checklist
+> (Task 0.13) remain.
 
 See [`docs/device-control/PROGRESS.md`](./docs/device-control/PROGRESS.md) for the detailed Device Control delivery log.
 
