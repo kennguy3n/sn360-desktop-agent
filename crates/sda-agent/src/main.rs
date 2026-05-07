@@ -503,12 +503,13 @@ async fn main() -> Result<()> {
     //          cases internally (parks on shutdown), so we only need
     //          to spawn it unconditionally.
     let script_runner_work_dir = std::env::temp_dir().join("sn360-script-runner");
-    let (script_runner_handle, _script_runner_sender) = sda_script_runner::ScriptRunnerModule::start(
-        &config,
-        agent.event_bus(),
-        agent.shutdown_signal(),
-        script_runner_work_dir,
-    );
+    let (script_runner_handle, _script_runner_sender) =
+        sda_script_runner::ScriptRunnerModule::start(
+            &config,
+            agent.event_bus(),
+            agent.shutdown_signal(),
+            script_runner_work_dir,
+        );
     agent.register_module(script_runner_handle);
 
     // 12l-ter. JIT admin module (Phase 3.2 / 3.3).

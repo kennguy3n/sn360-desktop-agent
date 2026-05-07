@@ -56,12 +56,25 @@ pub struct ScriptRunnerSender {
 impl ScriptRunnerSender {
     /// Try to enqueue `request` without blocking. Returns the
     /// request back when the queue is full.
-    pub fn try_send(&self, request: ScriptRequest) -> Result<(), mpsc::error::TrySendError<ScriptRequest>> {
+    //
+    // The `Err` variant carries the rejected `ScriptRequest` (which
+    // includes the script body and the signature), so it is necessarily
+    // large. Boxing here would force every caller to deal with an
+    // extra heap indirection for the common success path; the
+    // size-of-Err lint is an explicit non-goal for this API.
+    #[allow(clippy::result_large_err)]
+    pub fn try_send(
+        &self,
+        request: ScriptRequest,
+    ) -> Result<(), mpsc::error::TrySendError<ScriptRequest>> {
         self.tx.try_send(request)
     }
 
     /// Enqueue `request`, waiting if the queue is at capacity.
-    pub async fn send(&self, request: ScriptRequest) -> Result<(), mpsc::error::SendError<ScriptRequest>> {
+    pub async fn send(
+        &self,
+        request: ScriptRequest,
+    ) -> Result<(), mpsc::error::SendError<ScriptRequest>> {
         self.tx.send(request).await
     }
 }
@@ -318,9 +331,7 @@ mod tests {
 
     async fn drain_server(rx: &mut mpsc::Receiver<Event>) -> Vec<EventKind> {
         let mut out = Vec::new();
-        while let Ok(Some(ev)) =
-            tokio::time::timeout(Duration::from_millis(200), rx.recv()).await
-        {
+        while let Ok(Some(ev)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
             out.push(ev.kind);
         }
         out
@@ -404,7 +415,13 @@ mod tests {
         let saw_evidence = kinds
             .iter()
             .any(|k| matches!(k, EventKind::EvidenceRecord { .. }));
-        assert!(saw_result, "expected at least one ScriptRunResult: {kinds:?}");
-        assert!(saw_evidence, "expected at least one EvidenceRecord: {kinds:?}");
+        assert!(
+            saw_result,
+            "expected at least one ScriptRunResult: {kinds:?}"
+        );
+        assert!(
+            saw_evidence,
+            "expected at least one EvidenceRecord: {kinds:?}"
+        );
     }
 }

@@ -219,11 +219,12 @@ impl Manifest {
     /// key by hand. New code should prefer [`Verifier::verify`]
     /// which also enforces `key_id` membership and expiry.
     pub fn verify_signature(&self, pinned_pubkey_hex: &str) -> Result<(), ManifestError> {
-        let pubkey_bytes = parse_hex_fixed::<PUBLIC_KEY_LENGTH>(pinned_pubkey_hex).ok_or_else(
-            || ManifestError::PinnedKeyShape {
-                key_id: self.key_id.clone(),
-            },
-        )?;
+        let pubkey_bytes =
+            parse_hex_fixed::<PUBLIC_KEY_LENGTH>(pinned_pubkey_hex).ok_or_else(|| {
+                ManifestError::PinnedKeyShape {
+                    key_id: self.key_id.clone(),
+                }
+            })?;
         let verifying_key = VerifyingKey::from_bytes(&pubkey_bytes).map_err(|_| {
             ManifestError::PinnedKeyInvalid {
                 key_id: self.key_id.clone(),

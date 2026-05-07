@@ -262,16 +262,22 @@ mod tests {
     #[test]
     fn timer_revocations_picks_only_overdue_active_grants() {
         let now = Utc::now();
-        let active_due = record("g-1", GrantState::Granted, now - chrono::Duration::seconds(1));
+        let active_due = record(
+            "g-1",
+            GrantState::Granted,
+            now - chrono::Duration::seconds(1),
+        );
         let active_future = record("g-2", GrantState::Granted, now + chrono::Duration::hours(1));
-        let approved_due = record("g-3", GrantState::Approved, now - chrono::Duration::hours(1));
+        let approved_due = record(
+            "g-3",
+            GrantState::Approved,
+            now - chrono::Duration::hours(1),
+        );
         let revoked = record("g-4", GrantState::Revoked, now - chrono::Duration::hours(1));
 
         let wd = RevocationWatchdog;
-        let reqs = wd.timer_revocations(
-            [&active_due, &active_future, &approved_due, &revoked],
-            now,
-        );
+        let reqs =
+            wd.timer_revocations([&active_due, &active_future, &approved_due, &revoked], now);
         assert_eq!(reqs.len(), 1);
         assert_eq!(reqs[0].grant_id, "g-1");
         assert_eq!(reqs[0].reason, RevocationReason::Timer);
@@ -285,9 +291,7 @@ mod tests {
         let wd = RevocationWatchdog;
 
         // No heartbeat yet → no revocations.
-        assert!(wd
-            .heartbeat_revocations([&r], None, now, &cfg)
-            .is_empty());
+        assert!(wd.heartbeat_revocations([&r], None, now, &cfg).is_empty());
 
         // Last heartbeat 30 s ago → still inside the budget.
         let last = now - chrono::Duration::seconds(30);
@@ -306,7 +310,11 @@ mod tests {
     fn heartbeat_revocations_only_pick_active() {
         let now = Utc::now();
         let active = record("g-1", GrantState::Granted, now + chrono::Duration::hours(1));
-        let approved = record("g-2", GrantState::Approved, now + chrono::Duration::hours(1));
+        let approved = record(
+            "g-2",
+            GrantState::Approved,
+            now + chrono::Duration::hours(1),
+        );
         let cfg = WatchdogConfig::from_secs(60);
         let last = now - chrono::Duration::seconds(120);
         let wd = RevocationWatchdog;
@@ -331,7 +339,11 @@ mod tests {
     fn boot_sweep_targets_overdue_non_terminal_records() {
         let now = Utc::now();
         let active_old = record("g-1", GrantState::Granted, now - chrono::Duration::hours(2));
-        let approved_old = record("g-2", GrantState::Approved, now - chrono::Duration::hours(2));
+        let approved_old = record(
+            "g-2",
+            GrantState::Approved,
+            now - chrono::Duration::hours(2),
+        );
         let active_future = record("g-3", GrantState::Granted, now + chrono::Duration::hours(1));
         let revoked_old = record("g-4", GrantState::Revoked, now - chrono::Duration::hours(2));
         let wd = RevocationWatchdog;

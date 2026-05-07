@@ -201,9 +201,7 @@ impl RollbackOrchestrator {
     /// Return the rollback entry recorded for `(job_id, package_id)`,
     /// if any.
     pub fn lookup(&self, job_id: Uuid, package_id: &str) -> Option<&RollbackEntry> {
-        self.manifest
-            .entries
-            .get(&(job_id, package_id.to_string()))
+        self.manifest.entries.get(&(job_id, package_id.to_string()))
     }
 
     /// Record the package's pre-update version. Idempotent — calling
@@ -292,9 +290,7 @@ impl RollbackOrchestrator {
                         package_id: package_id.to_string(),
                         previous_version: Some(prev.to_string()),
                         succeeded: false,
-                        message: format!(
-                            "rollback re-install of {package_id}@{prev} failed: {e}"
-                        ),
+                        message: format!("rollback re-install of {package_id}@{prev} failed: {e}"),
                         attempted_at: now,
                     },
                 }
@@ -370,19 +366,21 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use tempfile::tempdir;
 
+    /// One recorded call: `(op, package_id, version)`.
+    type Call = (String, String, Option<String>);
+
     /// Test double — records every call so assertions can pin the
     /// sequence of install / uninstall invocations.
     #[derive(Default, Clone)]
     struct MockManager {
-        // (op, package_id, version)
-        calls: Arc<Mutex<Vec<(String, String, Option<String>)>>>,
+        calls: Arc<Mutex<Vec<Call>>>,
         // When `install_fail` is non-empty, the next install call
         // returns the first item as a Command error.
         install_fail: Arc<Mutex<Vec<String>>>,
     }
 
     impl MockManager {
-        fn calls(&self) -> Vec<(String, String, Option<String>)> {
+        fn calls(&self) -> Vec<Call> {
             self.calls.lock().unwrap().clone()
         }
     }
@@ -391,11 +389,7 @@ mod tests {
         fn list_installed(&self) -> Result<Vec<InstalledPackage>, PackageError> {
             Ok(Vec::new())
         }
-        fn install(
-            &self,
-            package: &PackageRef,
-            _opts: &InstallOpts,
-        ) -> Result<(), PackageError> {
+        fn install(&self, package: &PackageRef, _opts: &InstallOpts) -> Result<(), PackageError> {
             self.calls.lock().unwrap().push((
                 "install".into(),
                 package.id.clone(),

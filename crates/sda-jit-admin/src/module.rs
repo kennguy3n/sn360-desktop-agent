@@ -193,8 +193,9 @@ impl JitAdminModule {
             tokio::spawn(async move {
                 supervisor.boot_sweep(Utc::now()).await;
                 let mut rx = rx;
-                let mut tick =
-                    tokio::time::interval(Duration::from_secs(supervisor.wd_cfg.heartbeat_poll_secs));
+                let mut tick = tokio::time::interval(Duration::from_secs(
+                    supervisor.wd_cfg.heartbeat_poll_secs,
+                ));
                 tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
                 // Skip the immediate first tick (interval fires
                 // straight away by default).
@@ -319,8 +320,7 @@ impl Supervisor {
         until: DateTime<Utc>,
         now: DateTime<Utc>,
     ) {
-        let record =
-            GrantRecord::new_requested(id.clone(), requested_by, user, until, now);
+        let record = GrantRecord::new_requested(id.clone(), requested_by, user, until, now);
         let mut store = self.store.lock().await;
         if let Err(err) = store.upsert(record.clone()) {
             warn!(grant_id = %id, error = %err, "jit_admin: failed to persist new request");
@@ -447,7 +447,10 @@ impl Supervisor {
             store.get(id).cloned()
         };
         let Some(record) = record else {
-            debug!(grant_id = id, "jit_admin: revoke for unknown grant — ignored");
+            debug!(
+                grant_id = id,
+                "jit_admin: revoke for unknown grant — ignored"
+            );
             return;
         };
 
@@ -636,9 +639,7 @@ mod tests {
 
     async fn drain_server(rx: &mut mpsc::Receiver<Event>) -> Vec<EventKind> {
         let mut out = Vec::new();
-        while let Ok(Some(ev)) =
-            tokio::time::timeout(Duration::from_millis(200), rx.recv()).await
-        {
+        while let Ok(Some(ev)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
             out.push(ev.kind);
         }
         out
@@ -668,13 +669,7 @@ mod tests {
         let until = Utc::now() + chrono::Duration::hours(1);
         *admin.next_grant_handle.lock().unwrap() = Some(handle("h-1", until));
 
-        let h = JitAdminModule::start(
-            &cfg,
-            bus,
-            signal,
-            admin.clone(),
-            tmp.path().to_path_buf(),
-        );
+        let h = JitAdminModule::start(&cfg, bus, signal, admin.clone(), tmp.path().to_path_buf());
         let sender = h.sender.expect("module should be active");
 
         sender
@@ -722,13 +717,7 @@ mod tests {
         let admin = Arc::new(FakeAdmin::default());
         let until = Utc::now() + chrono::Duration::hours(1);
 
-        let h = JitAdminModule::start(
-            &cfg,
-            bus,
-            signal,
-            admin.clone(),
-            tmp.path().to_path_buf(),
-        );
+        let h = JitAdminModule::start(&cfg, bus, signal, admin.clone(), tmp.path().to_path_buf());
         let sender = h.sender.expect("module should be active");
 
         sender
@@ -775,13 +764,7 @@ mod tests {
         let until = Utc::now() + chrono::Duration::hours(1);
         *admin.next_grant_handle.lock().unwrap() = Some(handle("h-1", until));
 
-        let h = JitAdminModule::start(
-            &cfg,
-            bus,
-            signal,
-            admin.clone(),
-            tmp.path().to_path_buf(),
-        );
+        let h = JitAdminModule::start(&cfg, bus, signal, admin.clone(), tmp.path().to_path_buf());
         let sender = h.sender.expect("module should be active");
 
         sender
@@ -832,13 +815,7 @@ mod tests {
         let (controller, signal) = ShutdownController::new();
         let admin = Arc::new(FakeAdmin::default());
 
-        let h = JitAdminModule::start(
-            &cfg,
-            bus,
-            signal,
-            admin.clone(),
-            tmp.path().to_path_buf(),
-        );
+        let h = JitAdminModule::start(&cfg, bus, signal, admin.clone(), tmp.path().to_path_buf());
         let sender = h.sender.expect("module should be active");
 
         sender
@@ -867,13 +844,7 @@ mod tests {
         let until = Utc::now() + chrono::Duration::hours(1);
         *admin.next_grant_handle.lock().unwrap() = Some(handle("h-2", until));
 
-        let h = JitAdminModule::start(
-            &cfg,
-            bus,
-            signal,
-            admin.clone(),
-            tmp.path().to_path_buf(),
-        );
+        let h = JitAdminModule::start(&cfg, bus, signal, admin.clone(), tmp.path().to_path_buf());
         let sender = h.sender.expect("module should be active");
         sender
             .send(JitAdminRequest::NewRequest {

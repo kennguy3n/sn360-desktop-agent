@@ -194,11 +194,7 @@ impl ApprovalAuditor {
     ///
     /// Approved packages are pruned from the diff's `current` list
     /// because callers want to react to deviations only.
-    pub fn diff(
-        &mut self,
-        installed: &[InstalledPackage],
-        catalogue: &Catalogue,
-    ) -> ApprovalDiff {
+    pub fn diff(&mut self, installed: &[InstalledPackage], catalogue: &Catalogue) -> ApprovalDiff {
         let evaluations = self.evaluate(installed, catalogue);
         let mut transitions = Vec::new();
         let mut next: BTreeMap<String, ApprovalState> = BTreeMap::new();
@@ -225,9 +221,7 @@ impl ApprovalAuditor {
         // emit a `DeviceControlRecommendation` for these, since the
         // package is no longer on the device.
         for (pkg_id, prev_state) in &self.last {
-            if !next.contains_key(pkg_id)
-                && !evaluations.iter().any(|e| &e.package_id == pkg_id)
-            {
+            if !next.contains_key(pkg_id) && !evaluations.iter().any(|e| &e.package_id == pkg_id) {
                 transitions.push(ApprovalTransition {
                     package_id: pkg_id.clone(),
                     previous: Some(*prev_state),
@@ -296,8 +290,7 @@ pub fn build_recommendation_payload(
         "severity":          severity,
         "created_at":        now,
     });
-    serde_json::to_string(&value)
-        .expect("serde_json::to_string of a Value is infallible")
+    serde_json::to_string(&value).expect("serde_json::to_string of a Value is infallible")
 }
 
 /// Hard cap on the recommendation `plain_english` body — kept in
@@ -510,10 +503,7 @@ mod tests {
         assert_eq!(value["action"], "uninstall_package");
         assert_eq!(value["severity"], "high");
         assert_eq!(value["one_click"], true);
-        assert!(value["plain_english"]
-            .as_str()
-            .unwrap()
-            .contains("denied"));
+        assert!(value["plain_english"].as_str().unwrap().contains("denied"));
         assert_eq!(value["args"]["package_id"], "blocked-pkg");
         // device_ids is a one-element array per SCHEMAS.md § 6.2.
         assert!(value["device_ids"].as_array().unwrap().len() == 1);

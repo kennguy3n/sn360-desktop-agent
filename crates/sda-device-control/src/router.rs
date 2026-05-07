@@ -1048,10 +1048,7 @@ mod tests {
         assert_eq!(processed.action_result.status, ActionStatus::Skipped);
         assert_eq!(processed.action_result.refused_reason, None);
         assert!(
-            processed
-                .action_result
-                .output
-                .contains("phase1_no_op_ack"),
+            processed.action_result.output.contains("phase1_no_op_ack"),
             "output should be the phase1 ack marker, got `{}`",
             processed.action_result.output
         );

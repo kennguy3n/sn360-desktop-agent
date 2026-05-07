@@ -93,10 +93,7 @@ impl CompiledWindow {
                 // anchor falls on the previous day. We handle this by
                 // also checking `weekday.pred()` for windows that
                 // wrap past midnight.
-                if self.wraps_midnight()
-                    && days.contains(&weekday.pred())
-                    && time < self.end
-                {
+                if self.wraps_midnight() && days.contains(&weekday.pred()) && time < self.end {
                     return true;
                 }
                 return false;
@@ -205,11 +202,7 @@ impl MaintenanceWindowPolicy {
     /// other validation step.
     pub fn should_execute(&self, now: DateTime<Utc>) -> WindowDecision {
         if let Some(window) = self.maintenance.as_ref() {
-            if window
-                .days
-                .as_ref()
-                .is_some_and(|d| d.is_empty())
-            {
+            if window.days.as_ref().is_some_and(|d| d.is_empty()) {
                 // The window is enabled but contains zero days, so no
                 // execution will ever be permissible. Refuse rather
                 // than defer to avoid a queue that grows forever.
@@ -334,7 +327,8 @@ mod tests {
     use chrono::TimeZone;
 
     fn utc(year: i32, month: u32, day: u32, hour: u32, min: u32) -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(year, month, day, hour, min, 0).unwrap()
+        Utc.with_ymd_and_hms(year, month, day, hour, min, 0)
+            .unwrap()
     }
 
     fn maintenance(start: &str, end: &str, days: Vec<&str>) -> MaintenanceWindow {
@@ -388,8 +382,7 @@ mod tests {
 
     #[test]
     fn parse_days_handles_singles() {
-        let parsed =
-            parse_days(&["mon".into(), "wed".into(), "fri".into()]).unwrap();
+        let parsed = parse_days(&["mon".into(), "wed".into(), "fri".into()]).unwrap();
         assert_eq!(parsed, vec![Weekday::Mon, Weekday::Wed, Weekday::Fri]);
     }
 
@@ -416,8 +409,7 @@ mod tests {
 
     #[test]
     fn parse_days_dedupes_overlapping_tokens() {
-        let parsed =
-            parse_days(&["mon-wed".into(), "tue".into(), "wed".into()]).unwrap();
+        let parsed = parse_days(&["mon-wed".into(), "tue".into(), "wed".into()]).unwrap();
         assert_eq!(parsed, vec![Weekday::Mon, Weekday::Tue, Weekday::Wed]);
     }
 
@@ -443,7 +435,10 @@ mod tests {
         .unwrap();
         // 2026-05-04 is a Monday.
         assert!(p.is_in_maintenance_window(utc(2026, 5, 4, 3, 0), "UTC"));
-        assert_eq!(p.should_execute(utc(2026, 5, 4, 3, 0)), WindowDecision::Execute);
+        assert_eq!(
+            p.should_execute(utc(2026, 5, 4, 3, 0)),
+            WindowDecision::Execute
+        );
     }
 
     #[test]
@@ -456,7 +451,10 @@ mod tests {
         .unwrap();
         // Same Monday but at noon — outside the 02:00–05:00 window.
         assert!(!p.is_in_maintenance_window(utc(2026, 5, 4, 12, 0), "UTC"));
-        assert_eq!(p.should_execute(utc(2026, 5, 4, 12, 0)), WindowDecision::Defer);
+        assert_eq!(
+            p.should_execute(utc(2026, 5, 4, 12, 0)),
+            WindowDecision::Defer
+        );
     }
 
     #[test]
@@ -469,7 +467,10 @@ mod tests {
         .unwrap();
         // 2026-05-09 is a Saturday.
         assert!(!p.is_in_maintenance_window(utc(2026, 5, 9, 3, 0), "UTC"));
-        assert_eq!(p.should_execute(utc(2026, 5, 9, 3, 0)), WindowDecision::Defer);
+        assert_eq!(
+            p.should_execute(utc(2026, 5, 9, 3, 0)),
+            WindowDecision::Defer
+        );
     }
 
     #[test]
@@ -500,7 +501,10 @@ mod tests {
         // 03:00 on a Monday — inside maintenance, inside quiet hours.
         assert!(p.is_in_maintenance_window(utc(2026, 5, 4, 3, 0), "UTC"));
         assert!(p.is_in_quiet_hours(utc(2026, 5, 4, 3, 0), "UTC"));
-        assert_eq!(p.should_execute(utc(2026, 5, 4, 3, 0)), WindowDecision::Defer);
+        assert_eq!(
+            p.should_execute(utc(2026, 5, 4, 3, 0)),
+            WindowDecision::Defer
+        );
     }
 
     #[test]
@@ -538,7 +542,10 @@ mod tests {
             "Mars/Olympus_Mons",
         )
         .unwrap_err();
-        assert_eq!(err, WindowError::UnknownTimezone("Mars/Olympus_Mons".into()));
+        assert_eq!(
+            err,
+            WindowError::UnknownTimezone("Mars/Olympus_Mons".into())
+        );
     }
 
     #[test]
@@ -549,13 +556,19 @@ mod tests {
             "UTC",
         )
         .unwrap();
-        assert_eq!(p.should_execute(utc(2026, 5, 4, 3, 0)), WindowDecision::Refuse);
+        assert_eq!(
+            p.should_execute(utc(2026, 5, 4, 3, 0)),
+            WindowDecision::Refuse
+        );
     }
 
     #[test]
     fn always_open_policy_executes() {
         let p = MaintenanceWindowPolicy::always_open();
-        assert_eq!(p.should_execute(utc(2026, 5, 4, 3, 0)), WindowDecision::Execute);
+        assert_eq!(
+            p.should_execute(utc(2026, 5, 4, 3, 0)),
+            WindowDecision::Execute
+        );
         assert!(p.is_in_maintenance_window(utc(2026, 5, 4, 3, 0), "UTC"));
         assert!(!p.is_in_quiet_hours(utc(2026, 5, 4, 3, 0), "UTC"));
     }
@@ -574,6 +587,9 @@ mod tests {
             ]
         );
         // Self-range is just the single day.
-        assert_eq!(weekday_range(Weekday::Wed, Weekday::Wed), vec![Weekday::Wed]);
+        assert_eq!(
+            weekday_range(Weekday::Wed, Weekday::Wed),
+            vec![Weekday::Wed]
+        );
     }
 }

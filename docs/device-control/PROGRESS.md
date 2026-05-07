@@ -18,9 +18,10 @@ Status legend:
 ## Current Status
 
 Phase 0 complete | 100% (13/13 tasks). Phase 1 complete (agent-side) |
-100% agent-side tasks (14/14 non-⚙️ tasks; 9/9 from PR #4 plus 1.10,
-1.11, 1.12, 1.13, 1.17 from this PR). Phase 2 in progress |
-~33% (5/15 tasks complete, excluding ⚙️ server-side tasks 2.12–2.14).
+100% agent-side tasks (14/14 non-⚙️ tasks). Phase 2 in progress |
+**~80% (11/15 tasks complete, excluding ⚙️ server-side tasks 2.12–2.14;
+agent-side scope is 11/12)**. Phase 3 in progress | **~43% (3/7
+tasks complete, excluding ⚙️ server-side task 3.6)**.
 
 All Phase 0 documentation-only deliverables are landed:
 
@@ -107,16 +108,16 @@ Device Control crates are added.
 | 2.3 | PackageManager — macOS (Munki-style, clean-room) | Done |
 | 2.4 | PackageManager — Linux (apt / dnf / yum / zypper) | Done |
 | 2.5 | `sda-software` scaffold + catalogue client | Done |
-| 2.6 | Catalogue manifest verification (Ed25519 + pinned SHA-256) | Not Started |
-| 2.7 | `sda-script-runner` MVP (allow-list + signed-only + bounded) | Not Started |
-| 2.8 | Maintenance windows + quiet hours | Not Started |
-| 2.9 | Approval-state surfacing (Approved / Pending / Denied / Recalled) | Not Started |
-| 2.10 | Rollback path | Not Started |
-| 2.11 | Evidence on install / update / uninstall + rollback | Not Started |
+| 2.6 | Catalogue manifest verification (Ed25519 + pinned SHA-256) | Done |
+| 2.7 | `sda-script-runner` MVP (allow-list + signed-only + bounded) | Done |
+| 2.8 | Maintenance windows + quiet hours | Done |
+| 2.9 | Approval-state surfacing (Approved / Pending / Denied / Recalled) | Done |
+| 2.10 | Rollback path | Done |
+| 2.11 | Evidence on install / update / uninstall + rollback | Done |
 | 2.12 | Package Catalog service ⚙️ | Not Started |
 | 2.13 | Action Orchestrator ⚙️ | Not Started |
 | 2.14 | Approval Service ⚙️ | Not Started |
-| 2.15 | Phase 2 E2E suite | Not Started |
+| 2.15 | Phase 2 E2E suite | Done |
 
 ---
 
@@ -124,9 +125,9 @@ Device Control crates are added.
 
 | # | Task | Status |
 |---|------|--------|
-| 3.1 | `sda-pal::AdminManager` impls — temporary grant + revoke | Not Started |
-| 3.2 | `sda-jit-admin` scaffold + grant state machine | Not Started |
-| 3.3 | Revocation watchdog | Not Started |
+| 3.1 | `sda-pal::AdminManager` impls — temporary grant + revoke | Done |
+| 3.2 | `sda-jit-admin` scaffold + grant state machine | Done |
+| 3.3 | Revocation watchdog | Done |
 | 3.4 | Boot-time idempotent revoke | Not Started |
 | 3.5 | Drift detection | Not Started |
 | 3.6 | Approval Service v1 ⚙️ | Not Started |
@@ -213,49 +214,63 @@ Top six highest-severity risks for delivery planning:
 
 ## Known Gaps
 
-Phase 1 agent-side surface is now complete; remaining gaps are
-server-side or Phase 2+ work:
+Phase 1 agent-side surface is complete; Phase 2 agent-side surface
+is complete; Phase 3 agent-side surface is in progress. Remaining
+agent-side gaps are JIT admin tasks 3.4 / 3.5 / 3.7 / 3.8.
 
 - ⚙️ **1.14 / 1.15 / 1.16** — Device Registry integration, SMI
   sub-score wiring, Risk Engine v0 are all server-side and tracked
   in [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform).
-- **2.6** — Catalogue manifest verification end-to-end (Ed25519 +
-  pinned SHA-256 happy path lands with this PR; the install/update
-  pipeline that consumes it is Phase 2.6+).
-- **2.7 – 2.11** — Script runner, maintenance windows, approval-
-  state surfacing, rollback, and full evidence-on-action-result
-  remain.
-- **2.15** — Phase 2 E2E suite covering install / update /
-  uninstall + rollback.
 - ⚙️ **2.12 / 2.13 / 2.14** — Package Catalog, Action Orchestrator,
   and Approval Service all land in `sn360-security-platform`.
-- Phases 3, 4, and 5 are not started.
+- **3.4** — Boot-time idempotent revoke for grants that survived a
+  crash or reboot (the watchdog handles in-process revocation; the
+  boot-scan path is the next slice).
+- **3.5** — Drift detection that compares the OS-observed admin
+  membership against the `sda-jit-admin` grant store and revokes /
+  emits a finding when an out-of-band admin grant slips in.
+- **3.7** — Evidence emission at every JIT-admin transition
+  (currently emitted only at the boundaries the watchdog drives;
+  needs broader integration with the action-result evidence chain).
+- **3.8** — Phase 3 E2E suite (`make e2e-jit-admin`) covering
+  grant → revoke E2E on Windows / macOS / Linux including process
+  crash, reboot, and sleep / wake recovery.
+- ⚙️ **3.6** — Approval Service v1 lands in `sn360-security-platform`.
+- Phases 4 and 5 are not started.
 
 ## Next Steps
 
-Phase 1 agent-side code surface (tasks 1.1–1.13 and 1.17) is
-complete. New agent crates `sda-agent-vitals` and `sda-software`
-landed alongside the existing `sda-device-control`, `sda-query`,
-and `sda-posture` crates. Phase 2 agent-side scaffolding (PAL
-Package Manager trait + per-OS impls + software-module entry
-point) is the visible 5/15 progress on Phase 2.
+Phase 1 agent-side code surface is complete. Phase 2 agent-side
+code surface is complete (the production-grade catalogue manifest
+verifier with key rotation + expiry, the `sda-script-runner` MVP,
+maintenance windows + quiet hours, approval-state surfacing, the
+rollback orchestrator, evidence on every software action, and the
+Phase 2 E2E suite all land in this PR). Phase 3 agent-side
+scaffolding lands here too: per-platform JIT-admin
+grant + revoke implementations, the `sda-jit-admin` crate with
+grant lifecycle state machine, and the revocation watchdog.
 
 Remaining work, in priority order:
 
-- **2.6** — Catalogue manifest verification driving an actual
-  install pipeline (the verifier already lands; the install path
-  consuming it does not yet emit `SoftwareJobResult` events).
-- **2.7** — `sda-script-runner` MVP (allow-list + signed-only +
-  bounded execution).
-- **2.8 – 2.11** — Maintenance windows / quiet hours, approval-
-  state surfacing, rollback path, and evidence emission for the
-  full install / update / uninstall lifecycle.
-- **2.15** — Phase 2 E2E suite covering install, update,
-  uninstall, and rollback paths on Windows / macOS / Linux.
+- **3.4** — Boot-time idempotent revoke that scans the persisted
+  grant store at start-up and revokes any grants whose `until`
+  has elapsed.
+- **3.5** — Drift detection that compares the OS-observed admin
+  membership against the `sda-jit-admin` grant store and revokes
+  / emits a finding when an out-of-band admin grant slips in.
+- **3.7** — Evidence emission at every JIT-admin transition,
+  reusing `sda-software::SoftwareEvidenceEmitter`-style chain
+  linking and wiring `JitAdminRequested`,
+  `JitAdminGranted`, and `JitAdminRevoked` events to evidence
+  records.
+- **3.8** — Phase 3 E2E suite (`make e2e-jit-admin`) covering
+  grant → revoke on Windows / macOS / Linux including
+  process-crash, reboot, and sleep/wake recovery.
 - ⚙️ **1.14 / 1.15 / 1.16** — Device Registry, SMI sub-score, and
   Risk Engine v0 integration in `sn360-security-platform`.
 - ⚙️ **2.12 / 2.13 / 2.14** — Package Catalog, Action Orchestrator,
   and Approval Service in `sn360-security-platform`.
+- ⚙️ **3.6** — Approval Service v1 in `sn360-security-platform`.
 
 ---
 
@@ -674,3 +689,160 @@ Tests:
 Documentation: `PROGRESS.md`, `README.md`, `ARCHITECTURE.md`, and
 `PHASES.md` updated to reflect tasks 1.10–1.13, 1.17, 2.1–2.5 as
 Done. The five PROPOSAL.md § 2.2 examples are unchanged.
+
+### 2026-05-07 — Phase 2 tasks 2.6–2.11, 2.15 + Phase 3 tasks 3.1–3.3 landed
+
+This PR closes out the agent-side scope of Phase 2 and lands the
+Phase 3 PAL implementations + JIT-admin scaffold + revocation
+watchdog. All tasks below are gated on
+`modules.software.enabled` (Phase 2),
+`modules.script_runner.enabled` (Phase 2.7),
+`modules.device_control.enabled` (Phase 2.8 windows), and
+`modules.jit_admin.enabled` (Phase 3); an agent with all four
+flags `false` (the default) runs the same idle code path as
+before.
+
+Phase 2 — agent-side completion:
+
+- **2.6** — Production-grade catalogue manifest verifier in
+  [`crates/sda-software/src/manifest.rs`](../../crates/sda-software/src/manifest.rs).
+  Accepts a vector of pinned Ed25519 signing keys (key rotation),
+  rejects manifests older than a configurable
+  `manifest_max_age_secs`, surfaces a structured `ManifestError`
+  enum for every failure mode (`Expired`, `UnknownKeyId`,
+  `SignatureMismatch`, `MalformedHash`, `MalformedSignature`,
+  `MalformedKey`, `Decode`), and verifies per-artefact SHA-256 at
+  download time. Unit tests cover valid manifest, expired
+  manifest, wrong-key signature, tampered artefact hash, and
+  unknown `key_id`.
+- **2.7** — New
+  [`sda-script-runner`](../../crates/sda-script-runner/) crate.
+  Verifies every `ScriptRequest` against pinned Ed25519 keys
+  before any process is spawned, matches the script's
+  `canonical_name` against
+  `modules.script_runner.allowlist` glob patterns, runs scripts
+  with a hard wall-clock budget (`max_duration_secs`, default 90s)
+  and a hard output-byte ceiling (`max_output_bytes`, default
+  1 MiB), and emits `EventKind::ScriptRunResult` plus
+  `EventKind::EvidenceRecord` for every run. No PTY, no stdin,
+  and no inherited environment beyond the explicit allow-list.
+  Unit tests cover signed-pass, unsigned-rejected,
+  allow-list match / reject, timeout-kills-process, output
+  truncation, and evidence emission.
+- **2.8** — Maintenance-window + quiet-hours policy in
+  [`crates/sda-device-control/src/windows.rs`](../../crates/sda-device-control/src/windows.rs).
+  Parses `modules.device_control.windows.maintenance.allow` and
+  `quiet_hours.deny` from config (HH:MM ranges + day-of-week
+  parsing including ranges like `mon-fri`), supports timezone
+  conversion via `chrono-tz`, and exposes
+  `MaintenanceWindowPolicy::should_execute` that returns
+  `Execute` / `Defer` / `Refuse`. Wired into step 9 of the
+  `sda-device-control::router` validation pipeline; jobs outside
+  the window get `ActionStatus::Skipped` with reason
+  `outside_maintenance_window`. Unit tests cover in-window,
+  out-of-window, quiet-hours block, timezone edge cases, and
+  day-range parsing.
+- **2.9** — Approval-state surfacing in
+  [`crates/sda-software/src/approval.rs`](../../crates/sda-software/src/approval.rs).
+  Compares installed packages against the catalogue manifest and
+  classifies each as `Approved` / `Pending` / `Denied` /
+  `Recalled` / `Unknown`. For every non-`Approved` state the
+  module emits an `EventKind::DeviceControlRecommendation` with
+  the canonical plain-English text per state. Unit tests cover
+  every state, state transitions, and the singular / plural
+  templating edges.
+- **2.10** — Rollback path in
+  [`crates/sda-software/src/rollback.rs`](../../crates/sda-software/src/rollback.rs).
+  `RollbackOrchestrator::record_pre_update` captures the current
+  installed version into a JSON manifest in the configured
+  cache directory before any `UpdatePackage` runs;
+  `execute_rollback` re-installs the previous version (or
+  uninstalls the half-applied update if no prior version was
+  recorded), surfaces a `RollbackOutcome`, and clears the entry
+  so a future update is not blocked by a stale record. Manifest
+  state survives agent restarts. Unit tests cover successful
+  update clears the entry, failed update triggers rollback,
+  rollback persistence round-trip, and the no-prior-version
+  uninstall path.
+- **2.11** — Software evidence emission in
+  [`crates/sda-software/src/evidence.rs`](../../crates/sda-software/src/evidence.rs).
+  Every install / update / uninstall / rollback action produces
+  an `EvidenceRecord` whose `prev_record_hash` chains forward
+  through the in-memory `SoftwareEvidenceEmitter`. Rollback
+  evidence chains directly off the failed-update record so the
+  audit trail captures both halves of the failure. Unit tests
+  cover one-record, multi-record chaining, and the failed-update
+  → rollback chain pair.
+- **2.15** — Phase 2 E2E suite in
+  [`crates/sda-agent/tests/e2e_software.rs`](../../crates/sda-agent/tests/e2e_software.rs)
+  with a `make e2e-software` Makefile target. Eight hermetic
+  tests cover catalogue manifest signature rejection,
+  maintenance-window deferral, install / update / uninstall
+  evidence chain linking, rollback orchestration with dual
+  chained evidence records, approval-state recommendation
+  surfacing, signed-script execution, unsigned-script
+  rejection, and runaway-script timeout enforcement.
+
+Phase 3 — agent-side scaffolding:
+
+- **3.1** — Per-platform `AdminManager` impls in
+  [`crates/sda-pal/src/admin_manager.rs`](../../crates/sda-pal/src/admin_manager.rs).
+  Linux: time-boxed `/etc/sudoers.d/sda-jit-<user>` drop-in
+  validated with `visudo -c` and revoked by file removal.
+  macOS: `dseditgroup -o edit -a <user> -t user admin` with the
+  reverse `-d` revocation. Windows: `net localgroup
+  Administrators <user> /add` with the matching `/delete` revoke.
+  Active grants persist to a per-platform state file under the
+  configured cache directory so `observed_grants()` survives a
+  process restart. Unit tests cover the state-file round-trip,
+  CLI argument construction, and idempotent revoke (re-revoking
+  an already-revoked grant is a no-op).
+- **3.2** — New
+  [`sda-jit-admin`](../../crates/sda-jit-admin/) crate. Implements
+  `JitAdminModule::start(...)` matching the same shape as
+  `SoftwareModule`, gated on `modules.jit_admin.enabled`. The
+  grant lifecycle state machine
+  ([`state_machine.rs`](../../crates/sda-jit-admin/src/state_machine.rs))
+  drives `Idle → Requested → Approved → Granted → Revoked` plus
+  the terminal `Denied` / `Expired` / `DriftDetected` branches.
+  Each transition emits the matching `EventKind`
+  (`JitAdminRequested`, `JitAdminGranted`, `JitAdminRevoked`).
+  `GrantStore` ([`store.rs`](../../crates/sda-jit-admin/src/store.rs))
+  persists active grants to disk so the watchdog can resume
+  after a crash or reboot. Unit tests cover the full state
+  machine, store round-trip, and event emission at every
+  transition.
+- **3.3** — Revocation watchdog in
+  [`crates/sda-jit-admin/src/watchdog.rs`](../../crates/sda-jit-admin/src/watchdog.rs).
+  Subscribes to a `tokio::time::sleep` until each grant's `until`,
+  the `PowerProfileReceiver` for suspend / sleep transitions,
+  and a heartbeat channel for `revoke_on.heartbeat_loss_secs`
+  (default 120s). All revocations are idempotent — calling
+  revoke on an already-revoked grant is a no-op — and emit
+  `JitAdminRevoked` plus an `EvidenceRecord`. The OS-level
+  logout listener is the next slice (Phase 3 boot-time scan,
+  task 3.4). Unit tests cover timer-based revoke,
+  power-profile-triggered revoke, heartbeat-loss revoke, and
+  the idempotency invariant.
+
+New workspace crates: `sda-script-runner`, `sda-jit-admin`. Both
+are listed in the workspace `Cargo.toml` `[workspace]` `members`
+table and `[workspace.dependencies]`. `sda-software` and
+`sda-device-control` grew the production modules above.
+
+Tests:
+
+- **7 / 7** Phase 1 Device Control E2E tests
+  (`make e2e-device-control`) remain green.
+- **8 / 8** Phase 2 Device Control E2E tests
+  (`make e2e-software`).
+- **All workspace unit tests pass** across all crates (run via
+  `cargo test --workspace`); the previous baseline remains green
+  and the new surface adds dedicated tests for every task above.
+- `cargo fmt --all -- --check`, `cargo clippy --all-targets
+  --all-features -- -D warnings`, and `cargo deny check licenses`
+  all pass.
+
+Documentation: `PROGRESS.md`, `README.md`, `ARCHITECTURE.md`, and
+`PHASES.md` updated to reflect tasks 2.6–2.11, 2.15 and 3.1–3.3
+as Done. The five PROPOSAL.md § 2.2 examples are unchanged.

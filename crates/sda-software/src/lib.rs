@@ -29,8 +29,8 @@ pub mod module;
 pub mod rollback;
 
 pub use approval::{
-    build_recommendation_payload, ApprovalAuditor, ApprovalDiff, ApprovalEvaluation,
-    ApprovalState, ApprovalTransition, InstalledPackage, RECOMMENDATION_PLAIN_ENGLISH_MAX,
+    build_recommendation_payload, ApprovalAuditor, ApprovalDiff, ApprovalEvaluation, ApprovalState,
+    ApprovalTransition, InstalledPackage, RECOMMENDATION_PLAIN_ENGLISH_MAX,
 };
 pub use catalogue::{Catalogue, CatalogueStore};
 pub use evidence::{output_sha256, SoftwareActionOutcome, SoftwareEvidenceEmitter};

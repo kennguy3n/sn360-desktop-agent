@@ -202,21 +202,21 @@ fixes safely) for the software-management half of MVP.
 
 | # | Task | Description | Status |
 |---|------|-------------|--------|
-| 2.1 | `sda-pal::PackageManager` trait | Trait surface in `sda-pal`. | Not Started |
-| 2.2 | PackageManager — Windows | `winget` CLI wrapper with structured exit-code handling. | Not Started |
-| 2.3 | PackageManager — macOS | Clean-room Munki-style implementation. | Not Started |
-| 2.4 | PackageManager — Linux | `apt` / `dnf` / `yum` / `zypper` auto-detect + wrappers. | Not Started |
-| 2.5 | `sda-software` scaffold | Crate skeleton + catalogue client + signed-manifest verifier. | Not Started |
-| 2.6 | Catalogue manifest verification | Ed25519 signature + pinned SHA-256 per artefact. | Not Started |
-| 2.7 | `sda-script-runner` MVP | Allow-list + signed-only + bounded execution. | Not Started |
-| 2.8 | Maintenance windows | Enforce `modules.device_control.windows`. | Not Started |
-| 2.9 | Approval-state surfacing | Approved / Pending / Denied / Recalled as `Recommendation`s. | Not Started |
-| 2.10 | Rollback path | `UpdatePackage` records previous version; failure triggers `RollbackPackage`. | Not Started |
-| 2.11 | Evidence on install/update/uninstall | `EvidenceRecord` per side effect, including rollbacks. | Not Started |
+| 2.1 | `sda-pal::PackageManager` trait | Trait surface in `sda-pal`. | Done |
+| 2.2 | PackageManager — Windows | `winget` CLI wrapper with structured exit-code handling. | Done |
+| 2.3 | PackageManager — macOS | Clean-room Munki-style implementation. | Done |
+| 2.4 | PackageManager — Linux | `apt` / `dnf` / `yum` / `zypper` auto-detect + wrappers. | Done |
+| 2.5 | `sda-software` scaffold | Crate skeleton + catalogue client + signed-manifest verifier. | Done |
+| 2.6 | Catalogue manifest verification | Ed25519 signature + pinned SHA-256 per artefact. | Done |
+| 2.7 | `sda-script-runner` MVP | Allow-list + signed-only + bounded execution. | Done |
+| 2.8 | Maintenance windows | Enforce `modules.device_control.windows`. | Done |
+| 2.9 | Approval-state surfacing | Approved / Pending / Denied / Recalled as `Recommendation`s. | Done |
+| 2.10 | Rollback path | `UpdatePackage` records previous version; failure triggers `RollbackPackage`. | Done |
+| 2.11 | Evidence on install/update/uninstall | `EvidenceRecord` per side effect, including rollbacks. | Done |
 | 2.12 | Package Catalog service ⚙️ | Tenant-scoped catalogue API. Implemented in `sn360-security-platform`. | Not Started |
 | 2.13 | Action Orchestrator ⚙️ | Job state machine, retries, dispatch. Implemented in `sn360-security-platform`. | Not Started |
 | 2.14 | Approval Service ⚙️ | Auto + human approval workflows. Implemented in `sn360-security-platform`. | Not Started |
-| 2.15 | Phase 2 E2E suite | Extends `make e2e-device-control` to cover install / update / uninstall + rollback. | Not Started |
+| 2.15 | Phase 2 E2E suite | Extends `make e2e-device-control` to cover install / update / uninstall + rollback. | Done |
 
 ### Acceptance criteria
 
@@ -252,9 +252,9 @@ auto-revocation, evidence, and SMI feedback.
 
 | # | Task | Description | Status |
 |---|------|-------------|--------|
-| 3.1 | `sda-pal::AdminManager` impls — temporary | Time-boxed grant + revoke on each OS. | Not Started |
-| 3.2 | `sda-jit-admin` scaffold | Crate skeleton + grant state machine. | Not Started |
-| 3.3 | Revocation watchdog | Tokio task scheduling + multi-trigger revoke. | Not Started |
+| 3.1 | `sda-pal::AdminManager` impls — temporary | Time-boxed grant + revoke on each OS. | Done |
+| 3.2 | `sda-jit-admin` scaffold | Crate skeleton + grant state machine. | Done |
+| 3.3 | Revocation watchdog | Tokio task scheduling + multi-trigger revoke. | Done |
 | 3.4 | Boot-time idempotent revoke | On startup, revoke any expired grants. | Not Started |
 | 3.5 | Drift detection | Compare observed grants vs. tracked grants; emit Finding. | Not Started |
 | 3.6 | Approval Service v1 ⚙️ | Auto + human + per-tenant policy. Implemented in `sn360-security-platform`. | Not Started |

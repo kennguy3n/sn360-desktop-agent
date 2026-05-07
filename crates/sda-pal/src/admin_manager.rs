@@ -512,16 +512,17 @@ mod linux_impl {
             let validation = self
                 .runner
                 .run("visudo", &["-c", "-f", &tmp_str])
-                .or_else(|e| {
+                .inspect_err(|_| {
                     // If visudo is missing entirely we treat that as a
                     // grant failure so we never install an unvalidated
                     // sudoers file.
                     let _ = fs::remove_file(&tmp);
-                    Err(e)
                 })?;
             if !validation.is_success() {
                 let _ = fs::remove_file(&tmp);
-                let stderr = String::from_utf8_lossy(&validation.stderr).trim().to_string();
+                let stderr = String::from_utf8_lossy(&validation.stderr)
+                    .trim()
+                    .to_string();
                 return Err(AdminError::Command(format!(
                     "visudo rejected drop-in for {}: {stderr}",
                     user.username
@@ -553,10 +554,7 @@ mod linux_impl {
                 fs::remove_file(&drop_in).map_err(AdminError::from)?;
             }
             let grants = read_grants(&self.state_file)?;
-            let kept: Vec<GrantHandle> = grants
-                .into_iter()
-                .filter(|g| g.id != handle.id)
-                .collect();
+            let kept: Vec<GrantHandle> = grants.into_iter().filter(|g| g.id != handle.id).collect();
             write_grants(&self.state_file, &kept)?;
             Ok(())
         }
@@ -720,10 +718,7 @@ mod macos_impl {
                 )?
                 .require_success("dseditgroup remove")?;
             let grants = read_grants(&self.state_file)?;
-            let kept: Vec<GrantHandle> = grants
-                .into_iter()
-                .filter(|g| g.id != handle.id)
-                .collect();
+            let kept: Vec<GrantHandle> = grants.into_iter().filter(|g| g.id != handle.id).collect();
             write_grants(&self.state_file, &kept)?;
             Ok(())
         }
@@ -746,8 +741,7 @@ mod windows_impl {
     use super::*;
 
     /// Default JIT-admin grant ledger path (Windows).
-    pub(crate) const DEFAULT_STATE_FILE: &str =
-        r"C:\ProgramData\sn360\jit-admin-grants.json";
+    pub(crate) const DEFAULT_STATE_FILE: &str = r"C:\ProgramData\sn360\jit-admin-grants.json";
 
     /// Windows admin-manager backed by `net localgroup Administrators`
     /// for inventory and `net localgroup Administrators <user> /add`
@@ -866,7 +860,10 @@ mod windows_impl {
                 .lock()
                 .map_err(|e| AdminError::Command(format!("ledger lock poisoned: {e}")))?;
             self.runner
-                .run("net", &["localgroup", "Administrators", &user.username, "/add"])?
+                .run(
+                    "net",
+                    &["localgroup", "Administrators", &user.username, "/add"],
+                )?
                 .require_success("net localgroup add")?;
             let mut grants = read_grants(&self.state_file)?;
             grants.retain(|g| g.user.username != user.username);
@@ -897,10 +894,7 @@ mod windows_impl {
                 )?
                 .require_success("net localgroup delete")?;
             let grants = read_grants(&self.state_file)?;
-            let kept: Vec<GrantHandle> = grants
-                .into_iter()
-                .filter(|g| g.id != handle.id)
-                .collect();
+            let kept: Vec<GrantHandle> = grants.into_iter().filter(|g| g.id != handle.id).collect();
             write_grants(&self.state_file, &kept)?;
             Ok(())
         }
@@ -1006,10 +1000,10 @@ mod tests {
 
     impl CommandRunner for MockCommandRunner {
         fn run(&self, program: &str, args: &[&str]) -> Result<CommandOutput, AdminError> {
-            self.calls
-                .lock()
-                .unwrap()
-                .push((program.to_string(), args.iter().map(|s| s.to_string()).collect()));
+            self.calls.lock().unwrap().push((
+                program.to_string(),
+                args.iter().map(|s| s.to_string()).collect(),
+            ));
             let mut responses = self.responses.lock().unwrap();
             // Pop the next response keyed on the program name; fall back
             // to a generic success.
@@ -1164,11 +1158,7 @@ bin:x:2:2:bin:/bin:/usr/sbin/nologin
             #[derive(Debug)]
             struct ArcRunner(std::sync::Arc<MockCommandRunner>);
             impl CommandRunner for ArcRunner {
-                fn run(
-                    &self,
-                    program: &str,
-                    args: &[&str],
-                ) -> Result<CommandOutput, AdminError> {
+                fn run(&self, program: &str, args: &[&str]) -> Result<CommandOutput, AdminError> {
                     self.0.run(program, args)
                 }
             }
@@ -1279,9 +1269,7 @@ bin:x:2:2:bin:/bin:/usr/sbin/nologin
                 username: "alice; rm -rf /".into(),
                 domain: None,
             };
-            let err = mgr
-                .grant_admin(&user, Utc::now())
-                .expect_err("must reject");
+            let err = mgr.grant_admin(&user, Utc::now()).expect_err("must reject");
             assert!(matches!(err, AdminError::InvalidInput(_)), "got {err:?}");
             assert!(runner.calls().is_empty());
         }

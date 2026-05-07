@@ -25,8 +25,8 @@
 //!    `modules.script_runner.enabled`.
 
 pub mod allowlist;
-pub mod runner;
 mod module;
+pub mod runner;
 
 pub use allowlist::Allowlist;
 pub use module::ScriptRunnerModule;

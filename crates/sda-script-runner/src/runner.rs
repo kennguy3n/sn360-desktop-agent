@@ -83,8 +83,7 @@ impl ScriptRunnerConfig {
         max_duration_secs: u64,
         max_output_bytes: usize,
     ) -> Result<Self, ScriptRunnerError> {
-        let hex = pinned_signing_key_hex
-            .ok_or(ScriptRunnerError::MissingPinnedKey)?;
+        let hex = pinned_signing_key_hex.ok_or(ScriptRunnerError::MissingPinnedKey)?;
         let bytes = hex::decode(hex).map_err(|_| ScriptRunnerError::MalformedPinnedKey)?;
         if bytes.len() != PUBLIC_KEY_LENGTH {
             return Err(ScriptRunnerError::MalformedPinnedKey);
@@ -325,12 +324,8 @@ impl ScriptRunner {
         // captured cap regardless of how much the script prints.
         let mut stdout_pipe = stdout_pipe;
         let mut stderr_pipe = stderr_pipe;
-        let stdout_task = tokio::spawn(async move {
-            drain_capped(&mut stdout_pipe, max).await
-        });
-        let stderr_task = tokio::spawn(async move {
-            drain_capped(&mut stderr_pipe, max).await
-        });
+        let stdout_task = tokio::spawn(async move { drain_capped(&mut stdout_pipe, max).await });
+        let stderr_task = tokio::spawn(async move { drain_capped(&mut stderr_pipe, max).await });
 
         let wait_result = timeout(self.config.max_duration, child.wait()).await;
 
@@ -593,12 +588,7 @@ mod tests {
             config_for(&key, vec!["sn360.diagnostics.*"]),
             tmp.path().to_path_buf(),
         );
-        let req = signed_request(
-            &key,
-            "attacker.evil",
-            b"#!/bin/sh\necho hi\n",
-            vec![],
-        );
+        let req = signed_request(&key, "attacker.evil", b"#!/bin/sh\necho hi\n", vec![]);
         let err = runner.run(req).await.unwrap_err();
         assert!(matches!(err, ScriptRunnerError::NotAllowlisted(_)));
     }

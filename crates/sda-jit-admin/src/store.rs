@@ -172,7 +172,13 @@ mod tests {
 
     fn rec(id: &str) -> GrantRecord {
         let now = Utc::now();
-        GrantRecord::new_requested(id, "ops", user("alice"), now + chrono::Duration::hours(1), now)
+        GrantRecord::new_requested(
+            id,
+            "ops",
+            user("alice"),
+            now + chrono::Duration::hours(1),
+            now,
+        )
     }
 
     #[test]

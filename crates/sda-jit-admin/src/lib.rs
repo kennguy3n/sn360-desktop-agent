@@ -25,10 +25,10 @@
 #![deny(rust_2018_idioms)]
 
 pub mod grant;
+mod module;
 pub mod state_machine;
 pub mod store;
 pub mod watchdog;
-mod module;
 
 pub use grant::{GrantRecord, GrantState};
 pub use module::{JitAdminHandle, JitAdminModule, JitAdminSender};
