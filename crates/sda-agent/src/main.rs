@@ -521,23 +521,32 @@ async fn main() -> Result<()> {
     //          so idle CPU stays at zero and the bus only sees
     //          `JitAdmin*` events when grants are active.
     let jit_admin_work_dir = std::env::temp_dir().join("sn360-jit-admin");
-    if let Some(admin_box) = sda_pal::admin_manager::default_admin_manager() {
-        let admin_arc: std::sync::Arc<dyn sda_pal::admin_manager::AdminManager> =
-            std::sync::Arc::from(admin_box);
-        let jit_admin_handle = sda_jit_admin::JitAdminModule::start(
-            &config,
-            agent.event_bus(),
-            agent.shutdown_signal(),
-            admin_arc,
-            jit_admin_work_dir,
-        );
-        let _jit_admin_sender = jit_admin_handle.sender;
-        agent.register_module(jit_admin_handle.module);
-    } else {
-        tracing::warn!(
-            "jit_admin module disabled: no platform AdminManager available on this target"
-        );
-    }
+    // The sender MUST stay alive for the lifetime of `main` —
+    // dropping it closes the supervisor's request mpsc, which causes
+    // its `tokio::select!` to break out on `rx.recv() = None` and
+    // takes the watchdog `tick` branch with it. Bind at this outer
+    // scope (not inside the `if let`) so the channel stays open
+    // even before the device-control router that will eventually
+    // consume the sender lands.
+    let _jit_admin_sender: Option<sda_jit_admin::JitAdminSender> =
+        if let Some(admin_box) = sda_pal::admin_manager::default_admin_manager() {
+            let admin_arc: std::sync::Arc<dyn sda_pal::admin_manager::AdminManager> =
+                std::sync::Arc::from(admin_box);
+            let jit_admin_handle = sda_jit_admin::JitAdminModule::start(
+                &config,
+                agent.event_bus(),
+                agent.shutdown_signal(),
+                admin_arc,
+                jit_admin_work_dir,
+            );
+            agent.register_module(jit_admin_handle.module);
+            jit_admin_handle.sender
+        } else {
+            tracing::warn!(
+                "jit_admin module disabled: no platform AdminManager available on this target"
+            );
+            None
+        };
 
     // 12m. Agent-vitals heartbeat (Phase 1.12).
     //      Per ARCHITECTURE.md § 10 step 5 the heartbeat is always-on
