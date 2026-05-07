@@ -1,0 +1,65 @@
+server:
+  address: "127.0.0.1"
+  port: 1514
+  protocol: "tcp"
+  keepalive_interval: 10
+enrollment:
+  port: 1515
+  auto_enroll: true
+  key: "TestPassword123"
+modules:
+  fim:
+    enabled: true
+    scan_interval: 20
+    directories:
+      - path: "/tmp/sda-e2e-fim"
+        realtime: true
+        check_sha256: true
+  logcollector:
+    enabled: true
+    sources:
+      - source_type: "file"
+        path: "/tmp/sda-e2e-logs/test.log"
+        format: "syslog"
+      - source_type: "journald"
+        format: "syslog"
+  inventory:
+    enabled: true
+    interval: 15
+    collect:
+      - os
+      - network
+      - packages
+      - hardware
+  active_response:
+    enabled: true
+    timeout: 30
+    actions:
+      - block_ip
+      - kill_process
+      - disable_account
+  sca:
+    enabled: true
+    policy_dir: "/etc/sn360-desktop-agent/sca"
+    scan_interval: 15
+  rootcheck:
+    enabled: true
+    scan_interval_secs: 15
+    signature_paths:
+      - "/tmp/sda-e2e-rootkit-marker"
+    hidden_process_check: false
+    binary_integrity_check: false
+  enhanced_inventory:
+    enabled: true
+    running_software:
+      enabled: true
+      interval: 10
+    browser_extensions:
+      enabled: true
+      interval: 10
+    sbom:
+      enabled: true
+      interval: 10
+      on_demand: true
+logging:
+  level: "debug"

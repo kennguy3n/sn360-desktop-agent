@@ -1,0 +1,25 @@
+#!/bin/sh
+# prerm script for sda-agent.
+#
+# Stops the service before the package is removed or upgraded so the
+# old binary is not replaced while running.
+
+set -e
+
+case "$1" in
+    remove|upgrade|deconfigure)
+        if [ -d /run/systemd/system ]; then
+            systemctl stop sda-agent.service >/dev/null 2>&1 || true
+        fi
+        ;;
+
+    failed-upgrade)
+        ;;
+
+    *)
+        echo "prerm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

@@ -1,0 +1,46 @@
+#!/bin/sh
+# postrm script for sda-agent.
+#
+# On `remove`, disables the systemd unit but preserves state and
+# configuration so a future reinstall picks up where we left off.
+# On `purge`, also deletes the state directory, log directory,
+# configuration directory, and the unprivileged `sda` user/group.
+
+set -e
+
+SDA_USER=sda
+SDA_GROUP=sda
+SDA_HOME=/var/lib/sn360-desktop-agent
+SDA_LOG=/var/log/sn360-desktop-agent
+SDA_CONF=/etc/sn360-desktop-agent
+
+case "$1" in
+    remove)
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload >/dev/null 2>&1 || true
+        fi
+        ;;
+
+    purge)
+        rm -rf "$SDA_HOME" "$SDA_LOG" "$SDA_CONF"
+        if getent passwd "$SDA_USER" >/dev/null; then
+            deluser --system "$SDA_USER" >/dev/null 2>&1 || true
+        fi
+        if getent group "$SDA_GROUP" >/dev/null; then
+            delgroup --system "$SDA_GROUP" >/dev/null 2>&1 || true
+        fi
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload >/dev/null 2>&1 || true
+        fi
+        ;;
+
+    upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        ;;
+
+    *)
+        echo "postrm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

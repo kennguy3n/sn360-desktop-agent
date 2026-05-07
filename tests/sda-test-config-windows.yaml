@@ -1,0 +1,41 @@
+server:
+  address: "127.0.0.1"
+  port: 1514
+  protocol: "tcp"
+  keepalive_interval: 10
+enrollment:
+  port: 1515
+  auto_enroll: true
+  key: "TestPassword123"
+  keys_file: "C:\\ProgramData\\sn360-desktop-agent\\client.keys"
+modules:
+  fim:
+    enabled: true
+    scan_interval: 20
+    directories:
+      - path: "C:\\sda-e2e-fim"
+        realtime: true
+        check_sha256: true
+  logcollector:
+    enabled: true
+    sources:
+      - source_type: "file"
+        path: "C:\\sda-e2e-logs\\test.log"
+        format: "syslog"
+  inventory:
+    enabled: true
+    interval: 15
+    collect:
+      - os
+      - network
+      - packages
+      - hardware
+  active_response:
+    enabled: true
+    timeout: 30
+    actions:
+      - block_ip
+      - kill_process
+      - disable_account
+logging:
+  level: "debug"

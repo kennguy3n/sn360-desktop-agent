@@ -1,0 +1,64 @@
+#!/bin/sh
+# postinst script for sda-agent
+#
+# Creates the `sda` user/group, ensures runtime directories exist with
+# correct ownership, and registers the systemd service. Idempotent so
+# upgrades and reinstalls are safe.
+
+set -e
+
+SDA_USER=sda
+SDA_GROUP=sda
+SDA_HOME=/var/lib/sn360-desktop-agent
+SDA_LOG=/var/log/sn360-desktop-agent
+SDA_CONF=/etc/sn360-desktop-agent
+
+case "$1" in
+    configure)
+        if ! getent group "$SDA_GROUP" >/dev/null; then
+            addgroup --system "$SDA_GROUP"
+        fi
+        if ! getent passwd "$SDA_USER" >/dev/null; then
+            adduser --system --ingroup "$SDA_GROUP" \
+                    --home "$SDA_HOME" --shell /usr/sbin/nologin \
+                    --no-create-home --gecos "SN360 Desktop Agent" \
+                    "$SDA_USER"
+        fi
+
+        # Legacy wazuh-desktop-agent -> sn360-desktop-agent migration runs in
+        # the preinst script, before dpkg extracts the payload and creates
+        # the new directories. See packaging/debian/preinst.
+
+        mkdir -p "$SDA_HOME" "$SDA_LOG" "$SDA_CONF" "$SDA_CONF/sca"
+        chown -R "$SDA_USER:$SDA_GROUP" "$SDA_HOME" "$SDA_LOG"
+        chmod 0750 "$SDA_HOME" "$SDA_LOG"
+        chmod 0755 "$SDA_CONF" "$SDA_CONF/sca"
+        # Config is world-readable metadata; the secret lives in
+        # client.keys, which is owned by the agent user only.
+        if [ -f "$SDA_CONF/config.yaml" ]; then
+            chmod 0644 "$SDA_CONF/config.yaml"
+        fi
+        if [ -f "$SDA_CONF/client.keys" ]; then
+            chown "$SDA_USER:$SDA_GROUP" "$SDA_CONF/client.keys"
+            chmod 0600 "$SDA_CONF/client.keys"
+        fi
+
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload >/dev/null 2>&1 || true
+            systemctl enable sda-agent.service >/dev/null 2>&1 || true
+            if [ -z "${DPKG_ROOT:-}" ]; then
+                systemctl start sda-agent.service >/dev/null 2>&1 || true
+            fi
+        fi
+        ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

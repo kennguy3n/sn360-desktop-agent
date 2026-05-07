@@ -1,0 +1,28 @@
+services:
+  wazuh-manager:
+    # Wazuh 4.7.x is the oldest v4.x manager release the agent must
+    # stay compatible with per the compat matrix in docs/architecture.md
+    # and the Phase 6 roadmap. Keep this pinned to a specific minor so
+    # CI runs are deterministic.
+    image: wazuh/wazuh-manager:4.7.5
+    ports:
+      - "1514:1514"    # agent communication (TCP)
+      - "1515:1515"    # enrollment (authd)
+      - "55000:55000"  # API
+    environment:
+      - WAZUH_MANAGER_CONFIG=yes
+    volumes:
+      - wazuh-data:/var/ossec/data
+      - wazuh-logs:/var/ossec/logs
+    healthcheck:
+      # Check only that remoted (agent comms) is running.
+      # wazuh-control status exits non-zero when optional daemons
+      # (clusterd, maild, etc.) are stopped, so we grep instead.
+      test: ["CMD-SHELL", "/var/ossec/bin/wazuh-control status | grep -q 'wazuh-remoted is running'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+volumes:
+  wazuh-data:
+  wazuh-logs:
