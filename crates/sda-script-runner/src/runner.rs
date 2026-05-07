@@ -424,7 +424,17 @@ impl ScriptRunner {
         } = stderr;
 
         let total = stdout_bytes.len() + stderr_bytes.len();
-        let mut output_truncated = total >= max || stdout_hit || stderr_hit;
+        // Strict `>` so a run that fills the combined budget exactly
+        // does *not* report truncation. The `clamp_to` calls below
+        // share the budget across the two pipes (stdout up to `max`,
+        // stderr the remainder), so when `total == max` neither clamp
+        // actually drops a byte and every emitted byte is preserved
+        // verbatim in the wire payload. With `>=` we used to flag
+        // `output_truncated = true` and stamp `truncation_reason =
+        // "size_limit"` in that boundary case, lying to the audit
+        // chain and any server-side verifier diffing the truncated
+        // strings against the SHA-256-attested full byte counts.
+        let mut output_truncated = total > max || stdout_hit || stderr_hit;
         if timed_out {
             output_truncated = true;
         }
@@ -713,6 +723,84 @@ mod tests {
         assert_eq!(outcome.stdout_sha256.len(), 64);
         // stderr was empty, so its hash is the empty-string SHA-256.
         assert_eq!(outcome.stderr_sha256, hex::encode(Sha256::new().finalize()));
+    }
+
+    /// Regression guard for the `total > max` (was `>=`) boundary in
+    /// `execute`. Each per-pipe drain is independently capped at
+    /// `max`, so a run that produces `N` bytes on stdout and
+    /// `max - N` bytes on stderr never trips either pipe's
+    /// `hit_limit`. Pre-fix the combined `total >= max` check still
+    /// flagged `output_truncated = true` and stamped
+    /// `truncation_reason = "size_limit"` even though every emitted
+    /// byte was preserved verbatim by the subsequent `clamp_to`
+    /// calls — lying to the audit chain. With strict `>` the
+    /// boundary case correctly reports no truncation.
+    #[tokio::test(flavor = "current_thread")]
+    async fn output_exactly_filling_combined_budget_is_not_flagged_truncated() {
+        let tmp = TempDir::new().unwrap();
+        let key = make_signing_key();
+        let mut cfg = config_for(&key, vec!["sn360.diagnostics.*"]);
+        cfg.max_output_bytes = 32;
+        let runner = ScriptRunner::new(cfg, tmp.path().to_path_buf());
+        // 16 bytes of 'A' on stdout + 16 bytes of 'B' on stderr =
+        // exactly 32 bytes combined, matching the configured cap.
+        // `printf` is used (not `echo`) to avoid the trailing newline
+        // that would push us off-boundary.
+        let body = b"#!/bin/sh\n\
+            printf 'A%.0s' $(seq 1 16)\n\
+            printf 'B%.0s' $(seq 1 16) >&2\n";
+        let req = signed_request(&key, "sn360.diagnostics.echo", body, vec![]);
+        let outcome = runner.run(req).await.expect("ok");
+        assert_eq!(outcome.exit_code, Some(0));
+        assert!(
+            !outcome.output_truncated,
+            "filling the budget exactly must not flag truncation",
+        );
+        assert_eq!(outcome.truncation_reason, None);
+        // Sanity-check the wire payload: every byte made it through.
+        assert_eq!(outcome.stdout_truncated.len(), 16);
+        assert_eq!(outcome.stderr_truncated.len(), 16);
+        assert_eq!(outcome.stdout_truncated, "A".repeat(16));
+        assert_eq!(outcome.stderr_truncated, "B".repeat(16));
+        // Per-pipe SHA-256s lock in that the digests match the
+        // captured strings, so a server-side verifier cross-checking
+        // the two does not see a contradiction at the boundary.
+        let mut a = Sha256::new();
+        a.update(b"A".repeat(16));
+        assert_eq!(outcome.stdout_sha256, hex::encode(a.finalize()));
+        let mut b = Sha256::new();
+        b.update(b"B".repeat(16));
+        assert_eq!(outcome.stderr_sha256, hex::encode(b.finalize()));
+    }
+
+    /// Companion to the boundary test above: exceeding the combined
+    /// budget by even a single byte must still flag truncation.
+    /// Locks in that the strict `>` does not regress in the other
+    /// direction.
+    #[tokio::test(flavor = "current_thread")]
+    async fn output_exceeding_combined_budget_by_one_byte_flags_truncation() {
+        let tmp = TempDir::new().unwrap();
+        let key = make_signing_key();
+        let mut cfg = config_for(&key, vec!["sn360.diagnostics.*"]);
+        cfg.max_output_bytes = 32;
+        let runner = ScriptRunner::new(cfg, tmp.path().to_path_buf());
+        // 17 bytes on stdout + 16 bytes on stderr = 33 bytes total,
+        // one byte past the 32-byte combined cap. Neither pipe trips
+        // its individual `hit_limit` (each is well under 32).
+        let body = b"#!/bin/sh\n\
+            printf 'A%.0s' $(seq 1 17)\n\
+            printf 'B%.0s' $(seq 1 16) >&2\n";
+        let req = signed_request(&key, "sn360.diagnostics.echo", body, vec![]);
+        let outcome = runner.run(req).await.expect("ok");
+        assert_eq!(outcome.exit_code, Some(0));
+        assert!(
+            outcome.output_truncated,
+            "one byte past the combined cap must flag truncation",
+        );
+        assert_eq!(
+            outcome.truncation_reason.as_deref(),
+            Some(truncation_reason::SIZE_LIMIT)
+        );
     }
 
     #[test]
