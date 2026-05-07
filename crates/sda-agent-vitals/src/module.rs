@@ -119,11 +119,8 @@ impl VitalsModule {
 
                     _ = tick_timer(timer.as_mut()), if timer.is_some() => {
                         let outcome = run_tick(&bus, &collector, current_profile).await;
-                        match outcome {
-                            crate::heartbeat::TickOutcome::PublishFailed(_) => {
-                                warn!("agent vitals tick: publish failed");
-                            }
-                            _ => {}
+                        if let crate::heartbeat::TickOutcome::PublishFailed(_) = outcome {
+                            warn!("agent vitals tick: publish failed");
                         }
                     }
                 }
@@ -206,8 +203,7 @@ mod tests {
     fn vitals_counters_are_arc_shared() {
         let c = VitalsCounters::new();
         let c2 = c.clone();
-        c.queue_depth
-            .store(7, std::sync::atomic::Ordering::Relaxed);
+        c.queue_depth.store(7, std::sync::atomic::Ordering::Relaxed);
         assert_eq!(c2.queue_depth.load(std::sync::atomic::Ordering::Relaxed), 7);
     }
 

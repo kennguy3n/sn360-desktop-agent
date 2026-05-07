@@ -269,12 +269,9 @@ async fn run_running_software_tick(
             // landed — keeping the two streams in lockstep for any
             // consumer correlating them.
             if device_control_enabled {
-                if let Some(payload) = build_software_inventory_delta_payload(
-                    "baseline",
-                    &entries,
-                    &[],
-                    &[],
-                ) {
+                if let Some(payload) =
+                    build_software_inventory_delta_payload("baseline", &entries, &[], &[])
+                {
                     publish_software_inventory_delta(bus, payload).await;
                 }
             }
@@ -336,12 +333,9 @@ async fn run_running_software_tick(
             return;
         }
         if device_control_enabled {
-            if let Some(payload) = build_software_inventory_delta_payload(
-                "delta",
-                &[],
-                &added,
-                &removed,
-            ) {
+            if let Some(payload) =
+                build_software_inventory_delta_payload("delta", &[], &added, &removed)
+            {
                 publish_software_inventory_delta(bus, payload).await;
             }
         }
@@ -1078,15 +1072,16 @@ mod tests {
             publisher: None,
         };
         let processes: Vec<&ProcessEntry> = vec![&p, &q];
-        let payload =
-            build_software_inventory_delta_payload("baseline", &processes, &[], &[])
-                .expect("baseline payload");
+        let payload = build_software_inventory_delta_payload("baseline", &processes, &[], &[])
+            .expect("baseline payload");
 
         // Canonical encoding sorts object keys lexicographically. The
         // top-level keys are `count`, `processes`, `type` so they must
         // appear in that order. Any drift is a wire-schema break.
         let count_idx = payload.find("\"count\":").expect("count key present");
-        let processes_idx = payload.find("\"processes\":").expect("processes key present");
+        let processes_idx = payload
+            .find("\"processes\":")
+            .expect("processes key present");
         let type_idx = payload.find("\"type\":").expect("type key present");
         assert!(count_idx < processes_idx, "count must precede processes");
         assert!(processes_idx < type_idx, "processes must precede type");
@@ -1248,9 +1243,7 @@ mod tests {
                 let value: serde_json::Value = serde_json::from_str(&payload)
                     .expect("SoftwareInventoryDelta payload must be valid JSON");
                 assert_eq!(value["type"], "delta");
-                let removed = value["removed"]
-                    .as_array()
-                    .expect("removed must be array");
+                let removed = value["removed"].as_array().expect("removed must be array");
                 assert!(
                     removed.iter().any(|p| p["pid"] == phantom_pid),
                     "phantom pid must appear in the SoftwareInventoryDelta mirror, got {:?}",

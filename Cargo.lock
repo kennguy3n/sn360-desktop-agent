@@ -1686,6 +1686,7 @@ name = "sda-agent"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "gethostname",
  "libc",
  "nix",
@@ -1713,6 +1714,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

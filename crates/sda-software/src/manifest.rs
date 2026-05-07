@@ -136,8 +136,8 @@ impl Manifest {
     pub fn verify_signature(&self, pinned_pubkey_hex: &str) -> Result<(), ManifestError> {
         let pubkey_bytes = parse_hex_fixed::<PUBLIC_KEY_LENGTH>(pinned_pubkey_hex)
             .ok_or(ManifestError::PinnedKeyShape)?;
-        let verifying_key = VerifyingKey::from_bytes(&pubkey_bytes)
-            .map_err(|_| ManifestError::PinnedKeyInvalid)?;
+        let verifying_key =
+            VerifyingKey::from_bytes(&pubkey_bytes).map_err(|_| ManifestError::PinnedKeyInvalid)?;
         let sig_bytes = parse_hex_fixed::<SIGNATURE_LENGTH>(&self.signature)
             .ok_or(ManifestError::SignatureShape)?;
         let signature = Signature::from_bytes(&sig_bytes);

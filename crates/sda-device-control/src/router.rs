@@ -660,8 +660,14 @@ mod tests {
         );
         // Each record's prev_record_hash must equal the chain_hash
         // of the immediately preceding record.
-        assert_eq!(b.evidence.prev_record_hash, a.evidence.chain_hash().unwrap());
-        assert_eq!(c.evidence.prev_record_hash, b.evidence.chain_hash().unwrap());
+        assert_eq!(
+            b.evidence.prev_record_hash,
+            a.evidence.chain_hash().unwrap()
+        );
+        assert_eq!(
+            c.evidence.prev_record_hash,
+            b.evidence.chain_hash().unwrap()
+        );
         // First record still pinned to the zero sentinel.
         assert_eq!(a.evidence.prev_record_hash, FIRST_RECORD_PREV_HASH);
     }
@@ -756,8 +762,14 @@ mod tests {
         assert_eq!(r2.action_result.status, ActionStatus::Skipped);
         assert_eq!(r3.action_result.status, ActionStatus::Refused);
         // Chain links survive the status transitions.
-        assert_eq!(r2.evidence.prev_record_hash, r1.evidence.chain_hash().unwrap());
-        assert_eq!(r3.evidence.prev_record_hash, r2.evidence.chain_hash().unwrap());
+        assert_eq!(
+            r2.evidence.prev_record_hash,
+            r1.evidence.chain_hash().unwrap()
+        );
+        assert_eq!(
+            r3.evidence.prev_record_hash,
+            r2.evidence.chain_hash().unwrap()
+        );
     }
 
     #[test]

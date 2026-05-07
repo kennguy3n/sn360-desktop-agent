@@ -166,7 +166,10 @@ mod tests {
         }
         // Drain the server-bound queue and assert we got an
         // AgentVitals event.
-        let event = server_rx.recv().await.expect("server queue should have event");
+        let event = server_rx
+            .recv()
+            .await
+            .expect("server queue should have event");
         match event.kind {
             EventKind::AgentVitals { .. } => {}
             other => panic!("expected AgentVitals, got {other:?}"),

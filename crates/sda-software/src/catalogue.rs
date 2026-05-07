@@ -32,9 +32,7 @@ impl Catalogue {
             // Cheap hex shape check — full SHA-256 mismatch is only
             // checkable with the bytes in hand.
             if crate::manifest::parse_hex_fixed::<32>(&art.sha256).is_none() {
-                return Err(ManifestError::ArtefactHashShape {
-                    id: art.id.clone(),
-                });
+                return Err(ManifestError::ArtefactHashShape { id: art.id.clone() });
             }
             by_id.insert(art.id.clone(), art);
         }

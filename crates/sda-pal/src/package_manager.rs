@@ -191,9 +191,7 @@ pub mod linux_impl {
                         .arg("-f=${Package}\t${Version}\n")
                         .output()?;
                     if !out.status.success() {
-                        return Err(PackageError::Command(
-                            "dpkg-query exited non-zero".into(),
-                        ));
+                        return Err(PackageError::Command("dpkg-query exited non-zero".into()));
                     }
                     Ok(parse_dpkg_query(&String::from_utf8_lossy(&out.stdout)))
                 }
@@ -448,7 +446,9 @@ pub mod macos_impl {
         fn list_installed(&self) -> Result<Vec<InstalledPackage>, PackageError> {
             let out = Command::new("pkgutil").arg("--pkgs").output()?;
             if !out.status.success() {
-                return Err(PackageError::Command("pkgutil --pkgs exited non-zero".into()));
+                return Err(PackageError::Command(
+                    "pkgutil --pkgs exited non-zero".into(),
+                ));
             }
             // pkgutil only returns pkg-ids; the version comes from a
             // second call. To keep listing cheap we issue one bulk
@@ -464,10 +464,7 @@ pub mod macos_impl {
                 .collect();
             let mut packages = Vec::with_capacity(ids.len());
             for id in ids {
-                let info = Command::new("pkgutil")
-                    .arg("--pkg-info")
-                    .arg(id)
-                    .output()?;
+                let info = Command::new("pkgutil").arg("--pkg-info").arg(id).output()?;
                 if !info.status.success() {
                     continue;
                 }
@@ -707,7 +704,11 @@ pub mod windows_impl {
         }
 
         fn update(&self, package: &PackageRef) -> Result<(), PackageError> {
-            let mut args = vec!["upgrade".to_string(), "--id".to_string(), package.id.clone()];
+            let mut args = vec![
+                "upgrade".to_string(),
+                "--id".to_string(),
+                package.id.clone(),
+            ];
             if let Some(v) = &package.version {
                 args.push("--version".to_string());
                 args.push(v.clone());
@@ -787,11 +788,7 @@ pub mod windows_impl {
             // The version column may include a trailing source
             // column on the same line; cut at the first whitespace
             // to keep the version clean.
-            let version = version
-                .split_whitespace()
-                .next()
-                .unwrap_or("")
-                .to_string();
+            let version = version.split_whitespace().next().unwrap_or("").to_string();
             if id.is_empty() || version.is_empty() {
                 continue;
             }
@@ -852,11 +849,7 @@ pub mod windows_parsers {
             let id_end = version_start.min(trimmed.len());
             let id = trimmed[id_start..id_end].trim().to_string();
             let version = trimmed[version_start..].trim().to_string();
-            let version = version
-                .split_whitespace()
-                .next()
-                .unwrap_or("")
-                .to_string();
+            let version = version.split_whitespace().next().unwrap_or("").to_string();
             if id.is_empty() || version.is_empty() {
                 continue;
             }

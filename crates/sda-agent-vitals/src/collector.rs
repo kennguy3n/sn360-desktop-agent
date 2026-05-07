@@ -90,9 +90,7 @@ impl Collector for DefaultCollector {
         VitalsSnapshot {
             rss_kb: read_rss_kb(),
             cpu_percent: read_cpu_percent(),
-            queue_depth: self
-                .queue_depth
-                .load(std::sync::atomic::Ordering::Relaxed),
+            queue_depth: self.queue_depth.load(std::sync::atomic::Ordering::Relaxed),
             watchdog_faults: self
                 .watchdog_faults
                 .load(std::sync::atomic::Ordering::Relaxed),
@@ -113,7 +111,7 @@ fn read_rss_kb() -> u64 {
     if let Ok(s) = std::fs::read_to_string("/proc/self/status") {
         for line in s.lines() {
             if let Some(rest) = line.strip_prefix("VmRSS:") {
-                let kb_str = rest.trim().split_whitespace().next().unwrap_or("0");
+                let kb_str = rest.split_whitespace().next().unwrap_or("0");
                 return kb_str.parse::<u64>().unwrap_or(0);
             }
         }
@@ -141,23 +139,26 @@ fn read_cpu_percent() -> f32 {
     0.0
 }
 
+/// Deterministic mock collector used by the heartbeat unit tests
+/// (and re-exported via [`crate::collector::MockCollector`] for the
+/// `module.rs` integration tests).
+#[cfg(test)]
+pub struct MockCollector {
+    pub fixed: VitalsSnapshot,
+}
+
+#[cfg(test)]
+impl Collector for MockCollector {
+    fn collect(&self) -> VitalsSnapshot {
+        self.fixed.clone()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
     use std::sync::Arc;
-
-    /// Deterministic mock collector used by the heartbeat unit
-    /// tests.
-    pub struct MockCollector {
-        pub fixed: VitalsSnapshot,
-    }
-
-    impl Collector for MockCollector {
-        fn collect(&self) -> VitalsSnapshot {
-            self.fixed.clone()
-        }
-    }
 
     #[test]
     fn default_collector_reports_supplied_counters() {
@@ -231,6 +232,3 @@ mod tests {
         assert_eq!(c.collect(), snap);
     }
 }
-
-#[cfg(test)]
-pub use tests::MockCollector;
