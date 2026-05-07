@@ -93,14 +93,21 @@ impl CompiledWindow {
                 // anchor falls on the previous day. We handle this by
                 // also checking `weekday.pred()` for windows that
                 // wrap past midnight.
-                if self.wraps_midnight() && days.contains(&weekday.pred()) && time < self.end {
+                // End-of-window is *inclusive* (see module docs §
+                // "Time-range parsing"). Use `<=` so a job arriving
+                // exactly at `self.end` on the wrap day is admitted,
+                // matching the non-wrap branch below and the
+                // documented contract.
+                if self.wraps_midnight() && days.contains(&weekday.pred()) && time <= self.end {
                     return true;
                 }
                 return false;
             }
         }
         if self.wraps_midnight() {
-            time >= self.start || time < self.end
+            // Same inclusive boundary on the post-midnight half of a
+            // wrap window — see the comment in the `days` branch.
+            time >= self.start || time <= self.end
         } else {
             time >= self.start && time <= self.end
         }
@@ -488,6 +495,48 @@ mod tests {
         assert!(p.is_in_maintenance_window(utc(2026, 5, 9, 2, 0), "UTC"));
         // Saturday 09:00 — outside.
         assert!(!p.is_in_maintenance_window(utc(2026, 5, 9, 9, 0), "UTC"));
+    }
+
+    /// End-of-window is documented as **inclusive** (see module-doc
+    /// "Time-range parsing"). Exercise both the non-wrap and the
+    /// wrap-around branches at the exact boundary minute to lock in
+    /// that contract.
+    #[test]
+    fn maintenance_window_end_time_is_inclusive_on_both_branches() {
+        // Non-wrap window: 02:00 → 05:00 inclusive.
+        let non_wrap = MaintenanceWindowPolicy::from_config(
+            &maintenance("02:00", "05:00", vec!["mon-sun"]),
+            &QuietHours::default(),
+            "UTC",
+        )
+        .unwrap();
+        // 05:00 exactly is inside.
+        assert!(non_wrap.is_in_maintenance_window(utc(2026, 5, 4, 5, 0), "UTC"));
+        // 05:01 is outside.
+        assert!(!non_wrap.is_in_maintenance_window(utc(2026, 5, 4, 5, 1), "UTC"));
+
+        // Wrap window: Friday 22:00 → Saturday 07:00 inclusive on
+        // both halves — exercises both the `wraps_midnight()` arm of
+        // `contains` (Saturday morning, day not in `days`) and the
+        // post-midnight half of the same arm when the day *is* in
+        // `days`.
+        let wrap = MaintenanceWindowPolicy::from_config(
+            &maintenance("22:00", "07:00", vec!["fri"]),
+            &QuietHours::default(),
+            "UTC",
+        )
+        .unwrap();
+        // Friday 22:00 exactly — inside (start boundary).
+        assert!(wrap.is_in_maintenance_window(utc(2026, 5, 8, 22, 0), "UTC"));
+        // Saturday 07:00 exactly — inside (end boundary, wrap arm).
+        // Pre-fix this returned false because the wrap branch used
+        // `time < self.end` instead of `<=`.
+        assert!(
+            wrap.is_in_maintenance_window(utc(2026, 5, 9, 7, 0), "UTC"),
+            "07:00 on the wrap day must be inside the inclusive end-boundary",
+        );
+        // Saturday 07:01 — outside.
+        assert!(!wrap.is_in_maintenance_window(utc(2026, 5, 9, 7, 1), "UTC"));
     }
 
     #[test]

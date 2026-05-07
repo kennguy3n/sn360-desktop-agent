@@ -50,6 +50,36 @@ pub mod truncation_reason {
     pub const TIMEOUT: &str = "timeout";
 }
 
+/// Length cap on the sanitized `job_id` portion of the on-disk
+/// scratch filename. A `Uuid` is 36 chars; this leaves a comfortable
+/// margin for any hash-style identifier a future producer might use
+/// without risking a runaway filename on a hostile envelope.
+const MAX_JOB_ID_LEN: usize = 64;
+
+/// Length cap on the sanitized filesystem extension. Real-world
+/// extensions never exceed this; the cap exists to defang a
+/// pathological producer.
+const MAX_EXTENSION_LEN: usize = 16;
+
+/// Defang an envelope-provided path component before it is joined
+/// into a filesystem path. Only `script_body` is covered by the
+/// Ed25519 signature, so any other field becoming a filename — most
+/// notably [`ScriptRequest::job_id`] and [`ScriptRequest::extension`]
+/// — must be sanitized to avoid a `..` / `/` / `\` payload escaping
+/// `work_dir` via [`std::path::Path::join`].
+///
+/// Strategy: keep ASCII alphanumeric plus `-` and `_`, drop
+/// everything else (including all path separators on every host
+/// platform), and truncate at `max_len` measured in *characters*
+/// (the input is already filtered to ASCII so chars == bytes here).
+fn sanitize_path_component(input: &str, max_len: usize) -> String {
+    input
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .take(max_len)
+        .collect()
+}
+
 /// Configuration for [`ScriptRunner`].
 ///
 /// This is the in-process projection of
@@ -268,10 +298,32 @@ impl ScriptRunner {
         let mut hasher = Sha256::new();
         hasher.update(&request.script_body);
         let body_sha = hex::encode(hasher.finalize());
-        let mut filename = format!("script-{}-{}", request.job_id, body_sha);
+        // `job_id` and `extension` are NOT covered by the Ed25519
+        // signature (only `script_body` is), so a hostile or buggy
+        // producer could embed `..`, `/`, or `\` and `Path::join`
+        // would faithfully resolve it relative to `work_dir`. Even
+        // though the only known producer today (`SignedActionJob`)
+        // ships a `Uuid` `job_id`, the runner refuses to trust an
+        // unsigned envelope field that becomes a filesystem path.
+        // Allow ASCII alphanumeric plus `-`/`_`, drop everything
+        // else, and length-cap so an adversarial producer cannot
+        // blow up the filename.
+        let safe_job_id = sanitize_path_component(&request.job_id, MAX_JOB_ID_LEN);
+        let mut filename = if safe_job_id.is_empty() {
+            // The body hash alone is enough to disambiguate the file
+            // when the envelope's `job_id` sanitises to nothing — we
+            // prefer "still spawnable, just less debuggable" over
+            // erroring out on an otherwise-valid signed body.
+            format!("script-{body_sha}")
+        } else {
+            format!("script-{safe_job_id}-{body_sha}")
+        };
         if let Some(ext) = &request.extension {
-            filename.push('.');
-            filename.push_str(ext);
+            let safe_ext = sanitize_path_component(ext, MAX_EXTENSION_LEN);
+            if !safe_ext.is_empty() {
+                filename.push('.');
+                filename.push_str(&safe_ext);
+            }
         }
         let path = self.work_dir.join(filename);
         tokio::fs::write(&path, &request.script_body).await?;
@@ -673,5 +725,76 @@ mod tests {
     fn malformed_pinned_key_errors() {
         let err = ScriptRunnerConfig::from_parts(Some("zz"), vec![], 90, 1024).unwrap_err();
         assert!(matches!(err, ScriptRunnerError::MalformedPinnedKey));
+    }
+
+    #[test]
+    fn sanitize_path_component_strips_path_separators_and_dots() {
+        // `..`, `/`, `\` must not survive — they are the
+        // payloads `materialize_script` is defending against.
+        assert_eq!(sanitize_path_component("../etc/passwd", 64), "etcpasswd");
+        assert_eq!(sanitize_path_component("..", 64), "");
+        assert_eq!(
+            sanitize_path_component("a/b\\c..d", 64),
+            "abcd",
+            "all path separators and dots dropped",
+        );
+    }
+
+    #[test]
+    fn sanitize_path_component_keeps_uuid_shaped_input_intact() {
+        // Today's only producer ships a `Uuid` `job_id`; the
+        // sanitizer must not corrupt that happy path.
+        let uuid = "f47ac10b-58cc-4372-a567-0e02b2c3d479";
+        assert_eq!(sanitize_path_component(uuid, MAX_JOB_ID_LEN), uuid);
+    }
+
+    #[test]
+    fn sanitize_path_component_caps_length_for_runaway_input() {
+        // 1 KiB of 'a' must collapse to MAX_JOB_ID_LEN bytes so a
+        // hostile producer cannot blow up the on-disk filename.
+        let huge = "a".repeat(1024);
+        let out = sanitize_path_component(&huge, MAX_JOB_ID_LEN);
+        assert_eq!(out.len(), MAX_JOB_ID_LEN);
+    }
+
+    #[test]
+    fn sanitize_path_component_drops_unicode_and_control_bytes() {
+        // Non-ASCII (CJK / emoji) and control chars are dropped
+        // entirely. The sanitizer is intentionally restrictive.
+        assert_eq!(sanitize_path_component("héllo🦀world", 64), "hlloworld");
+        assert_eq!(sanitize_path_component("a\nb\tc\0d", 64), "abcd");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn malicious_job_id_cannot_escape_work_dir() {
+        let tmp = TempDir::new().unwrap();
+        let work_dir = tmp.path().to_path_buf();
+        let key = make_signing_key();
+        let runner = ScriptRunner::new(
+            config_for(&key, vec!["sn360.diagnostics.*"]),
+            work_dir.clone(),
+        );
+        let body = b"#!/bin/sh\necho hello\n";
+        let mut req = signed_request(&key, "sn360.diagnostics.echo", body, vec![]);
+        // Hostile producer tries to escape `work_dir` via path
+        // separators in the unsigned `job_id` envelope field.
+        req.job_id = "../../../../../tmp/pwned".into();
+        // And via a hostile extension. Both fields are unsigned.
+        req.extension = Some("../sh".into());
+        let outcome = runner.run(req).await.expect("ok");
+        assert_eq!(outcome.exit_code, Some(0));
+        // Best evidence the sanitizer worked: nothing was written
+        // outside `work_dir`. After `run()` finishes the runner
+        // removes the script file, so we expect the work dir to be
+        // empty (no escaped artifacts above it either, but the temp
+        // dir scope guarantees that).
+        let entries: Vec<_> = std::fs::read_dir(&work_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert!(
+            entries.is_empty(),
+            "scratch files leaked into work_dir: {entries:?}",
+        );
     }
 }
