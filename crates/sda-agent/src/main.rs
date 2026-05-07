@@ -63,11 +63,15 @@ async fn main() -> Result<()> {
     info!("wazuh desktop agent starting");
 
     // 2. Load configuration (from CLI arg or default path)
-    let config = match first_positional_arg(std::env::args()) {
+    let mut config = match first_positional_arg(std::env::args()) {
         Some(path) => AgentConfig::from_yaml_file(std::path::Path::new(&path))
             .context("failed to load config from provided path")?,
         None => AgentConfig::load_default().context("failed to load default config")?,
     };
+
+    // 2a. Wire the enhanced-inventory -> device-control bridge.
+    //     See `apply_device_control_bridge` for the rationale.
+    apply_device_control_bridge(&mut config);
 
     // 2b. Startup tamper protection (P3.3): self-integrity check + best-effort
     // file immutability. Runs before any network I/O so a tampered binary
@@ -475,7 +479,44 @@ async fn main() -> Result<()> {
         agent.register_module(p_handle);
     }
 
-    // 12l. Tamper-protection watchdog (P3.3). Off unless
+    // 12l. Software module (Phase 2.5 scaffold).
+    //      Off by default. When enabled the supervisor refreshes the
+    //      signed catalogue at `modules.software.refresh_interval_secs`
+    //      and exposes install/update/uninstall actions through the
+    //      `PackageManager` PAL trait. The Phase 2.5 scaffold parks
+    //      until Phase 2.6 wires the live fetch loop.
+    if config.modules.software.enabled {
+        info!("starting software module");
+        let sw_handle = sda_software::SoftwareModule::start(
+            &config,
+            agent.event_bus(),
+            agent.shutdown_signal(),
+        );
+        agent.register_module(sw_handle);
+    }
+
+    // 12m. Agent-vitals heartbeat (Phase 1.12).
+    //      Per ARCHITECTURE.md § 10 step 5 the heartbeat is always-on
+    //      when Device Control is enabled. The cadence defaults to
+    //      60s (`Priority::Low` per ARCHITECTURE.md § 7.3); the
+    //      module pauses entirely on `PowerProfile::CriticalBattery`.
+    //      `modules.agent_vitals.enabled` lets operators force-enable
+    //      the heartbeat without lighting up the rest of Device
+    //      Control, which is useful for fleet-wide observability
+    //      pilots.
+    if config.modules.device_control.enabled || config.modules.agent_vitals.enabled {
+        info!("starting agent vitals module");
+        let av_handle = sda_agent_vitals::VitalsModule::start(
+            config.modules.agent_vitals.interval_secs,
+            sda_agent_vitals::VitalsCounters::new(),
+            agent.event_bus(),
+            agent.shutdown_signal(),
+            power_rx.clone(),
+        );
+        agent.register_module(av_handle);
+    }
+
+    // 12n. Tamper-protection watchdog (P3.3). Off unless
     // `security.tamper.watchdog_interval_secs` is non-zero AND
     // `$NOTIFY_SOCKET` is set by the service manager.
     let _watchdog_handle = tamper::spawn_watchdog(&config.security.tamper);
@@ -699,6 +740,97 @@ fn handle_short_flags<I: IntoIterator<Item = String>>(args: I) -> Option<i32> {
 /// invocations.
 fn first_positional_arg<I: IntoIterator<Item = String>>(args: I) -> Option<String> {
     args.into_iter().skip(1).find(|arg| !arg.starts_with('-'))
+}
+
+/// Wire the enhanced-inventory → device-control software-inventory
+/// bridge (Task 1.10).
+///
+/// The `device_control_bridge_enabled` flag on
+/// `EnhancedInventoryConfig` is `#[serde(default, skip)]` and is
+/// intentionally not exposed in the YAML schema. Instead, it is
+/// derived here from the two flags an operator already controls:
+/// when both Device Control and the running-software inventory tick
+/// are enabled, the enhanced-inventory module additionally publishes
+/// `EventKind::SoftwareInventoryDelta` events alongside the existing
+/// `EnhancedInventoryUpdate` (ARCHITECTURE.md § 2). Disabling either
+/// flag disables the bridge.
+fn apply_device_control_bridge(config: &mut AgentConfig) {
+    config
+        .modules
+        .enhanced_inventory
+        .device_control_bridge_enabled = config.modules.device_control.enabled
+        && config.modules.enhanced_inventory.running_software.enabled;
+}
+
+#[cfg(test)]
+mod bridge_tests {
+    use super::apply_device_control_bridge;
+    use sda_core::config::AgentConfig;
+
+    #[test]
+    fn bridge_enabled_when_device_control_and_running_software_both_on() {
+        let mut config = AgentConfig::default();
+        config.modules.device_control.enabled = true;
+        config.modules.enhanced_inventory.running_software.enabled = true;
+        apply_device_control_bridge(&mut config);
+        assert!(
+            config
+                .modules
+                .enhanced_inventory
+                .device_control_bridge_enabled
+        );
+    }
+
+    #[test]
+    fn bridge_disabled_when_device_control_off() {
+        let mut config = AgentConfig::default();
+        config.modules.device_control.enabled = false;
+        config.modules.enhanced_inventory.running_software.enabled = true;
+        apply_device_control_bridge(&mut config);
+        assert!(
+            !config
+                .modules
+                .enhanced_inventory
+                .device_control_bridge_enabled
+        );
+    }
+
+    #[test]
+    fn bridge_disabled_when_running_software_off() {
+        let mut config = AgentConfig::default();
+        config.modules.device_control.enabled = true;
+        config.modules.enhanced_inventory.running_software.enabled = false;
+        apply_device_control_bridge(&mut config);
+        assert!(
+            !config
+                .modules
+                .enhanced_inventory
+                .device_control_bridge_enabled
+        );
+    }
+
+    #[test]
+    fn bridge_clears_stale_true_when_either_flag_off() {
+        // Defence in depth: even if a future config-load path
+        // pre-sets the flag, the gating logic must still take
+        // precedence. This is the regression case for the bot's
+        // finding — without `apply_device_control_bridge`, the flag
+        // would stay at whatever it was deserialised to.
+        let mut config = AgentConfig::default();
+        config.modules.device_control.enabled = false;
+        config.modules.enhanced_inventory.running_software.enabled = true;
+        config
+            .modules
+            .enhanced_inventory
+            .device_control_bridge_enabled = true;
+        apply_device_control_bridge(&mut config);
+        assert!(
+            !config
+                .modules
+                .enhanced_inventory
+                .device_control_bridge_enabled
+        );
+    }
 }
 
 #[cfg(all(test, feature = "legacy-siem"))]

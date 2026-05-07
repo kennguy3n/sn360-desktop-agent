@@ -17,6 +17,8 @@ members = [
     "crates/sda-device-control",
     "crates/sda-query",
     "crates/sda-posture",
+    "crates/sda-software",
+    "crates/sda-agent-vitals",
 ]
 # fuzz/ has its own [workspace] stanza and is not part of the main
 # build. Keeping it excluded avoids pulling libfuzzer-sys (and the
@@ -111,6 +113,8 @@ sda-updater = { path = "crates/sda-updater" }
 sda-device-control = { path = "crates/sda-device-control" }
 sda-query = { path = "crates/sda-query" }
 sda-posture = { path = "crates/sda-posture" }
+sda-software = { path = "crates/sda-software" }
+sda-agent-vitals = { path = "crates/sda-agent-vitals" }
 
 # Self-update (P3.1)
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "stream", "json"] }

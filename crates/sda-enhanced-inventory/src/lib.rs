@@ -35,6 +35,7 @@ use sda_core::config::{AgentConfig, EnhancedInventoryConfig};
 use sda_core::module::{AgentModule, ModuleHandle, ModuleHealth, ModuleStatus};
 use sda_core::signal::ShutdownSignal;
 use sda_core::{PowerProfile, PowerProfileReceiver};
+use sda_device_control::canonicalize::canonicalize;
 use sda_event_bus::{Event, EventBus, EventKind, EventReceiver, Priority};
 
 use crate::browser_extensions::{enumerate_browser_extensions, BrowserExtension};
@@ -161,9 +162,85 @@ async fn publish_update(bus: &EventBus, category: &str, data: serde_json::Value)
     }
 }
 
+/// Build the canonical-JSON payload for a `SoftwareInventoryDelta`
+/// event from a running-software baseline or delta.
+///
+/// `kind` is `"baseline"` or `"delta"`. `processes` is the full process
+/// list for baselines; `added` / `removed` are the per-PID diffs for
+/// deltas. The output is RFC 8785 canonical JSON so the control plane
+/// can dedupe and chain-hash on it without re-parsing.
+fn build_software_inventory_delta_payload(
+    kind: &str,
+    processes: &[&ProcessEntry],
+    added: &[&ProcessEntry],
+    removed: &[&ProcessEntry],
+) -> Option<String> {
+    let body = match kind {
+        "baseline" => json!({
+            "type": "baseline",
+            "count": processes.len(),
+            "processes": processes,
+        }),
+        "delta" => json!({
+            "type": "delta",
+            "added": added,
+            "removed": removed,
+        }),
+        _ => return None,
+    };
+    match canonicalize(&body) {
+        Ok(bytes) => match String::from_utf8(bytes) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                warn!(error = %e, "SoftwareInventoryDelta canonical JSON was not UTF-8");
+                None
+            }
+        },
+        Err(e) => {
+            warn!(error = %e, "failed to canonicalise SoftwareInventoryDelta payload");
+            None
+        }
+    }
+}
+
+/// Publish a `SoftwareInventoryDelta` event for Device Control
+/// consumers. Bridges the existing running-software snapshot/delta
+/// stream into the Device Control event surface (PHASES.md task 1.10).
+async fn publish_software_inventory_delta(bus: &EventBus, payload: String) {
+    let event = Event::new(
+        "enhanced_inventory",
+        // Device Control inventory bridge events are background
+        // telemetry — keep them at `Low` like the underlying
+        // EnhancedInventoryUpdate so they yield to active-response /
+        // signed-job traffic.
+        Priority::Low,
+        EventKind::SoftwareInventoryDelta { payload },
+    );
+    if let Err(e) = bus.publish_to_server(event).await {
+        // EventBus::publish_to_server already broadcasts locally before
+        // attempting the server-bound enqueue, so a failure here just
+        // means the server queue was saturated. Log and move on — do
+        // NOT add a fallback `bus.publish(...)` (that would double-fire
+        // local subscribers).
+        warn!(error = %e, "failed to publish SoftwareInventoryDelta event");
+    }
+}
+
 /// Take one running-software snapshot, diff it against the previous
 /// state, and emit any changes on the bus.
-async fn run_running_software_tick(bus: &EventBus, state: &mut RunningSoftwareState) {
+///
+/// When `device_control_enabled` is true, the running-software
+/// snapshot/delta is mirrored as an [`EventKind::SoftwareInventoryDelta`]
+/// event with a canonical-JSON payload, in addition to the existing
+/// [`EventKind::EnhancedInventoryUpdate`]. This bridges the existing
+/// inventory pipeline into the Device Control event surface
+/// (`docs/device-control/ARCHITECTURE.md` § 2,
+/// `docs/device-control/PHASES.md` task 1.10).
+async fn run_running_software_tick(
+    bus: &EventBus,
+    state: &mut RunningSoftwareState,
+    device_control_enabled: bool,
+) {
     let processes = match tokio::task::spawn_blocking(enumerate_processes).await {
         Ok(p) => p,
         Err(e) => {
@@ -187,6 +264,17 @@ async fn run_running_software_tick(bus: &EventBus, state: &mut RunningSoftwareSt
         )
         .await;
         if published {
+            // Mirror the baseline into the Device Control event surface
+            // ONLY after the underlying EnhancedInventoryUpdate has
+            // landed — keeping the two streams in lockstep for any
+            // consumer correlating them.
+            if device_control_enabled {
+                if let Some(payload) =
+                    build_software_inventory_delta_payload("baseline", &entries, &[], &[])
+                {
+                    publish_software_inventory_delta(bus, payload).await;
+                }
+            }
             state.baseline_sent = true;
             state.previous = current;
         } else {
@@ -243,6 +331,13 @@ async fn run_running_software_tick(bus: &EventBus, state: &mut RunningSoftwareSt
             // dropping these process changes.
             debug!("delta publish failed; keeping previous snapshot for retry");
             return;
+        }
+        if device_control_enabled {
+            if let Some(payload) =
+                build_software_inventory_delta_payload("delta", &[], &added, &removed)
+            {
+                publish_software_inventory_delta(bus, payload).await;
+            }
         }
     }
 
@@ -376,6 +471,7 @@ async fn run(
     let mut rs_state = RunningSoftwareState::default();
     let rs_enabled = ei_config.running_software.enabled;
     let rs_configured = Duration::from_secs(ei_config.running_software.interval.max(1));
+    let device_control_enabled = ei_config.device_control_bridge_enabled;
 
     let be_enabled = ei_config.browser_extensions.enabled;
     let be_configured = Duration::from_secs(ei_config.browser_extensions.interval.max(1));
@@ -396,7 +492,7 @@ async fn run(
     if rs_enabled && !on_critical {
         // Emit the baseline snapshot immediately on startup so the
         // manager has a fresh inventory without waiting a full cycle.
-        run_running_software_tick(&bus, &mut rs_state).await;
+        run_running_software_tick(&bus, &mut rs_state, device_control_enabled).await;
     }
     if be_enabled && !on_critical {
         run_browser_extensions_tick(&bus).await;
@@ -462,7 +558,7 @@ async fn run(
 
             _ = tick_ei_timer(rs_timer.as_mut()), if rs_timer.is_some() => {
                 debug!(profile = ?current_profile, "running-software scan timer fired");
-                run_running_software_tick(&bus, &mut rs_state).await;
+                run_running_software_tick(&bus, &mut rs_state, device_control_enabled).await;
             }
 
             _ = tick_ei_timer(be_timer.as_mut()), if be_timer.is_some() => {
@@ -539,6 +635,7 @@ mod tests {
                 interval: 86_400,
                 on_demand: false,
             },
+            device_control_bridge_enabled: false,
         };
         cfg
     }
@@ -547,7 +644,7 @@ mod tests {
     async fn test_publishes_inventory_event() {
         let (bus, mut server_rx) = EventBus::new(16, 16);
         let mut state = RunningSoftwareState::default();
-        run_running_software_tick(&bus, &mut state).await;
+        run_running_software_tick(&bus, &mut state, false).await;
 
         let event = tokio::time::timeout(Duration::from_millis(500), server_rx.recv())
             .await
@@ -575,7 +672,7 @@ mod tests {
         let (bus, mut server_rx) = EventBus::new(16, 16);
         let mut state = RunningSoftwareState::default();
 
-        run_running_software_tick(&bus, &mut state).await;
+        run_running_software_tick(&bus, &mut state, false).await;
         let _ = tokio::time::timeout(Duration::from_millis(200), server_rx.recv()).await;
 
         // Force a synthetic entry into the previous snapshot so the
@@ -592,7 +689,7 @@ mod tests {
             },
         );
 
-        run_running_software_tick(&bus, &mut state).await;
+        run_running_software_tick(&bus, &mut state, false).await;
         let event = tokio::time::timeout(Duration::from_millis(500), server_rx.recv())
             .await
             .expect("expected a delta event")
@@ -637,7 +734,7 @@ mod tests {
             },
         );
 
-        run_running_software_tick(&bus, &mut state).await;
+        run_running_software_tick(&bus, &mut state, false).await;
         let event = tokio::time::timeout(Duration::from_millis(500), server_rx.recv())
             .await
             .expect("expected a delta event")
@@ -788,7 +885,7 @@ mod tests {
             .await
             .expect("seed 2/2");
 
-        run_running_software_tick(&bus, &mut state).await;
+        run_running_software_tick(&bus, &mut state, false).await;
         assert!(
             !state.baseline_sent,
             "baseline_sent must stay false when publish fails"
@@ -802,7 +899,7 @@ mod tests {
         // baseline should now go through and flip the flag.
         let _ = server_rx.recv().await.expect("seeded event 1");
         let _ = server_rx.recv().await.expect("seeded event 2");
-        run_running_software_tick(&bus, &mut state).await;
+        run_running_software_tick(&bus, &mut state, false).await;
         let event = tokio::time::timeout(Duration::from_millis(500), server_rx.recv())
             .await
             .expect("expected a baseline event on retry")
@@ -828,7 +925,7 @@ mod tests {
         let mut state = RunningSoftwareState::default();
 
         // Send the baseline.
-        run_running_software_tick(&bus, &mut state).await;
+        run_running_software_tick(&bus, &mut state, false).await;
         let _baseline = server_rx
             .recv()
             .await
@@ -856,7 +953,7 @@ mod tests {
             .await
             .expect("seed 2/2");
 
-        run_running_software_tick(&bus, &mut state).await;
+        run_running_software_tick(&bus, &mut state, false).await;
         assert!(
             state.previous.contains_key(&phantom_pid),
             "previous snapshot must still contain the phantom pid so the delta can be re-emitted; got {:?}",
@@ -867,7 +964,7 @@ mod tests {
         // the removed list on this tick.
         let _ = server_rx.recv().await;
         let _ = server_rx.recv().await;
-        run_running_software_tick(&bus, &mut state).await;
+        run_running_software_tick(&bus, &mut state, false).await;
         let event = tokio::time::timeout(Duration::from_millis(500), server_rx.recv())
             .await
             .expect("expected a delta event on retry")
@@ -915,5 +1012,279 @@ mod tests {
             .expect("task did not stop within 2s")
             .expect("join error")
             .expect("run returned Err");
+    }
+
+    // ---------------------------------------------------------------
+    // Task 1.10 — Software Inventory Bridge
+    //
+    // The running-software monitor must mirror its baseline / delta
+    // events as `EventKind::SoftwareInventoryDelta` for Device Control
+    // consumers (only) when `device_control_bridge_enabled = true`.
+    // The mirror payload is RFC 8785 canonical JSON.
+    // ---------------------------------------------------------------
+
+    /// Drain the server-bound queue until either an event matching
+    /// `pred` arrives or the timeout elapses. Any non-matching events
+    /// are discarded — used by the bridge tests below to skip past
+    /// `EnhancedInventoryUpdate` envelopes when we only care about
+    /// the `SoftwareInventoryDelta` mirror.
+    async fn recv_matching<F>(
+        rx: &mut tokio::sync::mpsc::Receiver<Event>,
+        timeout: Duration,
+        mut pred: F,
+    ) -> Option<Event>
+    where
+        F: FnMut(&Event) -> bool,
+    {
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            let now = tokio::time::Instant::now();
+            if now >= deadline {
+                return None;
+            }
+            let remaining = deadline - now;
+            match tokio::time::timeout(remaining, rx.recv()).await {
+                Ok(Some(ev)) => {
+                    if pred(&ev) {
+                        return Some(ev);
+                    }
+                }
+                Ok(None) => return None,
+                Err(_) => return None,
+            }
+        }
+    }
+
+    #[test]
+    fn build_software_inventory_delta_payload_baseline_is_canonical_json() {
+        let p = ProcessEntry {
+            pid: 7,
+            name: "alpha".into(),
+            path: Some("/usr/bin/alpha".into()),
+            started_at: None,
+            publisher: None,
+        };
+        let q = ProcessEntry {
+            pid: 1,
+            name: "beta".into(),
+            path: None,
+            started_at: None,
+            publisher: None,
+        };
+        let processes: Vec<&ProcessEntry> = vec![&p, &q];
+        let payload = build_software_inventory_delta_payload("baseline", &processes, &[], &[])
+            .expect("baseline payload");
+
+        // Canonical encoding sorts object keys lexicographically. The
+        // top-level keys are `count`, `processes`, `type` so they must
+        // appear in that order. Any drift is a wire-schema break.
+        let count_idx = payload.find("\"count\":").expect("count key present");
+        let processes_idx = payload
+            .find("\"processes\":")
+            .expect("processes key present");
+        let type_idx = payload.find("\"type\":").expect("type key present");
+        assert!(count_idx < processes_idx, "count must precede processes");
+        assert!(processes_idx < type_idx, "processes must precede type");
+
+        // The baseline must report the right count and type tag.
+        assert!(
+            payload.contains("\"count\":2"),
+            "expected count=2 in canonical baseline payload, got {payload}"
+        );
+        assert!(
+            payload.contains("\"type\":\"baseline\""),
+            "expected type=baseline in canonical baseline payload, got {payload}"
+        );
+
+        // Round-trip through serde_json to confirm it parses.
+        let value: serde_json::Value =
+            serde_json::from_str(&payload).expect("payload must parse as JSON");
+        assert_eq!(value["type"], "baseline");
+        assert_eq!(value["count"], 2);
+        assert_eq!(value["processes"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn build_software_inventory_delta_payload_delta_is_canonical_json() {
+        let added = ProcessEntry {
+            pid: 9,
+            name: "new".into(),
+            path: Some("/usr/bin/new".into()),
+            started_at: None,
+            publisher: None,
+        };
+        let removed = ProcessEntry {
+            pid: 3,
+            name: "gone".into(),
+            path: None,
+            started_at: None,
+            publisher: None,
+        };
+        let added_refs = [&added];
+        let removed_refs = [&removed];
+        let payload =
+            build_software_inventory_delta_payload("delta", &[], &added_refs, &removed_refs)
+                .expect("delta payload");
+
+        let value: serde_json::Value =
+            serde_json::from_str(&payload).expect("payload must parse as JSON");
+        assert_eq!(value["type"], "delta");
+        assert_eq!(value["added"].as_array().unwrap().len(), 1);
+        assert_eq!(value["removed"].as_array().unwrap().len(), 1);
+
+        // The delta payload must be free of `processes`/`count` since
+        // those are baseline-only fields.
+        assert!(!payload.contains("\"processes\""));
+        assert!(!payload.contains("\"count\""));
+    }
+
+    #[test]
+    fn build_software_inventory_delta_payload_rejects_unknown_kind() {
+        assert!(build_software_inventory_delta_payload("snapshot", &[], &[], &[]).is_none());
+    }
+
+    #[tokio::test]
+    async fn baseline_emits_software_inventory_delta_when_bridge_enabled() {
+        let (bus, mut server_rx) = EventBus::new(16, 16);
+        let mut state = RunningSoftwareState::default();
+
+        run_running_software_tick(&bus, &mut state, true).await;
+
+        // The first event must be the existing EnhancedInventoryUpdate
+        // baseline; the second must be the new SoftwareInventoryDelta
+        // mirror. We check both events are emitted (in the right order).
+        let ei_event = tokio::time::timeout(Duration::from_millis(500), server_rx.recv())
+            .await
+            .expect("expected EnhancedInventoryUpdate baseline")
+            .expect("server_rx closed");
+        match &ei_event.kind {
+            EventKind::EnhancedInventoryUpdate { category, data } => {
+                assert_eq!(category, "running_software");
+                assert_eq!(data["type"], "baseline");
+            }
+            other => panic!("expected EnhancedInventoryUpdate, got {:?}", other),
+        }
+
+        let mirror = recv_matching(&mut server_rx, Duration::from_millis(500), |ev| {
+            matches!(ev.kind, EventKind::SoftwareInventoryDelta { .. })
+        })
+        .await
+        .expect("expected SoftwareInventoryDelta mirror after baseline");
+        match mirror.kind {
+            EventKind::SoftwareInventoryDelta { payload } => {
+                let value: serde_json::Value = serde_json::from_str(&payload)
+                    .expect("SoftwareInventoryDelta payload must be valid JSON");
+                assert_eq!(value["type"], "baseline");
+                assert!(
+                    value["count"].as_u64().unwrap() > 0,
+                    "baseline mirror must include at least one process"
+                );
+            }
+            other => panic!("expected SoftwareInventoryDelta, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn delta_emits_software_inventory_delta_when_bridge_enabled() {
+        let (bus, mut server_rx) = EventBus::new(16, 16);
+        let mut state = RunningSoftwareState::default();
+
+        // Send the baseline first so the next tick produces a delta.
+        run_running_software_tick(&bus, &mut state, true).await;
+        // Drain any baseline-related events (EnhancedInventoryUpdate +
+        // SoftwareInventoryDelta) so they don't pollute the delta
+        // assertions below.
+        loop {
+            if tokio::time::timeout(Duration::from_millis(50), server_rx.recv())
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+
+        // Force a synthetic entry into the previous snapshot so the
+        // next tick observes a removed process.
+        let phantom_pid = u32::MAX;
+        state.previous.insert(
+            phantom_pid,
+            ProcessEntry {
+                pid: phantom_pid,
+                name: "phantom".into(),
+                path: None,
+                started_at: None,
+                publisher: None,
+            },
+        );
+
+        run_running_software_tick(&bus, &mut state, true).await;
+
+        // The first event after a delta tick must be the existing
+        // EnhancedInventoryUpdate.
+        let ei_event = tokio::time::timeout(Duration::from_millis(500), server_rx.recv())
+            .await
+            .expect("expected EnhancedInventoryUpdate delta")
+            .expect("server_rx closed");
+        match &ei_event.kind {
+            EventKind::EnhancedInventoryUpdate { category, data } => {
+                assert_eq!(category, "running_software");
+                assert_eq!(data["type"], "delta");
+            }
+            other => panic!("expected EnhancedInventoryUpdate, got {:?}", other),
+        }
+
+        let mirror = recv_matching(&mut server_rx, Duration::from_millis(500), |ev| {
+            matches!(ev.kind, EventKind::SoftwareInventoryDelta { .. })
+        })
+        .await
+        .expect("expected SoftwareInventoryDelta mirror after delta");
+        match mirror.kind {
+            EventKind::SoftwareInventoryDelta { payload } => {
+                let value: serde_json::Value = serde_json::from_str(&payload)
+                    .expect("SoftwareInventoryDelta payload must be valid JSON");
+                assert_eq!(value["type"], "delta");
+                let removed = value["removed"].as_array().expect("removed must be array");
+                assert!(
+                    removed.iter().any(|p| p["pid"] == phantom_pid),
+                    "phantom pid must appear in the SoftwareInventoryDelta mirror, got {:?}",
+                    removed
+                );
+            }
+            other => panic!("expected SoftwareInventoryDelta, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn no_software_inventory_delta_when_bridge_disabled() {
+        let (bus, mut server_rx) = EventBus::new(16, 16);
+        let mut state = RunningSoftwareState::default();
+
+        run_running_software_tick(&bus, &mut state, false).await;
+
+        // The baseline EnhancedInventoryUpdate must still fire.
+        let ei_event = tokio::time::timeout(Duration::from_millis(500), server_rx.recv())
+            .await
+            .expect("expected EnhancedInventoryUpdate baseline")
+            .expect("server_rx closed");
+        assert!(
+            matches!(ei_event.kind, EventKind::EnhancedInventoryUpdate { .. }),
+            "expected EnhancedInventoryUpdate, got {:?}",
+            ei_event.kind
+        );
+
+        // Drain the channel for a short window and assert no
+        // SoftwareInventoryDelta event ever appears. Using a small
+        // budget is fine — the mirror is enqueued synchronously
+        // inside `run_running_software_tick`, so if it were going to
+        // appear at all it would already be in the queue by now.
+        let mirror = recv_matching(&mut server_rx, Duration::from_millis(150), |ev| {
+            matches!(ev.kind, EventKind::SoftwareInventoryDelta { .. })
+        })
+        .await;
+        assert!(
+            mirror.is_none(),
+            "no SoftwareInventoryDelta should be emitted when the bridge is disabled, got {:?}",
+            mirror
+        );
     }
 }

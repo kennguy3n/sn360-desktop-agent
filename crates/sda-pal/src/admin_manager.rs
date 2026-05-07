@@ -407,10 +407,19 @@ mod windows_impl {
                 }
                 let (username, source) = if let Some(idx) = line.find('\\') {
                     // DOMAIN\user → split on first backslash.
-                    let _domain = &line[..idx];
-                    let user = &line[idx + 1..];
-                    let _ = user; // silence unused under non-test cfg
-                    (line.to_string(), "domain".to_string())
+                    //
+                    // Special case: ".\user" or "\user" (empty domain
+                    // prefix) refers to a local-machine account in
+                    // Windows naming. Treat those as "local"; only
+                    // genuine non-empty / non-"." domain prefixes mean
+                    // an Active Directory / Entra account.
+                    let domain = &line[..idx];
+                    let source = if domain == "." || domain.is_empty() {
+                        "local".to_string()
+                    } else {
+                        "domain".to_string()
+                    };
+                    (line.to_string(), source)
                 } else {
                     (line.to_string(), "local".to_string())
                 };
@@ -660,8 +669,48 @@ The command completed successfully.
             assert_eq!(admins[0].source, "local");
             assert_eq!(admins[1].username, "CONTOSO\\alice");
             assert_eq!(admins[1].source, "domain");
+            // Regression test (PR #4 review): `.\bob` is the Windows
+            // shorthand for a *local* account; the parser previously
+            // misclassified it as `domain` because the simple
+            // backslash-presence test ignored the special "." prefix.
             assert_eq!(admins[2].username, ".\\bob");
-            assert_eq!(admins[2].source, "domain");
+            assert_eq!(admins[2].source, "local");
+        }
+
+        #[test]
+        fn dot_prefix_is_local_account() {
+            // Just the `.\` line by itself, exercising the fix in
+            // isolation from the rest of the membership block.
+            let sample = "
+Members
+
+-------------------------------------------------------------------------------
+.\\carol
+The command completed successfully.
+
+";
+            let admins = WindowsAdminManager::parse_net_localgroup(sample);
+            assert_eq!(admins.len(), 1);
+            assert_eq!(admins[0].username, ".\\carol");
+            assert_eq!(admins[0].source, "local");
+        }
+
+        #[test]
+        fn empty_domain_prefix_is_local_account() {
+            // Belt-and-braces: a literal leading backslash with no
+            // domain at all is also local.
+            let sample = "
+Members
+
+-------------------------------------------------------------------------------
+\\dave
+The command completed successfully.
+
+";
+            let admins = WindowsAdminManager::parse_net_localgroup(sample);
+            assert_eq!(admins.len(), 1);
+            assert_eq!(admins[0].username, "\\dave");
+            assert_eq!(admins[0].source, "local");
         }
 
         #[test]

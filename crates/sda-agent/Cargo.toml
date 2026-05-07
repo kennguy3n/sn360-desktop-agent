@@ -38,6 +38,8 @@ sda-updater = { workspace = true }
 sda-device-control = { workspace = true }
 sda-query = { workspace = true }
 sda-posture = { workspace = true }
+sda-software = { workspace = true }
+sda-agent-vitals = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
@@ -52,3 +54,6 @@ libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
+chrono = { workspace = true }
+uuid = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
