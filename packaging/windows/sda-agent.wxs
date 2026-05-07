@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  WiX 3.x installer manifest for SN360 Desktop Agent.
+
+  Build with:
+      candle -nologo -dVersion=0.1.0 -dBinary=..\..\target\x86_64-pc-windows-msvc\release\sda-agent.exe sda-agent.wxs
+      light  -nologo -ext WixUtilExtension -o sda-agent.msi sda-agent.wixobj
+
+  See packaging\windows\build-msi.ps1 for a driver script that bakes
+  the current version out of Cargo.toml.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
+     xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
+  <Product Id="*"
+           Name="SN360 Desktop Agent"
+           Language="1033"
+           Version="$(var.Version)"
+           Manufacturer="SN360 Desktop Agent Contributors"
+           UpgradeCode="4b7e4b47-3e5d-4a9b-9f5f-8a7e0e1c0c11">
+
+    <Package InstallerVersion="500"
+             Compressed="yes"
+             InstallScope="perMachine"
+             Description="SN360 Desktop Agent $(var.Version)"
+             Comments="Lightweight Wazuh-compatible security agent"/>
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of SN360 Desktop Agent is already installed."/>
+    <MediaTemplate EmbedCab="yes"/>
+
+    <Property Id="ARPPRODUCTICON" Value="sda-agent.ico"/>
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="SN360DesktopAgent">
+          <Directory Id="SCADIR" Name="sca"/>
+        </Directory>
+      </Directory>
+      <Directory Id="CommonAppDataFolder">
+        <Directory Id="SDA_DATA" Name="SN360DesktopAgent"/>
+      </Directory>
+    </Directory>
+
+    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+      <Component Id="AgentBinary" Guid="*">
+        <File Id="AgentExe"
+              Name="sda-agent.exe"
+              Source="$(var.Binary)"
+              KeyPath="yes"/>
+        <ServiceInstall Id="SDAService"
+                        Type="ownProcess"
+                        Name="SN360DesktopAgent"
+                        DisplayName="SN360 Desktop Agent"
+                        Description="Lightweight Wazuh-compatible security agent."
+                        Start="auto"
+                        Account="LocalSystem"
+                        ErrorControl="normal"
+                        Arguments="--config &quot;[INSTALLFOLDER]config.yaml&quot;"
+                        Vital="yes">
+          <!-- Restart the service on any failure, with exponential-ish
+               backoff matching the systemd RestartSec=5 behaviour. -->
+          <util:ServiceConfig FirstFailureActionType="restart"
+                              SecondFailureActionType="restart"
+                              ThirdFailureActionType="restart"
+                              RestartServiceDelayInSeconds="5"
+                              ResetPeriodInDays="1"/>
+        </ServiceInstall>
+        <ServiceControl Id="SDAServiceControl"
+                        Name="SN360DesktopAgent"
+                        Start="install"
+                        Stop="both"
+                        Remove="uninstall"
+                        Wait="yes"/>
+      </Component>
+
+      <!--
+        NeverOverwrite="yes" on the component (not just a comment on the
+        File child) is what actually tells the installer to leave an
+        existing config.yaml alone on upgrades. Without it, a major
+        upgrade happily stomps operator-local edits back to the shipped
+        default, which is the bug A6 was filed against.
+      -->
+      <Component Id="ConfigFile" Guid="*" NeverOverwrite="yes">
+        <File Id="ConfigYaml"
+              Name="config.yaml"
+              Source="..\config\config.yaml"
+              KeyPath="yes"/>
+      </Component>
+    </ComponentGroup>
+
+    <Feature Id="Complete"
+             Title="SN360 Desktop Agent"
+             Level="1">
+      <ComponentGroupRef Id="ProductComponents"/>
+    </Feature>
+  </Product>
+</Wix>

@@ -1,0 +1,60 @@
+#!/bin/bash
+# macOS preinstall script for sda-agent.
+#
+# Runs before `pkgbuild` expands the package payload into the target
+# volume. We use this window to:
+#   1. Stop the running agent under either the current or legacy
+#      launchd label so we do not replace the executable while the
+#      old process is still running.
+#   2. Migrate legacy wazuh-desktop-agent install paths from pre-rename
+#      builds. pkgbuild creates the new /etc/sn360-desktop-agent path
+#      before running postinstall, so this move must happen here if
+#      it is going to happen at all.
+
+set -e
+
+LAUNCHD_LABEL="com.sn360.desktop-agent"
+LAUNCHD_PLIST="/Library/LaunchDaemons/${LAUNCHD_LABEL}.plist"
+
+LEGACY_LABEL="com.wazuh.desktop-agent"
+LEGACY_PLIST="/Library/LaunchDaemons/${LEGACY_LABEL}.plist"
+
+SDA_HOME="/var/lib/sn360-desktop-agent"
+SDA_LOG="/var/log/sn360-desktop-agent"
+SDA_CONF="/etc/sn360-desktop-agent"
+LEGACY_HOME="/var/lib/wazuh-desktop-agent"
+LEGACY_LOG="/var/log/wazuh-desktop-agent"
+LEGACY_CONF="/etc/wazuh-desktop-agent"
+
+for label_plist in \
+    "$LAUNCHD_LABEL:$LAUNCHD_PLIST" \
+    "$LEGACY_LABEL:$LEGACY_PLIST"
+do
+    label="${label_plist%%:*}"
+    plist="${label_plist##*:}"
+    if launchctl list "$label" >/dev/null 2>&1; then
+        launchctl unload "$plist" >/dev/null 2>&1 || true
+    fi
+done
+
+# Drop the legacy plist entirely so only the current label remains
+# registered after the new payload is laid down.
+if [ -f "$LEGACY_PLIST" ]; then
+    rm -f "$LEGACY_PLIST"
+fi
+
+migrate_legacy_dir() {
+    src="$1"
+    dst="$2"
+    if [ -d "$src" ] && [ ! -e "$dst" ]; then
+        mkdir -p "$(dirname "$dst")"
+        mv "$src" "$dst"
+        echo "migrated $src -> $dst" >&2
+    fi
+}
+
+migrate_legacy_dir "$LEGACY_CONF" "$SDA_CONF"
+migrate_legacy_dir "$LEGACY_HOME" "$SDA_HOME"
+migrate_legacy_dir "$LEGACY_LOG"  "$SDA_LOG"
+
+exit 0

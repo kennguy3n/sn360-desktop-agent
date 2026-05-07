@@ -1,0 +1,49 @@
+#!/bin/sh
+# preinst script for sda-agent
+#
+# Runs before the package payload is unpacked. We use this window to
+# migrate legacy wazuh-desktop-agent install paths from pre-rename
+# builds so the operator's existing client.keys, FIM database,
+# logcollector seek state, rootcheck baselines, and LDE offline queue
+# survive the rename. Once dpkg starts extracting files the new
+# destination directories exist (/etc/sn360-desktop-agent is shipped in
+# the payload), so any move-if-missing logic in postinst would be a
+# no-op; doing it here is the only point at which the move can succeed.
+
+set -e
+
+SDA_HOME=/var/lib/sn360-desktop-agent
+SDA_LOG=/var/log/sn360-desktop-agent
+SDA_CONF=/etc/sn360-desktop-agent
+
+LEGACY_HOME=/var/lib/wazuh-desktop-agent
+LEGACY_LOG=/var/log/wazuh-desktop-agent
+LEGACY_CONF=/etc/wazuh-desktop-agent
+
+migrate_legacy_dir() {
+    src="$1"
+    dst="$2"
+    if [ -d "$src" ] && [ ! -e "$dst" ]; then
+        mkdir -p "$(dirname "$dst")"
+        mv "$src" "$dst"
+        echo "migrated $src -> $dst" >&2
+    fi
+}
+
+case "$1" in
+    install|upgrade)
+        migrate_legacy_dir "$LEGACY_CONF" "$SDA_CONF"
+        migrate_legacy_dir "$LEGACY_HOME" "$SDA_HOME"
+        migrate_legacy_dir "$LEGACY_LOG"  "$SDA_LOG"
+        ;;
+
+    abort-upgrade)
+        ;;
+
+    *)
+        echo "preinst called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

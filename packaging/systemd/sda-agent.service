@@ -1,0 +1,52 @@
+[Unit]
+Description=SN360 Desktop Agent
+Documentation=https://github.com/kennguy3n/sn360-agent-device
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sda
+Group=sda
+ExecStart=/usr/bin/sda-agent --config /etc/sn360-desktop-agent/config.yaml
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+# State & logging directories (created by systemd if missing)
+StateDirectory=sn360-desktop-agent
+StateDirectoryMode=0750
+LogsDirectory=sn360-desktop-agent
+LogsDirectoryMode=0750
+
+# The config directory is intentionally NOT listed in ReadOnlyPaths:
+# enrollment writes client.keys under /etc/sn360-desktop-agent the first
+# time the agent talks to authd, so the directory must be writable.
+# The ReadWritePaths= line below already grants that; listing the same
+# path in ReadOnlyPaths would be overridden by ReadWritePaths but would
+# mislead operators reading this unit into thinking the config dir is
+# locked down.
+
+# Sandboxing. These are deliberately conservative — the agent still
+# needs broad filesystem read access for FIM, rootcheck, and
+# inventory, so directory hardening is handled by file permissions
+# rather than systemd's private-mount primitives.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+ReadWritePaths=/var/lib/sn360-desktop-agent /var/log/sn360-desktop-agent /etc/sn360-desktop-agent
+
+# Capabilities needed by FIM real-time watchers and active response.
+AmbientCapabilities=CAP_DAC_READ_SEARCH CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_NET_ADMIN
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,140 @@
+[workspace]
+members = [
+    "crates/sda-core",
+    "crates/sda-pal",
+    "crates/sda-event-bus",
+    "crates/sda-comms",
+    "crates/sda-fim",
+    "crates/sda-logcollector",
+    "crates/sda-inventory",
+    "crates/sda-sca",
+    "crates/sda-active-response",
+    "crates/sda-rootcheck",
+    "crates/sda-agent",
+    "crates/sda-local-detection",
+    "crates/sda-enhanced-inventory",
+    "crates/sda-updater",
+]
+# fuzz/ has its own [workspace] stanza and is not part of the main
+# build. Keeping it excluded avoids pulling libfuzzer-sys (and the
+# nightly toolchain it requires) into stable CI builds.
+exclude = ["fuzz"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "LicenseRef-Proprietary"
+authors = ["SN360 Desktop Agent Contributors"]
+rust-version = "1.75"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["rt", "io-util", "net", "time", "process", "signal", "sync", "macros", "fs"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+# MessagePack event serialization (opt-in via config.server.enhanced.serialization, Phase 5.6).
+rmp-serde = "1"
+
+# Crypto
+ring = "0.17"
+aes = "0.8"
+cbc = "0.1"
+
+# TLS
+# Use `ring` as the crypto backend instead of the default `aws_lc_rs` to avoid
+# pulling in the large/slow-to-compile aws-lc-sys crate. `ring` is already a
+# workspace dependency used elsewhere in the project.
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging", "tls12"] }
+rustls-pemfile = "2"
+webpki-roots = "0.26"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Filesystem watching
+notify = "7"
+
+# Database
+# Disable default features (which pull in `modern_sqlite` and various extension
+# shims) and only enable `bundled` for a minimal, statically-linked SQLite.
+rusqlite = { version = "0.32", default-features = false, features = ["bundled"] }
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Utilities
+bytes = "1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+sha2 = "0.10"
+md-5 = "0.10"
+flate2 = "1"
+gethostname = "0.5"
+socket2 = { version = "0.5", features = ["all"] }
+
+# Unix-specific
+nix = { version = "0.29", features = ["inotify", "signal", "user", "fs", "process", "net"] }
+
+# Windows-specific
+windows = { version = "0.58", features = [
+    "Win32_System_EventLog",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Foundation",
+    "Win32_Networking_WinSock",
+] }
+
+# Internal crates
+sda-core = { path = "crates/sda-core" }
+sda-pal = { path = "crates/sda-pal" }
+sda-event-bus = { path = "crates/sda-event-bus" }
+sda-comms = { path = "crates/sda-comms", default-features = false }
+sda-fim = { path = "crates/sda-fim" }
+sda-logcollector = { path = "crates/sda-logcollector" }
+sda-inventory = { path = "crates/sda-inventory" }
+sda-sca = { path = "crates/sda-sca" }
+sda-active-response = { path = "crates/sda-active-response" }
+sda-rootcheck = { path = "crates/sda-rootcheck" }
+sda-local-detection = { path = "crates/sda-local-detection" }
+sda-enhanced-inventory = { path = "crates/sda-enhanced-inventory" }
+sda-updater = { path = "crates/sda-updater" }
+
+# Self-update (P3.1)
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "stream", "json"] }
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+hex = "0.4"
+tempfile = "3"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+
+# Detection & inventory
+aho-corasick = "1"
+bloomfilter = "1"
+indexmap = "2"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+opt-level = "z"
+strip = true
+
+# CI-oriented release profile: same optimizations as `release` but with
+# thin LTO and multiple codegen units for dramatically faster compile
+# times. Used by the CI `build` and `e2e` jobs where wall-clock time
+# matters more than the last few percent of binary size. The final
+# release binary (fat LTO, 1 codegen unit) is built by the dedicated
+# release/tag workflow using `--release`.
+[profile.ci]
+inherits = "release"
+lto = "thin"
+codegen-units = 4
+
+[profile.release-small]
+inherits = "release"
