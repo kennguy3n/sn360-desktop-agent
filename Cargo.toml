@@ -19,6 +19,7 @@ members = [
     "crates/sda-posture",
     "crates/sda-software",
     "crates/sda-script-runner",
+    "crates/sda-jit-admin",
     "crates/sda-agent-vitals",
 ]
 # fuzz/ has its own [workspace] stanza and is not part of the main
@@ -117,6 +118,7 @@ sda-query = { path = "crates/sda-query" }
 sda-posture = { path = "crates/sda-posture" }
 sda-software = { path = "crates/sda-software" }
 sda-script-runner = { path = "crates/sda-script-runner" }
+sda-jit-admin = { path = "crates/sda-jit-admin" }
 sda-agent-vitals = { path = "crates/sda-agent-vitals" }
 
 # Self-update (P3.1)
