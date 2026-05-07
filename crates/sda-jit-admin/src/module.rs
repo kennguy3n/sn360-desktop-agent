@@ -483,13 +483,22 @@ impl Supervisor {
         }
 
         // Best-effort OS-level revoke when we have a live handle.
+        // If the admin layer reports the privilege is *already* gone
+        // (idempotent success), we proceed to finalise the ledger to
+        // `Revoked`. Any other error means the OS-level privilege is
+        // (or may still be) live — we MUST NOT mark the record
+        // terminal, otherwise the watchdog (which only retries
+        // non-terminal records) will silently leak the grant. Bail
+        // out instead so the next watchdog tick re-attempts; the
+        // emitted evidence record gives operators visibility while
+        // the retry runs.
         if let Some(handle) = record.handle.clone() {
             if let Err(err) = self.admin.revoke_admin(&handle) {
                 if !is_already_revoked(&err) {
                     warn!(
                         grant_id = id,
                         error = %err,
-                        "jit_admin: AdminManager::revoke_admin failed",
+                        "jit_admin: AdminManager::revoke_admin failed; leaving record retryable",
                     );
                     self.emit_event(EventKind::EvidenceRecord {
                         payload: serde_json::to_string(&AdminEvidence::failure(
@@ -499,6 +508,7 @@ impl Supervisor {
                         ))
                         .unwrap_or_default(),
                     });
+                    return;
                 }
             }
         }
@@ -867,6 +877,87 @@ mod tests {
         let r = store.get("g-3").expect("record persisted");
         assert_eq!(r.state, GrantState::Revoked);
         assert!(r.state.is_terminal());
+    }
+
+    /// Regression guard for the `do_revoke` early-return when the
+    /// OS-level `revoke_admin` call fails non-idempotently. Pre-fix
+    /// the supervisor logged a warning, emitted an `EvidenceRecord`,
+    /// and then *fell through* to the state-machine `apply` call,
+    /// transitioning the grant to terminal `Revoked` even though the
+    /// OS-level privilege was still live. Because `Revoked` is
+    /// terminal, no watchdog branch (timer, heartbeat-loss, power)
+    /// would ever retry — silently leaking admin privilege. The fix
+    /// is to bail out of `do_revoke` when the admin layer reports a
+    /// non-`AlreadyRevoked` error so the watchdog picks the record
+    /// up on the next tick.
+    #[tokio::test(flavor = "current_thread")]
+    async fn revoke_admin_failure_keeps_record_retryable() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("grants.json");
+        let cfg = cfg(true, Some(path.clone()));
+        let (bus, _server_rx) = EventBus::new(16, 16);
+        let (controller, signal) = ShutdownController::new();
+
+        let admin = Arc::new(FakeAdmin::default());
+        let until = Utc::now() + chrono::Duration::hours(1);
+        *admin.next_grant_handle.lock().unwrap() = Some(handle("h-retry", until));
+        // Inject a non-idempotent failure on the upcoming revoke.
+        // `is_already_revoked` keys on the substrings "not a member"
+        // and "not found"; "io error" matches neither, so the
+        // failure is treated as still-live.
+        *admin.revoke_should_fail.lock().unwrap() =
+            Some(AdminError::Command("io error: device not ready".into()));
+
+        let h = JitAdminModule::start(&cfg, bus, signal, admin.clone(), tmp.path().to_path_buf());
+        let sender = h.sender.expect("module should be active");
+
+        sender
+            .send(JitAdminRequest::NewRequest {
+                id: "g-retry".into(),
+                requested_by: "ops".into(),
+                user: user("alice"),
+                until,
+            })
+            .await
+            .unwrap();
+        sender
+            .send(JitAdminRequest::Approve {
+                id: "g-retry".into(),
+                reason: None,
+            })
+            .await
+            .unwrap();
+        sender
+            .send(JitAdminRequest::Revoke {
+                id: "g-retry".into(),
+                reason: Some(RevocationReason::Operator),
+            })
+            .await
+            .unwrap();
+
+        // Drain the bus so we know all in-flight messages have been
+        // processed before we shut down.
+        let _ = drain_server(&mut { _server_rx }).await;
+        controller.shutdown();
+        h.module.task.await.unwrap().unwrap();
+
+        // The OS-level revoke was attempted exactly once.
+        assert_eq!(admin.revokes.lock().unwrap().len(), 1);
+
+        // Critically: the record must NOT be terminal, so the
+        // watchdog can retry on the next tick.
+        let store = GrantStore::open(&path).unwrap();
+        let r = store.get("g-retry").expect("record persisted");
+        assert_eq!(
+            r.state,
+            GrantState::Granted,
+            "record must stay Granted so the watchdog can retry, was {:?}",
+            r.state,
+        );
+        assert!(
+            !r.state.is_terminal(),
+            "record must not be terminal after a non-idempotent revoke failure",
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]

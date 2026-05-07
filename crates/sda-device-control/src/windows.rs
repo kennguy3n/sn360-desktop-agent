@@ -114,7 +114,14 @@ impl CompiledWindow {
     }
 
     fn wraps_midnight(&self) -> bool {
-        self.end <= self.start
+        // Strict `<` so that a degenerate `start == end` config falls
+        // through to the non-wrap branch in [`CompiledWindow::contains`]
+        // and matches *only* that exact minute. With `<=` the predicate
+        // would hold for `start == end`, the non-wrap branch would
+        // never run, and `time >= start || time <= end` would evaluate
+        // to `true` for every clock value — silently turning a
+        // single-minute window into a 24-hour blanket allow.
+        self.end < self.start
     }
 }
 
@@ -537,6 +544,32 @@ mod tests {
         );
         // Saturday 07:01 — outside.
         assert!(!wrap.is_in_maintenance_window(utc(2026, 5, 9, 7, 1), "UTC"));
+    }
+
+    /// Regression guard for the `wraps_midnight()` strict-`<` fix.
+    /// A `start == end` config used to evaluate as wrap-around with
+    /// `time >= start || time <= end` — true for every clock value,
+    /// silently turning a "single-minute" window into a 24-hour
+    /// blanket allow. Strict `<` now puts the degenerate config in
+    /// the non-wrap branch so it matches *only* the exact minute.
+    #[test]
+    fn maintenance_window_with_equal_start_and_end_matches_only_that_minute() {
+        let p = MaintenanceWindowPolicy::from_config(
+            &maintenance("05:00", "05:00", vec!["mon-sun"]),
+            &QuietHours::default(),
+            "UTC",
+        )
+        .unwrap();
+        // Exactly 05:00 — the one minute the window admits.
+        assert!(p.is_in_maintenance_window(utc(2026, 5, 4, 5, 0), "UTC"));
+        // 04:59 — outside.
+        assert!(!p.is_in_maintenance_window(utc(2026, 5, 4, 4, 59), "UTC"));
+        // 05:01 — outside.
+        assert!(!p.is_in_maintenance_window(utc(2026, 5, 4, 5, 1), "UTC"));
+        // Mid-day — outside (pre-fix this returned true).
+        assert!(!p.is_in_maintenance_window(utc(2026, 5, 4, 12, 0), "UTC"));
+        // Midnight — outside (pre-fix this returned true).
+        assert!(!p.is_in_maintenance_window(utc(2026, 5, 4, 0, 0), "UTC"));
     }
 
     #[test]
