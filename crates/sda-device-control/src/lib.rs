@@ -30,6 +30,7 @@ pub mod router;
 pub mod signed_job;
 pub mod types;
 pub mod version;
+pub mod windows;
 
 pub use action_result::{
     ActionResult, ActionResultError, ACTION_RESULT_OUTPUT_MAX_BYTES, TRUNCATION_MARKER,

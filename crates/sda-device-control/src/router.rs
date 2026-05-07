@@ -38,6 +38,7 @@ use crate::evidence::{
 };
 use crate::signed_job::{JobArgs, SignedActionJob, SignedJobError};
 use crate::types::{ActionKind, ActionStatus, AgentVersion, JobRefused, Platform};
+use crate::windows::{MaintenanceWindowPolicy, WindowDecision};
 
 /// Tolerance window for `not_before` / `not_after` (SCHEMAS.md
 /// § 7.4 step 5).
@@ -247,6 +248,104 @@ pub fn process_job<H: JobValidationHooks>(
     ProcessedJob {
         action_result,
         evidence,
+    }
+}
+
+/// Wrapper around [`process_job`] that consults a
+/// [`MaintenanceWindowPolicy`] *before* invoking the rest of the
+/// pipeline.
+///
+/// This is the production entry point used by the agent. The
+/// underlying [`process_job`] is preserved so existing call sites
+/// and unit tests that pre-date Phase 2.8 continue to work.
+///
+/// Three outcomes are possible:
+///
+/// * [`WindowDecision::Execute`] — the policy permits execution
+///   right now; we forward to [`process_job`] which runs the full
+///   10-step pipeline.
+/// * [`WindowDecision::Defer`] — the job arrived outside the
+///   maintenance window or inside quiet hours; we synthesise an
+///   `ActionResult` with `status = Skipped` and the human-readable
+///   marker `outside_maintenance_window` in `output`. The job is
+///   not refused — the upstream queue is expected to retry it the
+///   next time the window opens.
+/// * [`WindowDecision::Refuse`] — the policy is mis-configured (a
+///   maintenance window with zero permissible days); we permanently
+///   refuse with [`JobRefused::OutsideWindow`].
+///
+/// Both `Defer` and `Refuse` paths still emit a chained
+/// [`EvidenceRecord`] so the audit trail captures the decision.
+#[allow(clippy::too_many_arguments)]
+pub fn process_job_with_window_policy<H: JobValidationHooks>(
+    job: &SignedActionJob,
+    self_identity: &AgentIdentity,
+    now: DateTime<Utc>,
+    hooks: &H,
+    window_policy: &MaintenanceWindowPolicy,
+    chain: &mut EvidenceChain,
+    platform: &Platform,
+    agent: &AgentVersion,
+) -> ProcessedJob {
+    let action_result = match window_policy.should_execute(now) {
+        WindowDecision::Execute => {
+            return process_job(job, self_identity, now, hooks, chain, platform, agent);
+        }
+        WindowDecision::Defer => phase2_window_deferred_ack(job, now),
+        WindowDecision::Refuse => phase1_refused(job, JobRefused::OutsideWindow, now),
+    };
+
+    let args_canonical = canonicalize(&job.args)
+        .ok()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .unwrap_or_else(|| job.args.to_string());
+
+    let output_full = action_result.output.as_bytes();
+    let evidence = build_signed_evidence_record(
+        job,
+        &action_result,
+        chain,
+        EvidenceContext {
+            args_canonical,
+            output_full,
+            platform: platform.clone(),
+            agent: agent.clone(),
+        },
+    )
+    .expect("Phase 2.8 evidence build/validate must not fail for synthesised records");
+
+    chain
+        .append(&evidence)
+        .expect("Phase 2.8 chain append must not fail for canonical records");
+
+    ProcessedJob {
+        action_result,
+        evidence,
+    }
+}
+
+/// `ActionStatus::Skipped` projection used when a job arrives
+/// outside the maintenance window. `output` carries the canonical
+/// marker `"outside_maintenance_window"` so dashboards and operator
+/// queries can filter on it.
+fn phase2_window_deferred_ack(job: &SignedActionJob, now: DateTime<Utc>) -> ActionResult {
+    let (output, output_truncated) = bound_output(String::from(
+        "outside_maintenance_window: deferred — job will retry on the next open window",
+    ));
+    ActionResult {
+        job_id: job.job_id,
+        tenant_id: job.tenant_id,
+        device_id: job.device_id,
+        schema_version: crate::version::ACTION_RESULT_SCHEMA_VERSION,
+        action: job.action,
+        status: ActionStatus::Skipped,
+        refused_reason: None,
+        started_at: now,
+        finished_at: now,
+        exit_code: None,
+        output,
+        output_truncated,
+        evidence_id: Uuid::new_v4(),
     }
 }
 
@@ -928,5 +1027,154 @@ mod tests {
                 .validate()
                 .expect("action result must validate");
         }
+    }
+
+    /// Phase 2.8 — `process_job_with_window_policy` happy path: an
+    /// always-open policy delegates straight through to the regular
+    /// pipeline and produces the Phase 1 skipped-ack projection.
+    #[test]
+    fn window_policy_always_open_passes_through_to_phase1_ack() {
+        let mut chain = EvidenceChain::new();
+        let processed = process_job_with_window_policy(
+            &happy_job(),
+            &identity(),
+            now_in_window(),
+            &AcceptingHooks::ok(),
+            &MaintenanceWindowPolicy::always_open(),
+            &mut chain,
+            &platform(),
+            &agent_version(),
+        );
+        assert_eq!(processed.action_result.status, ActionStatus::Skipped);
+        assert_eq!(processed.action_result.refused_reason, None);
+        assert!(
+            processed
+                .action_result
+                .output
+                .contains("phase1_no_op_ack"),
+            "output should be the phase1 ack marker, got `{}`",
+            processed.action_result.output
+        );
+        processed.evidence.validate().expect("evidence valid");
+    }
+
+    /// Phase 2.8 — outside the maintenance window: the wrapper
+    /// produces an `ActionStatus::Skipped` ack carrying the
+    /// `outside_maintenance_window` marker; the job is *not*
+    /// refused, so retry semantics are preserved.
+    #[test]
+    fn window_policy_outside_window_returns_skipped_with_marker() {
+        use sda_core::config::{MaintenanceWindow, QuietHours};
+        // Window: Mon-Fri 02:00–05:00. `now_in_window` is a Thursday
+        // at 08:30 — outside.
+        let policy = MaintenanceWindowPolicy::from_config(
+            &MaintenanceWindow {
+                enabled: true,
+                start: "02:00".into(),
+                end: "05:00".into(),
+                days: vec!["mon-fri".into()],
+            },
+            &QuietHours::default(),
+            "UTC",
+        )
+        .unwrap();
+        let mut chain = EvidenceChain::new();
+        let processed = process_job_with_window_policy(
+            &happy_job(),
+            &identity(),
+            now_in_window(),
+            &AcceptingHooks::ok(),
+            &policy,
+            &mut chain,
+            &platform(),
+            &agent_version(),
+        );
+        assert_eq!(processed.action_result.status, ActionStatus::Skipped);
+        assert_eq!(processed.action_result.refused_reason, None);
+        assert!(
+            processed
+                .action_result
+                .output
+                .contains("outside_maintenance_window"),
+            "output should carry the canonical marker, got `{}`",
+            processed.action_result.output
+        );
+        processed.evidence.validate().expect("evidence valid");
+    }
+
+    /// Phase 2.8 — quiet hours block execution even when the
+    /// maintenance window itself permits it.
+    #[test]
+    fn window_policy_quiet_hours_defers() {
+        use sda_core::config::{MaintenanceWindow, QuietHours};
+        // Maintenance: any day 00:00–23:59 (always permitted).
+        // Quiet hours: 08:00–09:00. `now_in_window` is 08:30 — inside
+        // quiet hours, so we expect a Defer.
+        let policy = MaintenanceWindowPolicy::from_config(
+            &MaintenanceWindow {
+                enabled: true,
+                start: "00:00".into(),
+                end: "23:59".into(),
+                days: vec!["mon-sun".into()],
+            },
+            &QuietHours {
+                enabled: true,
+                start: "08:00".into(),
+                end: "09:00".into(),
+            },
+            "UTC",
+        )
+        .unwrap();
+        let mut chain = EvidenceChain::new();
+        let processed = process_job_with_window_policy(
+            &happy_job(),
+            &identity(),
+            now_in_window(),
+            &AcceptingHooks::ok(),
+            &policy,
+            &mut chain,
+            &platform(),
+            &agent_version(),
+        );
+        assert_eq!(processed.action_result.status, ActionStatus::Skipped);
+        assert!(processed
+            .action_result
+            .output
+            .contains("outside_maintenance_window"));
+    }
+
+    /// Phase 2.8 — a maintenance window with zero allowed days is
+    /// permanently un-runnable. The wrapper should refuse rather
+    /// than queue forever.
+    #[test]
+    fn window_policy_zero_days_refuses_with_outside_window() {
+        use sda_core::config::{MaintenanceWindow, QuietHours};
+        let policy = MaintenanceWindowPolicy::from_config(
+            &MaintenanceWindow {
+                enabled: true,
+                start: "02:00".into(),
+                end: "05:00".into(),
+                days: vec![],
+            },
+            &QuietHours::default(),
+            "UTC",
+        )
+        .unwrap();
+        let mut chain = EvidenceChain::new();
+        let processed = process_job_with_window_policy(
+            &happy_job(),
+            &identity(),
+            now_in_window(),
+            &AcceptingHooks::ok(),
+            &policy,
+            &mut chain,
+            &platform(),
+            &agent_version(),
+        );
+        assert_eq!(processed.action_result.status, ActionStatus::Refused);
+        assert_eq!(
+            processed.action_result.refused_reason,
+            Some(JobRefused::OutsideWindow)
+        );
     }
 }
