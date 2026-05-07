@@ -155,6 +155,7 @@ For the full configuration reference, see the [Configuration section in `device-
 - [**docs/platform-testing.md**](./docs/platform-testing.md) — CI matrix + Fedora/Arch manual procedures
 - [**docs/security-audit.md**](./docs/security-audit.md) — `cargo audit` + `cargo-fuzz` setup
 - [**docs/integration.md**](./docs/integration.md) — Integration with the SN360 Security Platform, non-Wazuh components
+- [**docs/device-control/README.md**](./docs/device-control/README.md) — ShieldNet Device Control module overview, architecture, and roadmap
 - [**TEST_RESULTS.md**](./TEST_RESULTS.md) — Latest unit / E2E / security E2E results (with a Non-Wazuh Component Verification section)
 - [**CHANGELOG.md**](./CHANGELOG.md) — Release notes
 - [**device-agent-proposal.md**](./device-agent-proposal.md) — Original architecture & implementation proposal
