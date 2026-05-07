@@ -370,6 +370,7 @@ checksum = "70e796c081cee67dc755e1a36a0a172b897fab85fc3f6bc48307991f64e4eca9"
 dependencies = [
  "curve25519-dalek",
  "ed25519",
+ "rand_core 0.6.4",
  "serde",
  "sha2",
  "subtle",
@@ -1689,6 +1690,7 @@ dependencies = [
  "libc",
  "nix",
  "sda-active-response",
+ "sda-agent-vitals",
  "sda-comms",
  "sda-core",
  "sda-device-control",
@@ -1703,6 +1705,7 @@ dependencies = [
  "sda-query",
  "sda-rootcheck",
  "sda-sca",
+ "sda-software",
  "sda-updater",
  "serde_json",
  "sha2",
@@ -1710,6 +1713,22 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "sda-agent-vitals"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "sda-core",
+ "sda-event-bus",
+ "sda-pal",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -1788,6 +1807,7 @@ dependencies = [
  "chrono",
  "nix",
  "sda-core",
+ "sda-device-control",
  "sda-event-bus",
  "sda-pal",
  "serde",
@@ -1979,6 +1999,26 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "sda-software"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "ed25519-dalek",
+ "hex",
+ "rand_core 0.6.4",
+ "sda-core",
+ "sda-event-bus",
+ "sda-pal",
+ "serde",
+ "serde_json",
+ "sha2",
  "thiserror 2.0.18",
  "tokio",
  "tracing",

@@ -8,7 +8,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+use crate::action_result::ActionResult;
 use crate::canonicalize::{canonicalize, CanonicalizeError};
+use crate::signed_job::SignedActionJob;
 use crate::types::{ActionKind, ActionStatus, AgentVersion, JobRefused, Platform};
 
 /// 32 bytes of zero — sentinel `prev_record_hash` for the first
@@ -124,6 +126,139 @@ pub fn sha256(bytes: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     hasher.finalize().into()
+}
+
+/// Phase 1 placeholder signature for an `EvidenceRecord`. Phase 2
+/// replaces this with a real Ed25519 signature once the
+/// `sda-evidence-keys` infrastructure lands. Until then the bytes
+/// stored in `EvidenceRecord.signature` are deterministically
+/// derived from the canonical pre-image so they round-trip cleanly
+/// through the bus and pass `EvidenceRecord::validate`.
+pub const PHASE1_STUB_KEY_ID: &str = "sda-evidence-stub-phase1";
+
+/// Build the deterministic Phase 1 stub signature: `SHA-256(pre_image)`
+/// padded to 64 bytes by repeating the first 32 bytes. The shape is
+/// kept as `Vec<u8>` of length 64 to match the eventual Ed25519
+/// signature size — verifiers MUST treat any record signed with
+/// `PHASE1_STUB_KEY_ID` as untrusted, but the byte length stays
+/// stable across the Phase 1 → Phase 2 transition.
+pub fn phase1_stub_signature(pre_image: &[u8]) -> Vec<u8> {
+    let h = sha256(pre_image);
+    let mut sig = Vec::with_capacity(64);
+    sig.extend_from_slice(&h);
+    sig.extend_from_slice(&h);
+    sig
+}
+
+/// Append-only chain head for a device's evidence sequence.
+///
+/// `last_chain_hash` is the SHA-256 of the canonical encoding of the
+/// most recently appended record (i.e. the value the *next* record
+/// must store in `prev_record_hash`). For a fresh agent it is
+/// [`FIRST_RECORD_PREV_HASH`], so the very first record produced
+/// links to the zero sentinel as required by SCHEMAS.md § 9.1.
+#[derive(Debug, Clone, Default)]
+pub struct EvidenceChain {
+    last_chain_hash: Option<[u8; 32]>,
+}
+
+impl EvidenceChain {
+    /// Construct a fresh chain whose first record will link to
+    /// [`FIRST_RECORD_PREV_HASH`].
+    pub fn new() -> Self {
+        Self {
+            last_chain_hash: None,
+        }
+    }
+
+    /// Construct a chain that already has at least one record on it
+    /// (e.g. recovered from disk after a restart).
+    pub fn with_last(last: [u8; 32]) -> Self {
+        Self {
+            last_chain_hash: Some(last),
+        }
+    }
+
+    /// Return the hash that the *next* record's `prev_record_hash`
+    /// field must contain.
+    pub fn next_prev_hash(&self) -> [u8; 32] {
+        self.last_chain_hash.unwrap_or(FIRST_RECORD_PREV_HASH)
+    }
+
+    /// Mark `record` as appended to the chain by recording its
+    /// `chain_hash` as the new head.
+    pub fn append(&mut self, record: &EvidenceRecord) -> Result<(), EvidenceError> {
+        let h = record.chain_hash()?;
+        self.last_chain_hash = Some(h);
+        Ok(())
+    }
+
+    /// True when no record has been appended yet (first-record case).
+    pub fn is_empty(&self) -> bool {
+        self.last_chain_hash.is_none()
+    }
+}
+
+/// Inputs the executor passes to `build_signed_evidence_record`. The
+/// fields mirror the columns of `EvidenceRecord` that come from
+/// outside the `ActionResult` itself.
+#[derive(Debug, Clone)]
+pub struct EvidenceContext<'a> {
+    pub args_canonical: String,
+    pub output_full: &'a [u8],
+    pub platform: Platform,
+    pub agent: AgentVersion,
+}
+
+/// Build an `EvidenceRecord` from an `ActionResult`, the originating
+/// `SignedActionJob`, the device-side context, and the chain's
+/// current head.
+///
+/// The returned record:
+/// - hashes the *full* output bytes into `output_sha256`;
+/// - links into the chain by setting `prev_record_hash =
+///   chain.next_prev_hash()`;
+/// - carries a deterministic Phase 1 stub signature
+///   ([`phase1_stub_signature`]) keyed by [`PHASE1_STUB_KEY_ID`];
+/// - copies the canonical args of the originating job into
+///   `args_canonical`; and
+/// - re-uses the `evidence_id` already on the `ActionResult` so the
+///   pair stays correlated end-to-end.
+pub fn build_signed_evidence_record(
+    job: &SignedActionJob,
+    result: &ActionResult,
+    chain: &EvidenceChain,
+    ctx: EvidenceContext<'_>,
+) -> Result<EvidenceRecord, EvidenceError> {
+    let mut record = EvidenceRecord {
+        evidence_id: result.evidence_id,
+        tenant_id: result.tenant_id,
+        device_id: result.device_id,
+        schema_version: crate::version::EVIDENCE_RECORD_SCHEMA_VERSION,
+        job_id: result.job_id,
+        recommendation_id: job.recommendation_id,
+        action: result.action,
+        args_canonical: ctx.args_canonical,
+        started_at: result.started_at,
+        finished_at: result.finished_at,
+        status: result.status,
+        refused_reason: result.refused_reason,
+        exit_code: result.exit_code,
+        output_sha256: sha256(ctx.output_full),
+        platform: ctx.platform,
+        agent: ctx.agent,
+        prev_record_hash: chain.next_prev_hash(),
+        // The stub signature is derived from the canonical
+        // pre-image, which itself is computed with `signature` set
+        // to "" — so we cannot fill `signature` in until after the
+        // pre-image is built. Start with an empty Vec.
+        signature: Vec::new(),
+        key_id: PHASE1_STUB_KEY_ID.to_string(),
+    };
+    let pre_image = record.canonical_pre_image()?;
+    record.signature = phase1_stub_signature(&pre_image);
+    record.validate()?;
+    Ok(record)
 }
 
 /// `serde` adapter for the two fixed-size byte arrays on

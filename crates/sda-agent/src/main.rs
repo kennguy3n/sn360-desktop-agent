@@ -475,7 +475,44 @@ async fn main() -> Result<()> {
         agent.register_module(p_handle);
     }
 
-    // 12l. Tamper-protection watchdog (P3.3). Off unless
+    // 12l. Software module (Phase 2.5 scaffold).
+    //      Off by default. When enabled the supervisor refreshes the
+    //      signed catalogue at `modules.software.refresh_interval_secs`
+    //      and exposes install/update/uninstall actions through the
+    //      `PackageManager` PAL trait. The Phase 2.5 scaffold parks
+    //      until Phase 2.6 wires the live fetch loop.
+    if config.modules.software.enabled {
+        info!("starting software module");
+        let sw_handle = sda_software::SoftwareModule::start(
+            &config,
+            agent.event_bus(),
+            agent.shutdown_signal(),
+        );
+        agent.register_module(sw_handle);
+    }
+
+    // 12m. Agent-vitals heartbeat (Phase 1.12).
+    //      Per ARCHITECTURE.md § 10 step 5 the heartbeat is always-on
+    //      when Device Control is enabled. The cadence defaults to
+    //      60s (`Priority::Low` per ARCHITECTURE.md § 7.3); the
+    //      module pauses entirely on `PowerProfile::CriticalBattery`.
+    //      `modules.agent_vitals.enabled` lets operators force-enable
+    //      the heartbeat without lighting up the rest of Device
+    //      Control, which is useful for fleet-wide observability
+    //      pilots.
+    if config.modules.device_control.enabled || config.modules.agent_vitals.enabled {
+        info!("starting agent vitals module");
+        let av_handle = sda_agent_vitals::VitalsModule::start(
+            config.modules.agent_vitals.interval_secs,
+            sda_agent_vitals::VitalsCounters::new(),
+            agent.event_bus(),
+            agent.shutdown_signal(),
+            power_rx.clone(),
+        );
+        agent.register_module(av_handle);
+    }
+
+    // 12n. Tamper-protection watchdog (P3.3). Off unless
     // `security.tamper.watchdog_interval_secs` is non-zero AND
     // `$NOTIFY_SOCKET` is set by the service manager.
     let _watchdog_handle = tamper::spawn_watchdog(&config.security.tamper);

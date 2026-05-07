@@ -38,6 +38,8 @@ sda-updater = { workspace = true }
 sda-device-control = { workspace = true }
 sda-query = { workspace = true }
 sda-posture = { workspace = true }
+sda-software = { workspace = true }
+sda-agent-vitals = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
