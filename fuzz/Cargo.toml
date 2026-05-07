@@ -1,0 +1,55 @@
+# Fuzzing harness for SDA (Phase 6 task 6.4).
+#
+# This is a standalone crate (own [workspace]) so the main workspace
+# build on stable Rust is unaffected. To run:
+#
+#   cargo +nightly install cargo-fuzz
+#   cd fuzz
+#   cargo +nightly fuzz run protocol_decode
+#
+# See docs/security-audit.md for the full per-target guide.
+
+[package]
+name = "sda-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+sda-comms = { path = "../crates/sda-comms", features = ["legacy-siem"] }
+sda-local-detection = { path = "../crates/sda-local-detection" }
+sda-updater = { path = "../crates/sda-updater" }
+
+[workspace]
+
+[[bin]]
+name = "protocol_decode"
+path = "fuzz_targets/protocol_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "protocol_decompress"
+path = "fuzz_targets/protocol_decompress.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "msgpack_event_decode"
+path = "fuzz_targets/msgpack_event_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rule_store_msgpack"
+path = "fuzz_targets/rule_store_msgpack.rs"
+test = false
+doc = false
+bench = false
