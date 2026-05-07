@@ -778,7 +778,15 @@ pub mod windows_impl {
                 Some(v) => v,
                 None => continue,
             };
-            if version_start <= id_start || trimmed.len() <= id_start {
+            // Both `id_start` and `version_start` are byte offsets
+            // taken from the header line. A short data line that
+            // doesn't reach the version column would otherwise panic
+            // on `trimmed[version_start..]`, so guard against both
+            // ends of the slice here.
+            if version_start <= id_start
+                || trimmed.len() <= id_start
+                || trimmed.len() <= version_start
+            {
                 continue;
             }
             let name = trimmed[..id_start].trim().to_string();
@@ -842,7 +850,12 @@ pub mod windows_parsers {
                 Some(v) => v,
                 None => continue,
             };
-            if version_start <= id_start || trimmed.len() <= id_start {
+            // See `windows_impl::parse_winget_list` for the rationale
+            // behind the three-clause bounds check.
+            if version_start <= id_start
+                || trimmed.len() <= id_start
+                || trimmed.len() <= version_start
+            {
                 continue;
             }
             let name = trimmed[..id_start].trim().to_string();
@@ -1079,5 +1092,26 @@ mod tests {
         let pkgs = parse_winget_list(out);
         assert_eq!(pkgs.len(), 1);
         assert_eq!(pkgs[0].id, "foo.id");
+    }
+
+    #[test]
+    fn windows_parses_winget_list_skips_short_lines_without_panic() {
+        // Regression: a malformed data row that's too short to reach
+        // the version column header used to panic on
+        // `trimmed[version_start..]`. The parser now bounds-checks
+        // both the id and version offsets and skips the row.
+        //
+        // Header has `Id` at column 18 and `Version` at column 35.
+        // The first data row is shorter than the version offset, so
+        // it must be skipped rather than panicking. The valid row
+        // that follows must still parse.
+        let out = "Name              Id                 Version    Source\n\
+                   ------------------------------------------------------\n\
+                   tiny              short.id\n\
+                   Foo               foo.id             1.0        winget\n";
+        let pkgs = parse_winget_list(out);
+        assert_eq!(pkgs.len(), 1);
+        assert_eq!(pkgs[0].id, "foo.id");
+        assert_eq!(pkgs[0].version, "1.0");
     }
 }
