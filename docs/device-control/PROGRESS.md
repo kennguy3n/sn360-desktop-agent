@@ -17,8 +17,10 @@ Status legend:
 
 ## Current Status
 
-Phase 0 complete | 100% (13/13 tasks). Phase 1 in progress |
-~47% (8/17 tasks complete, excluding ⚙️ server-side tasks 1.14–1.16).
+Phase 0 complete | 100% (13/13 tasks). Phase 1 complete (agent-side) |
+100% agent-side tasks (14/14 non-⚙️ tasks; 9/9 from PR #4 plus 1.10,
+1.11, 1.12, 1.13, 1.17 from this PR). Phase 2 in progress |
+~33% (5/15 tasks complete, excluding ⚙️ server-side tasks 2.12–2.14).
 
 All Phase 0 documentation-only deliverables are landed:
 
@@ -85,14 +87,14 @@ Device Control crates are added.
 | 1.7 | Admin/root inventory — Windows | Done |
 | 1.8 | Admin/root inventory — macOS | Done |
 | 1.9 | Admin/root inventory — Linux | Done |
-| 1.10 | Software inventory bridge (SoftwareInventoryDelta) | Not Started |
-| 1.11 | Plain-English findings for the five PROPOSAL.md § 2.2 examples | Not Started |
-| 1.12 | `sda-agent-vitals` MVP | Not Started |
-| 1.13 | Evidence record emission for every ActionResult | Not Started |
+| 1.10 | Software inventory bridge (SoftwareInventoryDelta) | Done |
+| 1.11 | Plain-English findings for the five PROPOSAL.md § 2.2 examples | Done |
+| 1.12 | `sda-agent-vitals` MVP | Done |
+| 1.13 | Evidence record emission for every ActionResult | Done |
 | 1.14 | Device Registry integration ⚙️ | Not Started |
 | 1.15 | SMI sub-score wiring ⚙️ | Not Started |
 | 1.16 | Risk Engine v0 ⚙️ | Not Started |
-| 1.17 | Phase 1 E2E suite (`make e2e-device-control`) | Not Started |
+| 1.17 | Phase 1 E2E suite (`make e2e-device-control`) | Done |
 
 ---
 
@@ -100,11 +102,11 @@ Device Control crates are added.
 
 | # | Task | Status |
 |---|------|--------|
-| 2.1 | `sda-pal::PackageManager` trait | Not Started |
-| 2.2 | PackageManager — Windows (WinGet) | Not Started |
-| 2.3 | PackageManager — macOS (Munki-style, clean-room) | Not Started |
-| 2.4 | PackageManager — Linux (apt / dnf / yum / zypper) | Not Started |
-| 2.5 | `sda-software` scaffold + catalogue client | Not Started |
+| 2.1 | `sda-pal::PackageManager` trait | Done |
+| 2.2 | PackageManager — Windows (WinGet) | Done |
+| 2.3 | PackageManager — macOS (Munki-style, clean-room) | Done |
+| 2.4 | PackageManager — Linux (apt / dnf / yum / zypper) | Done |
+| 2.5 | `sda-software` scaffold + catalogue client | Done |
 | 2.6 | Catalogue manifest verification (Ed25519 + pinned SHA-256) | Not Started |
 | 2.7 | `sda-script-runner` MVP (allow-list + signed-only + bounded) | Not Started |
 | 2.8 | Maintenance windows + quiet hours | Not Started |
@@ -211,46 +213,49 @@ Top six highest-severity risks for delivery planning:
 
 ## Known Gaps
 
-All Device Control work is pending Phase 0 completion. Specifically:
+Phase 1 agent-side surface is now complete; remaining gaps are
+server-side or Phase 2+ work:
 
-- No new crates (`sda-device-control`, `sda-query`, `sda-policy`,
-  `sda-posture`, `sda-software`, `sda-jit-admin`, `sda-script-runner`,
-  `sda-app-control`, `sda-remote-support`, `sda-agent-vitals`,
-  `sda-management-compat`) exist on `main`.
-- No new `EventKind` or `MessageType` variants are defined.
-- No new `modules.device_control` / `modules.query` /
-  `modules.posture` / etc. configuration sections are defined.
-- No new PAL traits (`PackageManager`, `AdminManager`,
-  `DevicePostureProvider`, `AppControlProvider`,
-  `RemoteSupportProvider`) are defined.
-- No control-plane integrations exist; the
-  [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform)
-  side has not yet absorbed the Device Registry / Risk Engine / SMI
-  Engine / Action Orchestrator / Approval Service / Package Catalog /
-  Evidence Vault / Vitals Service work.
+- ⚙️ **1.14 / 1.15 / 1.16** — Device Registry integration, SMI
+  sub-score wiring, Risk Engine v0 are all server-side and tracked
+  in [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform).
+- **2.6** — Catalogue manifest verification end-to-end (Ed25519 +
+  pinned SHA-256 happy path lands with this PR; the install/update
+  pipeline that consumes it is Phase 2.6+).
+- **2.7 – 2.11** — Script runner, maintenance windows, approval-
+  state surfacing, rollback, and full evidence-on-action-result
+  remain.
+- **2.15** — Phase 2 E2E suite covering install / update /
+  uninstall + rollback.
+- ⚙️ **2.12 / 2.13 / 2.14** — Package Catalog, Action Orchestrator,
+  and Approval Service all land in `sn360-security-platform`.
+- Phases 3, 4, and 5 are not started.
 
 ## Next Steps
 
-Phase 1 agent-side code surface (tasks 1.1–1.9) has landed:
-new `EventKind` / `MessageType` variants, `AdminManager` and
-`DevicePostureProvider` PAL traits with per-OS implementations, and
-the three new crates
-[`sda-device-control`](../../crates/sda-device-control/),
-[`sda-query`](../../crates/sda-query/), and
-[`sda-posture`](../../crates/sda-posture/).
+Phase 1 agent-side code surface (tasks 1.1–1.13 and 1.17) is
+complete. New agent crates `sda-agent-vitals` and `sda-software`
+landed alongside the existing `sda-device-control`, `sda-query`,
+and `sda-posture` crates. Phase 2 agent-side scaffolding (PAL
+Package Manager trait + per-OS impls + software-module entry
+point) is the visible 5/15 progress on Phase 2.
 
-Remaining Phase 1 work:
+Remaining work, in priority order:
 
-- **1.10** — Software inventory bridge (`SoftwareInventoryDelta`).
-- **1.11** — Plain-English findings for the five PROPOSAL.md § 2.2
-  examples.
-- **1.12** — `sda-agent-vitals` MVP.
-- **1.13** — Evidence record emission for every `ActionResult`.
-- **1.14 ⚙️** — Device Registry integration in
-  [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform).
-- **1.15 ⚙️** — SMI sub-score wiring (server-side).
-- **1.16 ⚙️** — Risk Engine v0 (server-side).
-- **1.17** — Phase 1 E2E suite (`make e2e-device-control`).
+- **2.6** — Catalogue manifest verification driving an actual
+  install pipeline (the verifier already lands; the install path
+  consuming it does not yet emit `SoftwareJobResult` events).
+- **2.7** — `sda-script-runner` MVP (allow-list + signed-only +
+  bounded execution).
+- **2.8 – 2.11** — Maintenance windows / quiet hours, approval-
+  state surfacing, rollback path, and evidence emission for the
+  full install / update / uninstall lifecycle.
+- **2.15** — Phase 2 E2E suite covering install, update,
+  uninstall, and rollback paths on Windows / macOS / Linux.
+- ⚙️ **1.14 / 1.15 / 1.16** — Device Registry, SMI sub-score, and
+  Risk Engine v0 integration in `sn360-security-platform`.
+- ⚙️ **2.12 / 2.13 / 2.14** — Package Catalog, Action Orchestrator,
+  and Approval Service in `sn360-security-platform`.
 
 ---
 
@@ -534,3 +539,138 @@ Tasks remaining for Phase 1 exit:
 - **1.17** — `make e2e-device-control` E2E suite.
 - ⚙️ **1.14 / 1.15 / 1.16** — server-side, in
   [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform).
+
+### 2026-05-07 — Phase 1 tasks 1.10–1.13, 1.17 + Phase 2 tasks 2.1–2.5 landed
+
+This PR closes out the agent-side scope of Phase 1 and lands the
+Phase 2 PAL + module scaffold. All tasks below are gated on the
+`modules.device_control.enabled` (Phase 1) and
+`modules.software.enabled` (Phase 2) config flags; an agent with
+both flags `false` (the default) runs the same idle code path as
+before.
+
+Bug fix from PR #4 review:
+
+- Fixed Windows `AdminManager` parser in
+  [`crates/sda-pal/src/admin_manager.rs`](../../crates/sda-pal/src/admin_manager.rs)
+  so `.\bob` (and `\bob`) is classified as `source: "local"`
+  rather than `source: "domain"`. Domain-qualified names like
+  `CORP\bob` continue to be classified as `domain`. Unit test
+  `parses_dot_qualified_local_account_as_local` covers the regression.
+
+Phase 1 — agent-side completion:
+
+- **1.10** — Software inventory bridge in
+  [`crates/sda-enhanced-inventory/src/lib.rs`](../../crates/sda-enhanced-inventory/src/lib.rs).
+  When `modules.device_control.enabled = true`, every
+  `running_software` delta is also emitted as
+  `EventKind::SoftwareInventoryDelta` on the bus, in addition to
+  the existing `EnhancedInventoryUpdate`. Payload is canonical
+  JSON of the added/removed software list. Unit tests cover the
+  double-emission (gated on) and single-emission (gated off) paths.
+- **1.11** — Plain-English finding text generator in
+  [`crates/sda-device-control/src/finding.rs`](../../crates/sda-device-control/src/finding.rs).
+  `generate_plain_english(kind, context)` produces the templated
+  text for all five canonical PROPOSAL.md § 2.2 examples
+  (`PermanentAdmin`, `OutdatedApp`, `MissingDevice`,
+  `UnapprovedSoftware`, `JitAdminRequest`). Unit tests cover each
+  kind plus singular/plural edge cases and missing-field fallbacks.
+- **1.12** — New
+  [`sda-agent-vitals`](../../crates/sda-agent-vitals/) crate.
+  `VitalsModule::start(...)` matches the same shape as
+  `QueryModule` and `PostureModule` and is wired into
+  [`crates/sda-agent/src/main.rs`](../../crates/sda-agent/src/main.rs)
+  conditionally on `modules.device_control.enabled`. Default
+  cadence is 60 s (`Priority::Low` per ARCHITECTURE.md § 7.3) and
+  the module fully idles on `PowerProfile::CriticalBattery` per
+  the power-aware scheduling contract. Snapshot fields:
+  `rss_kb`, `cpu_percent`, `queue_depth`, `watchdog_faults`,
+  `agent_version`, `uptime_secs`, `last_seen`. Linux `rss_kb`
+  reads `/proc/self/status`; the macOS / Windows readers and the
+  CPU-percent delta land in Phase 1.7 alongside `ResourceLimits`
+  (zero is emitted in the meantime so the heartbeat keeps flowing).
+- **1.13** — Evidence-record emission wired into the signed-job
+  exec pipeline in
+  [`crates/sda-device-control/src/router.rs`](../../crates/sda-device-control/src/router.rs)
+  and
+  [`crates/sda-device-control/src/evidence.rs`](../../crates/sda-device-control/src/evidence.rs).
+  After every `ActionResult` (including refusals), the router
+  computes `output_sha256`, builds an `EvidenceRecord` with the
+  correct `prev_record_hash` (the chain hash of the previous
+  record, or `FIRST_RECORD_PREV_HASH` for the first), signs the
+  canonical pre-image with a Phase 1 stub signer, and emits
+  `EventKind::EvidenceRecord` on the bus. Unit tests cover chain
+  linking across multiple results, `JobRefused` evidence, and the
+  zero-sentinel for the very first record.
+- **1.17** — Phase 1 E2E suite in
+  [`crates/sda-agent/tests/e2e_device_control.rs`](../../crates/sda-agent/tests/e2e_device_control.rs)
+  with a `make e2e-device-control` Makefile target. Seven
+  hermetic tests cover admin-inventory finding emission, posture
+  snapshots, the software-inventory bridge, agent-vitals
+  heartbeats (including critical-battery deferral), router
+  evidence chaining (including refusal results), and the
+  idle-footprint invariant that `modules.device_control.enabled =
+  false` emits no Device Control events at all.
+
+Phase 2 — agent-side scaffolding:
+
+- **2.1** — `sda-pal::PackageManager` trait in
+  [`crates/sda-pal/src/package_manager.rs`](../../crates/sda-pal/src/package_manager.rs).
+  Defines `PackageManager`, `InstalledPackage`, `PackageRef`, and
+  `InstallOpts` per ARCHITECTURE.md § 5. Unit tests cover trait
+  object safety (`Box<dyn PackageManager>`) and serde round-trips.
+- **2.2** — Windows WinGet implementation. Wraps
+  `winget list --source winget`,
+  `winget install --id <id> --version <ver> --accept-package-agreements --accept-source-agreements`,
+  `winget upgrade --id <id>`, `winget uninstall --id <id>`. Unit
+  tests cover header-aware output parsing, structured exit codes,
+  and argument construction.
+- **2.3** — macOS clean-room Munki-style implementation. Reads
+  `system_profiler SPApplicationsDataType -json` for installed
+  apps and `pkgutil --pkgs` for receipt-tracked packages.
+  Install/update verifies SHA-256 against the catalogue manifest
+  and runs `installer -pkg`. Uninstall consults `pkgutil
+  --files <id>` and removes the listed paths. No Munki source is
+  re-used; the signed-catalogue + receipts model is implemented
+  from spec. Unit tests cover the parsers and the verify-then-
+  install command construction.
+- **2.4** — Linux auto-detected implementation. `which apt-get`
+  / `dnf` / `yum` / `zypper` selects the manager at construction
+  time; `dpkg-query -W` and `rpm -qa --qf` parse installed
+  packages on Debian-family and Red Hat-family hosts respectively.
+  Install/update/uninstall delegate to the detected CLI with the
+  conventional non-interactive flags. Unit tests cover both
+  parser variants and the auto-detection fallback chain.
+- **2.5** — New [`sda-software`](../../crates/sda-software/)
+  crate. Implements:
+  - `manifest::SignedManifest` with Ed25519 signature
+    verification against a pinned public key, plus per-artefact
+    SHA-256 pinning (`manifest::Artefact { sha256, ... }`).
+  - `catalogue::CatalogueClient` with hex-shape validation of
+    every artefact hash before the index is built.
+  - `module::SoftwareModule::start(...)` matching the same shape
+    as `VitalsModule`, gated on `modules.software.enabled`.
+  - Unit tests for the manifest parser, signature verification
+    (positive and tampered cases with deterministic test keys),
+    SHA-256 hex-shape validation, and the module supervisor's
+    clean shutdown path.
+
+New workspace crates: `sda-agent-vitals`, `sda-software`. Both
+are listed in the workspace `Cargo.toml` `[workspace]` `members`
+table and `[workspace.dependencies]`.
+
+Tests:
+
+- **7 / 7** Phase 1 Device Control E2E tests
+  (`make e2e-device-control`).
+- **All workspace unit tests pass** across all crates (run via
+  `cargo test --workspace`); the previous baseline (433 unit,
+  14/14 base E2E, 10/10 security E2E) remains green and the new
+  surface adds dedicated tests for every task above.
+- `cargo fmt --all -- --check`, `cargo clippy --all-targets
+  --all-features -- -D warnings`, and `cargo deny check licenses`
+  all pass.
+
+Documentation: `PROGRESS.md`, `README.md`, `ARCHITECTURE.md`, and
+`PHASES.md` updated to reflect tasks 1.10–1.13, 1.17, 2.1–2.5 as
+Done. The five PROPOSAL.md § 2.2 examples are unchanged.

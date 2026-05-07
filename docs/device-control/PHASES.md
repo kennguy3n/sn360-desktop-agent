@@ -151,14 +151,14 @@ records flowing for every observation.
 | 1.7 | Admin/root inventory — Windows | Enumerate `Administrators` group via `NetLocalGroupGetMembers`. | Done |
 | 1.8 | Admin/root inventory — macOS | Enumerate `admin` group via Open Directory. | Done |
 | 1.9 | Admin/root inventory — Linux | Enumerate `wheel` / `sudo` / non-root UID 0. | Done |
-| 1.10 | Software inventory bridge | Re-export `sda-enhanced-inventory` deltas as `SoftwareInventoryDelta`. | Not Started |
-| 1.11 | Plain-English findings | Implement Finding text for the five PROPOSAL.md § 2.2 examples. | Not Started |
-| 1.12 | `sda-agent-vitals` MVP | Heartbeat, queue depth, watchdog faults emitted as `AgentVitals`. | Not Started |
-| 1.13 | Evidence record emission | `EvidenceRecord` published for every `ActionResult` (even no-ops). | Not Started |
+| 1.10 | Software inventory bridge | Re-export `sda-enhanced-inventory` deltas as `SoftwareInventoryDelta`. | Done |
+| 1.11 | Plain-English findings | Implement Finding text for the five PROPOSAL.md § 2.2 examples. | Done |
+| 1.12 | `sda-agent-vitals` MVP | Heartbeat, queue depth, watchdog faults emitted as `AgentVitals`. | Done |
+| 1.13 | Evidence record emission | `EvidenceRecord` published for every `ActionResult` (even no-ops). | Done |
 | 1.14 | Device Registry integration ⚙️ | Heartbeat + enrollment flow against Device Registry. Implemented in `sn360-security-platform`. | Not Started |
 | 1.15 | SMI sub-score wiring ⚙️ | SMI Engine consumes Findings + ActionResults. Implemented in `sn360-security-platform`. | Not Started |
 | 1.16 | Risk Engine v0 ⚙️ | First-pass Recommendation generation from Findings. Implemented in `sn360-security-platform`. | Not Started |
-| 1.17 | Phase 1 E2E suite | New `make e2e-device-control` harness covering the five canonical examples. | Not Started |
+| 1.17 | Phase 1 E2E suite | New `make e2e-device-control` harness covering the five canonical examples. | Done |
 
 ### Acceptance criteria
 

@@ -64,6 +64,12 @@ make e2e
 # IP block, account-disable AR, etc.) against a local SIEM manager
 make security-e2e
 
+# Phase 1 ShieldNet Device Control E2E suite (admin inventory finding,
+# posture snapshot, software-inventory bridge, agent vitals heartbeat,
+# evidence record emission, idle-footprint gating). Hermetic — no
+# external server is required.
+make e2e-device-control
+
 # Platform-specific E2E
 make e2e-macos
 make e2e-windows

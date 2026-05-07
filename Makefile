@@ -21,7 +21,7 @@ TARGETS := \
 	x86_64-pc-windows-msvc
 
 .PHONY: build release test lint fmt clippy all-targets clean e2e e2e-compat e2e-macos e2e-windows security-e2e \
-        benchmark-ci deb rpm pkg msi
+        e2e-device-control benchmark-ci deb rpm pkg msi
 
 build:
 	$(CARGO) build
@@ -67,6 +67,15 @@ e2e-windows:
 
 security-e2e:
 	bash tests/scripts/run-security-e2e.sh
+
+# Phase 1 Device Control E2E suite. Exercises every Phase 1 surface
+# (admin inventory finding, posture snapshot, software-inventory
+# bridge, agent vitals heartbeat, evidence record emission, idle-
+# footprint gating) end-to-end. The suite lives in
+# crates/sda-agent/tests/e2e_device_control.rs and is hermetic — no
+# external server is required.
+e2e-device-control:
+	$(CARGO) test --package sda-agent --test e2e_device_control -- --nocapture
 
 clean:
 	$(CARGO) clean

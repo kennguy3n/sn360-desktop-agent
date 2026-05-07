@@ -256,6 +256,8 @@ pub struct ModulesConfig {
     pub app_control: AppControlConfig,
     #[serde(default)]
     pub remote_support: RemoteSupportConfig,
+    #[serde(default)]
+    pub agent_vitals: AgentVitalsConfig,
 }
 
 /// FIM-specific configuration.
@@ -489,6 +491,16 @@ pub struct EnhancedInventoryConfig {
     /// CycloneDX SBOM generator settings.
     #[serde(default)]
     pub sbom: SbomConfig,
+    /// When `true`, the running-software monitor mirrors each
+    /// snapshot/delta as an `EventKind::SoftwareInventoryDelta` event
+    /// for Device Control consumers (PHASES.md task 1.10). The agent
+    /// flips this on when `modules.device_control.enabled = true` and
+    /// `modules.enhanced_inventory.running_software.enabled = true`.
+    /// Not user-configurable from on-disk YAML — it is set internally
+    /// by `sda-agent::main` after the full config is loaded so the
+    /// disabled-by-default Device Control story stays single-knob.
+    #[serde(default, skip)]
+    pub device_control_bridge_enabled: bool,
 }
 
 /// Running-software monitor configuration.
@@ -1313,13 +1325,46 @@ impl Default for PostureConfig {
     }
 }
 
-/// Software management module placeholder (Phase 2). Defaults to
+/// Software management module configuration (Phase 2). Defaults to
 /// disabled.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+///
+/// When `enabled = true` and `modules.device_control.enabled = true`,
+/// the [`SoftwareModule`](../../../sda-software/index.html) refreshes
+/// the signed catalogue manifest at `refresh_interval_secs` cadence
+/// and gates every install / update / uninstall on a verified
+/// Ed25519 signature against [`Self::pinned_signing_key_hex`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SoftwareConfig {
     /// Master enable switch.
     #[serde(default)]
     pub enabled: bool,
+    /// HTTPS URL of the signed catalogue manifest. Optional so an
+    /// SDA build with the module enabled but no URL configured will
+    /// log a warning and idle rather than panicking. The agent only
+    /// fetches when `enabled = true` AND `catalogue_url.is_some()`.
+    #[serde(default)]
+    pub catalogue_url: Option<String>,
+    /// Hex-encoded Ed25519 public key the manifest signature is
+    /// verified against. The control plane rotates this by pushing
+    /// a new config; we never trust a manifest-embedded key.
+    #[serde(default)]
+    pub pinned_signing_key_hex: Option<String>,
+    /// How often the agent re-pulls the manifest (default 1 h).
+    /// Catalogue updates between fetches still respect maintenance
+    /// windows on the action side.
+    #[serde(default = "default_software_refresh_interval_secs")]
+    pub refresh_interval_secs: u64,
+}
+
+impl Default for SoftwareConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            catalogue_url: None,
+            pinned_signing_key_hex: None,
+            refresh_interval_secs: default_software_refresh_interval_secs(),
+        }
+    }
 }
 
 /// JIT-admin module placeholder (Phase 3). Defaults to disabled.
@@ -1353,6 +1398,37 @@ pub struct RemoteSupportConfig {
     /// Master enable switch.
     #[serde(default)]
     pub enabled: bool,
+}
+
+/// Agent-vitals heartbeat configuration (Phase 1, Task 1.12).
+///
+/// When `enabled = true`, the
+/// [`VitalsModule`](../../../sda_agent_vitals/index.html) emits an
+/// `EventKind::AgentVitals` event on every tick at a cadence of
+/// `interval_secs` seconds (default 60s, matching ARCHITECTURE.md
+/// § 7.3 — `Priority::Low`).
+///
+/// The agent supervisor wires this on automatically when
+/// `modules.device_control.enabled = true`, but operators can also
+/// opt-in independently by flipping `enabled = true` here.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentVitalsConfig {
+    /// Master enable switch.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Heartbeat cadence in seconds. Defaults to 60s
+    /// (`Priority::Low` per ARCHITECTURE.md § 7.3).
+    #[serde(default = "default_agent_vitals_interval_secs")]
+    pub interval_secs: u64,
+}
+
+impl Default for AgentVitalsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            interval_secs: default_agent_vitals_interval_secs(),
+        }
+    }
 }
 
 // --- Device Control default value functions ---
@@ -1449,6 +1525,14 @@ fn default_osquery_max_cpu_percent() -> u8 {
 
 fn default_posture_interval_secs() -> u64 {
     900
+}
+
+fn default_software_refresh_interval_secs() -> u64 {
+    3600
+}
+
+fn default_agent_vitals_interval_secs() -> u64 {
+    60
 }
 
 impl AgentConfig {

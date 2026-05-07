@@ -5,6 +5,7 @@
 
 pub mod admin_manager;
 pub mod fs_watcher;
+pub mod package_manager;
 pub mod posture;
 pub mod power;
 pub mod sysinfo;
