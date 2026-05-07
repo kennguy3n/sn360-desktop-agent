@@ -205,7 +205,12 @@ struct ScriptEvidence {
     exit_code: Option<i32>,
     timed_out: bool,
     output_truncated: bool,
-    output_sha256: String,
+    /// Per-pipe SHA-256 of the full untruncated stdout. See
+    /// `ScriptOutcome::stdout_sha256` for why we ship two digests
+    /// instead of a single combined hash.
+    stdout_sha256: String,
+    /// Per-pipe SHA-256 of the full untruncated stderr.
+    stderr_sha256: String,
     started_at: chrono::DateTime<chrono::Utc>,
     finished_at: chrono::DateTime<chrono::Utc>,
     /// SHA-256 of the canonical `ScriptOutcome` JSON. Lets a
@@ -237,7 +242,8 @@ async fn handle_request(runner: Arc<ScriptRunner>, bus: EventBus, request: Scrip
                 truncation_reason: Some(format!("error:{err}")),
                 stdout_truncated: String::new(),
                 stderr_truncated: String::new(),
-                output_sha256: String::new(),
+                stdout_sha256: String::new(),
+                stderr_sha256: String::new(),
                 duration_secs: 0.0,
                 started_at: chrono::Utc::now(),
                 finished_at: chrono::Utc::now(),
@@ -264,7 +270,8 @@ async fn handle_request(runner: Arc<ScriptRunner>, bus: EventBus, request: Scrip
         exit_code: outcome.exit_code,
         timed_out: outcome.timed_out,
         output_truncated: outcome.output_truncated,
-        output_sha256: outcome.output_sha256.clone(),
+        stdout_sha256: outcome.stdout_sha256.clone(),
+        stderr_sha256: outcome.stderr_sha256.clone(),
         started_at: outcome.started_at,
         finished_at: outcome.finished_at,
         outcome_sha256,

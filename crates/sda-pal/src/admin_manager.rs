@@ -25,7 +25,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -212,6 +212,18 @@ fn read_grants(state_file: &Path) -> Result<Vec<GrantHandle>, AdminError> {
     Ok(state.grants)
 }
 
+/// Persist `grants` to `state_file` via a tempfile + atomic rename so
+/// a crash mid-write cannot leave a partially-written ledger on disk.
+///
+/// The OS-level admin grant is applied *before* the ledger write
+/// completes, so a non-atomic `fs::write` could be interrupted between
+/// the grant taking effect and the ledger entry being persisted —
+/// that orphan would survive across restarts because `read_grants`
+/// either returns `StateCorrupt` (truncated JSON) or an empty vec
+/// (zero-length file), and `revoke_admin` would have nothing to look
+/// up. Mirrors the pattern already used by `GrantStore::flush` in
+/// `sda-jit-admin` and `RollbackOrchestrator::persist` in
+/// `sda-software`.
 fn write_grants(state_file: &Path, grants: &[GrantHandle]) -> Result<(), AdminError> {
     if let Some(parent) = state_file.parent() {
         if !parent.as_os_str().is_empty() {
@@ -224,7 +236,13 @@ fn write_grants(state_file: &Path, grants: &[GrantHandle]) -> Result<(), AdminEr
     };
     let bytes = serde_json::to_vec_pretty(&state)
         .map_err(|e| AdminError::StateCorrupt(format!("serialize: {e}")))?;
-    fs::write(state_file, bytes).map_err(AdminError::from)
+    let parent = state_file.parent().unwrap_or_else(|| Path::new("."));
+    let mut tmp = tempfile::NamedTempFile::new_in(parent).map_err(AdminError::from)?;
+    tmp.write_all(&bytes).map_err(AdminError::from)?;
+    tmp.flush().map_err(AdminError::from)?;
+    tmp.persist(state_file)
+        .map_err(|e| AdminError::Io(e.error))?;
+    Ok(())
 }
 
 /// Reject usernames containing characters that have meaning for shells,

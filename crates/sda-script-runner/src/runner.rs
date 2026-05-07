@@ -153,10 +153,16 @@ pub struct ScriptOutcome {
     /// `stdout_truncated.len() + stderr_truncated.len()` is bounded
     /// by `max_output_bytes`.
     pub stderr_truncated: String,
-    /// Lowercase-hex SHA-256 over the **full**, untruncated combined
-    /// stdout+stderr stream. The control plane uses this to detect
-    /// silent corruption between the agent and the SIEM.
-    pub output_sha256: String,
+    /// Lowercase-hex SHA-256 over the **full**, untruncated stdout
+    /// stream. Computed independently from [`stderr_sha256`] so a
+    /// downstream verifier can confirm pipe-level integrity without
+    /// having to reconstruct an interleaved combined stream (which
+    /// the agent never sees in a deterministic order anyway —
+    /// stdout and stderr are drained on separate tasks).
+    pub stdout_sha256: String,
+    /// Lowercase-hex SHA-256 over the **full**, untruncated stderr
+    /// stream. See [`stdout_sha256`].
+    pub stderr_sha256: String,
     /// Wall-clock duration of the run.
     pub duration_secs: f64,
     /// Wall-clock time the runner started spawning the script.
@@ -371,15 +377,18 @@ impl ScriptRunner {
             output_truncated = true;
         }
 
-        // Combined SHA-256 over the full untruncated output. We
-        // hash stdout || stderr; the wire schema documents that
-        // ordering.
-        let stdout_digest = stdout_hasher.finalize();
-        let stderr_digest = stderr_hasher.finalize();
-        let mut combined = Sha256::new();
-        combined.update(stdout_digest);
-        combined.update(stderr_digest);
-        let output_sha256 = hex::encode(combined.finalize());
+        // Per-pipe SHA-256 over the full untruncated bytes that
+        // passed through each pipe. We deliberately do *not* combine
+        // them into a single hash here: stdout and stderr arrive on
+        // separate drain tasks with no causal ordering, so any
+        // "combined" hash would have to either buffer full bytes
+        // (memory blowup on adversarial scripts) or pin one pipe's
+        // ordering to the other (deadlocks if either pipe fills its
+        // kernel buffer while we wait). Two independent digests let
+        // the server verify each pipe end-to-end and compose them
+        // however it wants.
+        let stdout_sha256 = hex::encode(stdout_hasher.finalize());
+        let stderr_sha256 = hex::encode(stderr_hasher.finalize());
 
         let finished_at = Utc::now();
         let duration_secs = started_instant.elapsed().as_secs_f64();
@@ -420,7 +429,8 @@ impl ScriptRunner {
             truncation_reason,
             stdout_truncated: String::from_utf8_lossy(&stdout_capped).into_owned(),
             stderr_truncated: String::from_utf8_lossy(&stderr_capped).into_owned(),
-            output_sha256,
+            stdout_sha256,
+            stderr_sha256,
             duration_secs,
             started_at,
             finished_at,
@@ -539,7 +549,15 @@ mod tests {
         assert!(!outcome.timed_out);
         assert!(!outcome.output_truncated);
         assert_eq!(outcome.truncation_reason, None);
-        assert_eq!(outcome.output_sha256.len(), 64);
+        // Per-pipe digests are 64 lowercase-hex chars (32 bytes).
+        // stdout produced "hello\n" so its hash equals SHA256("hello\n");
+        // stderr is empty so its hash is the empty-string SHA-256.
+        assert_eq!(outcome.stdout_sha256.len(), 64);
+        assert_eq!(outcome.stderr_sha256.len(), 64);
+        let mut h = Sha256::new();
+        h.update(b"hello\n");
+        assert_eq!(outcome.stdout_sha256, hex::encode(h.finalize()));
+        assert_eq!(outcome.stderr_sha256, hex::encode(Sha256::new().finalize()));
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -633,8 +651,16 @@ mod tests {
         );
         // stdout was clamped to 64 bytes.
         assert!(outcome.stdout_truncated.len() <= 64);
-        // SHA-256 of full output is over the untruncated bytes.
-        assert_eq!(outcome.output_sha256.len(), 64);
+        // Per-pipe SHA-256 is computed over the *untruncated* 20 KB
+        // stream, so the recorded hash must equal SHA256(b"A" * 20000).
+        let mut full = Sha256::new();
+        for _ in 0..20_000 {
+            full.update(b"A");
+        }
+        assert_eq!(outcome.stdout_sha256, hex::encode(full.finalize()));
+        assert_eq!(outcome.stdout_sha256.len(), 64);
+        // stderr was empty, so its hash is the empty-string SHA-256.
+        assert_eq!(outcome.stderr_sha256, hex::encode(Sha256::new().finalize()));
     }
 
     #[test]
