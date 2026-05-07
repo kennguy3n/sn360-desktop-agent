@@ -17,11 +17,29 @@ Status legend:
 
 ## Current Status
 
-Phase 0 not yet started. All Device Control work is in planning. The
-docs landing in this PR (`docs/device-control/{README,PROPOSAL,ARCHITECTURE,PHASES,PROGRESS}.md`)
-are the only artefacts on `main` related to Device Control. No new
-crates, config sections, `EventKind` variants, or `MessageType`
-variants exist yet.
+Phase 0 in progress | ~77% (10/13 tasks complete). Tasks 0.11
+(Schema specs), 0.12 (Wire schema sign-off), and 0.13 (Phase 0 exit
+checklist) remain.
+
+All Phase 0 documentation-only deliverables are landed:
+
+- ADR formalised in [`PROPOSAL.md` § 3.2](./PROPOSAL.md#32-architectural-correction--adr)
+  and recorded in [`ADR-001-functional-port.md`](./ADR-001-functional-port.md).
+- Fleet capability mapping landed in
+  [`fleet-capability-mapping.md`](./fleet-capability-mapping.md).
+- License reviews for every reference engine — Fleet (MIT), Fleet EE
+  (excluded), MakeMeAdmin (GPL, reference only), SAP Privileges
+  (reference only), Munki (Apache-2.0, reference only), Santa /
+  North Pole Santa (Apache-2.0), MeshCentral (Apache-2.0, reference
+  only), Tactical RMM (benchmark only, never base) — landed in
+  [`docs/security-audit.md` § Device Control License Audit](../security-audit.md#device-control-license-audit).
+- Workspace-root [`deny.toml`](../../deny.toml) added so the
+  `cargo deny check licenses` gate planned in Phase 7.8 has
+  something to enforce.
+
+No new crates, config sections, `EventKind` variants, or
+`MessageType` variants exist yet — Phase 0 is intentionally
+documentation-only and Phase 1 code is gated on Phase 0 exit.
 
 The existing SDA test surface — **433 unit tests, 14/14 base E2E,
 10/10 security E2E** — remains green and must continue to pass as
@@ -33,16 +51,16 @@ Device Control crates are added.
 
 | # | Task | Status |
 |---|------|--------|
-| 0.1 | Land ADR (functional port, not Fleet source-code port) | Not Started |
-| 0.2 | Fleet capability mapping | Not Started |
-| 0.3 | License review — Fleet MIT | Not Started |
-| 0.4 | License review — Fleet EE (excluded) | Not Started |
-| 0.5 | License review — MakeMeAdmin (GPL, reference only) | Not Started |
-| 0.6 | License review — SAP Privileges (reference only) | Not Started |
-| 0.7 | License review — Munki (Apache-2.0, reference only) | Not Started |
-| 0.8 | License review — Santa / North Pole Santa (Apache-2.0) | Not Started |
-| 0.9 | License review — MeshCentral (Apache-2.0, reference only) | Not Started |
-| 0.10 | Tactical RMM exclusion — benchmark-only posture | Not Started |
+| 0.1 | Land ADR (functional port, not Fleet source-code port) | Done |
+| 0.2 | Fleet capability mapping | Done |
+| 0.3 | License review — Fleet MIT | Done |
+| 0.4 | License review — Fleet EE (excluded) | Done |
+| 0.5 | License review — MakeMeAdmin (GPL, reference only) | Done |
+| 0.6 | License review — SAP Privileges (reference only) | Done |
+| 0.7 | License review — Munki (Apache-2.0, reference only) | Done |
+| 0.8 | License review — Santa / North Pole Santa (Apache-2.0) | Done |
+| 0.9 | License review — MeshCentral (Apache-2.0, reference only) | Done |
+| 0.10 | Tactical RMM exclusion — benchmark-only posture | Done |
 | 0.11 | Schema specs — Finding / Recommendation / SignedActionJob / ActionResult / EvidenceRecord | Not Started |
 | 0.12 | Wire schema sign-off — MessageType / EventKind / NATS subjects | Not Started |
 | 0.13 | Phase 0 exit checklist | Not Started |
@@ -208,6 +226,56 @@ All Device Control work is pending Phase 0 completion. Specifically:
 
 ## Next Steps
 
-Begin Phase 0 — ADR, license review, schema design. The Phase 0
+Finish Phase 0 — schema specs (Task 0.11), wire schema sign-off
+(Task 0.12), and the Phase 0 exit checklist (Task 0.13). The Phase 0
 exit-criteria checklist in [PHASES.md § Phase 0](./PHASES.md#phase-0--architecture-legal-and-schema-2-weeks)
 gates the start of any Phase 1 implementation work.
+
+---
+
+## Changelog
+
+### 2026-05-07 — Phase 0 tasks 0.1–0.10 landed (documentation only)
+
+Tasks 0.1 through 0.10 of Phase 0 — Architecture, Legal, and Schema
+— landed in this PR. All changes are documentation-only; no Rust
+code, configuration schema, event variants, or message types changed.
+
+Completed:
+
+- **0.1** — ADR formalised in
+  [`PROPOSAL.md` § 3.2](./PROPOSAL.md#32-architectural-correction--adr)
+  with four explicit commitments; standalone record landed in
+  [`ADR-001-functional-port.md`](./ADR-001-functional-port.md).
+- **0.2** — Fleet capability mapping landed in
+  [`fleet-capability-mapping.md`](./fleet-capability-mapping.md),
+  including the do-not-port list and cross-references to the five
+  canonical customer examples in
+  [`PROPOSAL.md` § 2.2](./PROPOSAL.md#22-customer-facing-examples).
+- **0.3 – 0.10** — Per-engine license reviews landed in a new
+  [`docs/security-audit.md` § Device Control License Audit](../security-audit.md#device-control-license-audit)
+  subsection, covering Fleet (MIT), Fleet EE (excluded), MakeMeAdmin
+  (GPL — reference only), SAP Privileges (reference only), Munki
+  (Apache-2.0 — reference only), Santa / North Pole Santa
+  (Apache-2.0), MeshCentral (Apache-2.0 — reference only), and
+  Tactical RMM (benchmark only — never base).
+- Workspace-root [`deny.toml`](../../deny.toml) added so the
+  `cargo deny check licenses` gate planned in Phase 7.8 has
+  something to enforce; the file mirrors the SDA Rust-crate licence
+  allow-list in
+  [`docs/security-audit.md`](../security-audit.md#license-audit) and
+  denies any crate name that could plausibly transitively pull
+  Fleet EE / Tactical RMM / MakeMeAdmin source.
+
+Tasks remaining for Phase 0 exit:
+
+- **0.11** — Schema specs for `Finding`, `Recommendation`,
+  `SignedActionJob`, `ActionResult`, `EvidenceRecord`.
+- **0.12** — Wire schema sign-off (`MessageType` + `EventKind` +
+  NATS subjects) with the
+  [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform)
+  maintainers.
+- **0.13** — Phase 0 exit checklist recorded in this file.
+
+Existing 433/433 unit tests, 14/14 base E2E, and 10/10 security E2E
+remain green; no source code changed in this PR.

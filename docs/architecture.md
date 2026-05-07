@@ -165,3 +165,47 @@ proposal. Hard budgets (idle RSS < 15 MB, idle CPU < 0.1 %, binary
 - YAML reference: [`configuration-reference.md`](./configuration-reference.md)
 - Security audit + fuzzing: [`security-audit.md`](./security-audit.md)
 - Platform matrix + manual tests: [`platform-testing.md`](./platform-testing.md)
+
+## 8. Device Control (planned)
+
+ShieldNet Device Control is the next major module family for SDA.
+It is currently in **Phase 0 — Architecture, Legal, and Schema**
+(documentation-only); no Device Control code exists on `main` yet.
+Phase 0 ADR + license posture is recorded in
+[`docs/device-control/ADR-001-functional-port.md`](./device-control/ADR-001-functional-port.md)
+and the Phase 0 progress log lives in
+[`docs/device-control/PROGRESS.md`](./device-control/PROGRESS.md).
+
+The full architecture for Device Control lives in
+[`docs/device-control/ARCHITECTURE.md`](./device-control/ARCHITECTURE.md).
+This § 8 is intentionally a pointer — when Phase 1 code lands the
+`§ 1 Crate map` table above will be expanded with the new crates;
+until then, the planned crates are listed here only for context:
+
+| Planned crate | Responsibility (planned — not yet on `main`) |
+|---|---|
+| `sda-device-control` | Signed-job dispatch, `JobRefused` plumbing, lifecycle for the Device Control surface. |
+| `sda-query` | Declarative scheduled queries via osquery sidecar (Apache-2.0 osquery, integrated). |
+| `sda-policy` | Boolean policy evaluator over `sda-query` results, posture, and inventory deltas. |
+| `sda-posture` | Device posture snapshots (BitLocker / FileVault / LUKS, firewall, screen-lock, patch level). |
+| `sda-software` | Approved package catalogue client + WinGet / `apt`-`dnf`-`zypper` / Munki-style local repo. |
+| `sda-jit-admin` | Just-in-Time admin / root with watchdog + drift detection + idempotent revoke. |
+| `sda-script-runner` | Signed, allow-listed, bounded script execution (not a generic shell). |
+| `sda-app-control` | App control — Santa sidecar on macOS; clean-room WDAC + AppLocker on Windows; clean-room dm-verity-aware on Linux. |
+| `sda-remote-support` | Operator-initiated, user-consented remote support (clean-room MeshCentral-style protocol). |
+| `sda-agent-vitals` | Heartbeat + queue depth + watchdog faults. |
+| `sda-management-compat` | Optional Phase 5 translation shim for Fleet-flavoured GitOps YAML. |
+
+Engine policy (osquery, Santa, WinGet, Munki, MakeMeAdmin, SAP
+Privileges, MeshCentral, Tactical RMM) is documented in
+[`docs/device-control/ARCHITECTURE.md` § 9](./device-control/ARCHITECTURE.md#9-open-source-engine-policy);
+per-engine licence posture is documented in
+[`docs/security-audit.md` § Device Control License Audit](./security-audit.md#device-control-license-audit).
+The capability mapping from Fleet concepts to SDA crates is in
+[`docs/device-control/fleet-capability-mapping.md`](./device-control/fleet-capability-mapping.md).
+
+> **No Device Control code exists on `main` yet.** Phase 1 code is
+> gated on Phase 0 exit per
+> [`docs/device-control/PHASES.md` § Phase 0](./device-control/PHASES.md#phase-0--architecture-legal-and-schema-2-weeks)
+> exit criterion #4 ("No Phase 1 code may be merged before Phase 0
+> exit").
