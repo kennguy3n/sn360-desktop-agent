@@ -1,0 +1,37 @@
+[package]
+name = "sda-local-detection"
+description = "Local Detection Engine (LDE) for SDA — IOC matching, behavioral rules, YARA scanning"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sda-core = { workspace = true }
+sda-event-bus = { workspace = true }
+sda-active-response = { workspace = true }
+sda-pal = { workspace = true }
+tokio = { workspace = true, features = ["process", "time", "sync", "macros", "fs", "rt"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+aho-corasick = { workspace = true }
+bloomfilter = { workspace = true }
+indexmap = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+sha2 = { workspace = true }
+rusqlite = { workspace = true }
+rmp-serde = "1"
+async-trait = "0.1"
+# YARA is a required dependency. We enable the `vendored` feature so
+# `yara-sys` builds libyara from source (bundled 4.5.x), avoiding a
+# runtime / build-time dependency on a system libyara that may be too
+# old (e.g. Ubuntu 22.04 ships libyara 4.1 which lacks the configuration
+# constants the 0.28 bindings reference). Builders still need a working
+# C toolchain (`cc`, `make`, and on Debian/Ubuntu `build-essential` +
+# `libssl-dev` for the crypto-dependent YARA modules).
+yara = { version = "0.28", features = ["vendored"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["rt-multi-thread", "test-util"] }

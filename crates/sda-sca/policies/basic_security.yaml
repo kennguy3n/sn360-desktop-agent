@@ -1,0 +1,64 @@
+policy:
+  id: "basic_security_hardening"
+  name: "Basic Security Hardening Checks"
+  description: "Baseline security configuration checks for Linux endpoints"
+  file: "basic_security.yaml"
+
+checks:
+  - id: "passwd_file_exists"
+    title: "Ensure /etc/passwd exists"
+    description: "The password file must exist for user authentication"
+    type: "file"
+    params:
+      path: "/etc/passwd"
+
+  - id: "shadow_file_exists"
+    title: "Ensure /etc/shadow exists"
+    description: "Shadow password file must exist for secure password storage"
+    type: "file"
+    params:
+      path: "/etc/shadow"
+
+  - id: "sshd_config_exists"
+    title: "Ensure SSH daemon configuration exists"
+    description: "SSH configuration file should be present"
+    type: "file"
+    params:
+      path: "/etc/ssh/sshd_config"
+
+  - id: "sshd_no_root_login"
+    title: "Ensure SSH root login is disabled"
+    description: "PermitRootLogin should be set to no in sshd_config"
+    type: "file"
+    params:
+      path: "/etc/ssh/sshd_config"
+      pattern: "^PermitRootLogin\\s+no"
+
+  - id: "sshd_running"
+    title: "Ensure SSH daemon is running"
+    description: "The SSH daemon should be running for remote management"
+    type: "process"
+    params:
+      process: "sshd"
+
+  - id: "no_empty_passwords"
+    title: "Ensure no accounts have empty passwords"
+    description: "Check that no user accounts have empty password fields"
+    type: "command"
+    params:
+      command: "awk -F: '($2 == \"\") {print $1}' /etc/shadow 2>/dev/null | wc -l"
+      pattern: "^\\s*0\\s*$"
+
+  - id: "firewall_active"
+    title: "Ensure a firewall is active"
+    description: "iptables or nftables should have rules loaded"
+    type: "command"
+    params:
+      command: "iptables -L -n 2>/dev/null | wc -l"
+
+  - id: "kernel_version"
+    title: "Check kernel version"
+    description: "Verify system is running a known kernel"
+    type: "command"
+    params:
+      command: "uname -r"

@@ -1,0 +1,48 @@
+[package]
+name = "sda-updater"
+description = "Self-update module for the SN360 Desktop Agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "sda_updater"
+path = "src/lib.rs"
+
+[dependencies]
+sda-core = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true }
+
+# HTTP client (rustls, no OpenSSL)
+reqwest = { workspace = true }
+futures-util = { workspace = true }
+
+# Crypto / integrity
+sha2 = { workspace = true }
+ed25519-dalek = { workspace = true }
+hex = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Errors / logging
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+# Unix helpers for atomic replace + mode preservation
+[target.'cfg(unix)'.dependencies]
+nix = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
