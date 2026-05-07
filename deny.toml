@@ -1,0 +1,152 @@
+# cargo-deny configuration for the SN360 Desktop Agent (SDA) workspace.
+#
+# This file is the operational enforcement of:
+#
+# - `docs/device-control/ADR-001-functional-port.md` — SDA Device
+#   Control is a clean-room functional re-implementation; no Fleet
+#   source code (MIT or EE) is vendored, copied, or translated.
+# - `docs/security-audit.md` § "License audit" — SDA ships under a
+#   proprietary licence (`LicenseRef-Proprietary`); the workspace is
+#   gated to permissive Rust-crate licences.
+# - `docs/security-audit.md` § "Device Control License Audit" — the
+#   per-engine licence posture (Fleet MIT / Fleet EE / MakeMeAdmin /
+#   SAP Privileges / Munki / Santa / MeshCentral / Tactical RMM).
+#
+# Run locally with:
+#
+#     cargo install --locked cargo-deny
+#     cargo deny check licenses
+#     cargo deny check bans
+#     cargo deny check advisories
+#     cargo deny check sources
+#
+# A `cargo deny check licenses` CI gate is planned for
+# `.github/workflows/ci.yml` (tracked by Phase 7.8 in
+# `docs/revised-phase-plan.md`); this file lands in the Phase 0 PR
+# (see `docs/device-control/PHASES.md` Phase 0) so the gate has
+# something to enforce when it is wired in.
+
+# ---------------------------------------------------------------------------
+# Graph
+# ---------------------------------------------------------------------------
+# Check every target supported by SDA so a non-permissive licence cannot
+# hide behind a `cfg(target_os = "...")` gate.
+[graph]
+targets = [
+    { triple = "x86_64-unknown-linux-gnu" },
+    { triple = "x86_64-unknown-linux-musl" },
+    { triple = "aarch64-unknown-linux-gnu" },
+    { triple = "x86_64-apple-darwin" },
+    { triple = "aarch64-apple-darwin" },
+    { triple = "x86_64-pc-windows-msvc" },
+]
+all-features = true
+
+# ---------------------------------------------------------------------------
+# Licences
+# ---------------------------------------------------------------------------
+# Mirrors the allow-list documented in `docs/security-audit.md`
+# § "License audit". Strong-copyleft and source-available licences
+# (GPL / AGPL / LGPL / SSPL / BUSL / CC-BY-NC) are NOT in this list and
+# must be replaced or feature-gated out of the default build.
+#
+# `LicenseRef-Proprietary` is SDA's own workspace crates — see
+# `proprietary-licensing-rationale.md`.
+[licenses]
+version = 2
+confidence-threshold = 0.93
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "MPL-2.0",
+    "OpenSSL",
+    "BSL-1.0",
+    "LicenseRef-Proprietary",
+]
+
+# `r-efi` is consumed under `Apache-2.0 OR MIT` per the
+# `docs/security-audit.md` audit; the LGPL option is not taken.
+[[licenses.exceptions]]
+name = "r-efi"
+allow = ["Apache-2.0", "MIT"]
+
+[[licenses.clarify]]
+name = "ring"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [
+    { path = "LICENSE", hash = 0xbd0eed23 },
+]
+
+# ---------------------------------------------------------------------------
+# Bans
+# ---------------------------------------------------------------------------
+# This block is the mechanical enforcement of ADR-001 and the
+# "Device Control License Audit" subsection of `docs/security-audit.md`.
+# It denies any crate that could plausibly transitively pull Fleet EE
+# code, Fleet `fleetd`/Orbit code, MakeMeAdmin source, or Tactical RMM
+# source into the SDA workspace.
+#
+# These are name-pattern bans, not license bans — Rust crate names
+# under these prefixes do not exist on crates.io today, but the bans
+# exist so that if a future crate ever did appear (e.g. someone
+# vendors Fleet EE under a `fleet-ee` crate name) the CI gate flags
+# it before it can merge.
+[bans]
+multiple-versions = "warn"
+wildcards = "warn"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+
+# Disallowed crates — see comments above for rationale.
+deny = [
+    # Fleet (MIT) — barred as a source dependency per ADR-001.
+    { name = "fleet", reason = "Fleet source is barred from this repository per docs/device-control/ADR-001-functional-port.md (clean-room functional port; no Fleet source vendored)." },
+    { name = "fleetd", reason = "Fleet's fleetd / Orbit agent runtime is barred per docs/device-control/PROPOSAL.md § 4.2 (do-not-port list)." },
+    { name = "fleet-orbit", reason = "Fleet's Orbit agent runtime is barred per docs/device-control/PROPOSAL.md § 4.2 (do-not-port list)." },
+
+    # Fleet Enterprise Edition — proprietary; barred per ADR-001.
+    { name = "fleet-ee", reason = "Fleet EE source is barred from this repository per docs/device-control/ADR-001-functional-port.md (Fleet EE licensing contamination, risk #2)." },
+    { name = "fleetdm-ee", reason = "Fleet EE source is barred per docs/device-control/ADR-001-functional-port.md." },
+
+    # Tactical RMM — license restricts SaaS / commercial use; benchmark only.
+    { name = "tacticalrmm", reason = "Tactical RMM is benchmark only per docs/device-control/ARCHITECTURE.md § 9 row 13 and docs/security-audit.md § Device Control License Audit; its license restricts SaaS / commercial use." },
+    { name = "tactical-rmm", reason = "Tactical RMM is benchmark only per docs/device-control/ARCHITECTURE.md § 9 row 13." },
+
+    # MakeMeAdmin (GPL) — concept-only reference; SDA does not vendor or link.
+    { name = "makemeadmin", reason = "MakeMeAdmin is GPL-licensed and is a concept-only reference per docs/security-audit.md § Device Control License Audit; SDA does not vendor or link against MakeMeAdmin." },
+    { name = "make-me-admin", reason = "MakeMeAdmin is GPL-licensed and is concept-only reference per docs/security-audit.md § Device Control License Audit." },
+]
+
+# ---------------------------------------------------------------------------
+# Advisories
+# ---------------------------------------------------------------------------
+# RustSec is already enforced by the `cargo audit` job described in
+# `docs/security-audit.md` § "cargo audit". This block lets
+# `cargo deny check advisories` mirror that posture for parity.
+[advisories]
+version = 2
+yanked = "warn"
+ignore = []
+
+# ---------------------------------------------------------------------------
+# Sources
+# ---------------------------------------------------------------------------
+# Restrict crate sources to crates.io. Git dependencies must be
+# explicitly allow-listed here so a Fleet / Tactical RMM / MakeMeAdmin
+# fork on GitHub cannot be pulled in via `[patch]` or a `git = "..."`
+# dependency without an explicit, reviewable change to this file.
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
