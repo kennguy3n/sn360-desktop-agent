@@ -23,6 +23,7 @@
 
 pub mod approval;
 pub mod catalogue;
+pub mod evidence;
 pub mod manifest;
 pub mod module;
 pub mod rollback;
@@ -32,6 +33,7 @@ pub use approval::{
     ApprovalState, ApprovalTransition, InstalledPackage, RECOMMENDATION_PLAIN_ENGLISH_MAX,
 };
 pub use catalogue::{Catalogue, CatalogueStore};
+pub use evidence::{output_sha256, SoftwareActionOutcome, SoftwareEvidenceEmitter};
 pub use manifest::{Artefact, Manifest, ManifestError, MANIFEST_SCHEMA_VERSION};
 pub use module::SoftwareModule;
 pub use rollback::{

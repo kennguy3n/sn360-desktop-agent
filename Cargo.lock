@@ -2067,6 +2067,7 @@ dependencies = [
  "hex",
  "rand_core 0.6.4",
  "sda-core",
+ "sda-device-control",
  "sda-event-bus",
  "sda-pal",
  "serde",

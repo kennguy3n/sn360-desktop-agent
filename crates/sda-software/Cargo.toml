@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 sda-core = { workspace = true }
+sda-device-control = { workspace = true }
 sda-event-bus = { workspace = true }
 sda-pal = { workspace = true }
 tokio = { workspace = true }
