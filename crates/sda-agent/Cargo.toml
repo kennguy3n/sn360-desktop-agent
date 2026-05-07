@@ -1,0 +1,51 @@
+[package]
+name = "sda-agent"
+description = "Binary entry point for SN360 Desktop Agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "sda-agent"
+path = "src/main.rs"
+
+[features]
+# The default build ships the legacy SIEM (Wazuh-compatible)
+# transport adapter alongside the SN360 native-protocol building
+# blocks. A proprietary-only distribution can compile the legacy
+# adapter out with `--no-default-features`; see
+# `docs/proprietary-licensing-rationale.md` for the rationale.
+default = ["legacy-siem"]
+
+# Forwarded to `sda-comms/legacy-siem` so the enrolment, connection,
+# crypto, protocol, and keepalive modules are compiled in.
+legacy-siem = ["sda-comms/legacy-siem"]
+
+[dependencies]
+sda-core = { workspace = true }
+sda-comms = { workspace = true, default-features = false }
+sda-event-bus = { workspace = true }
+sda-pal = { workspace = true }
+sda-fim = { workspace = true }
+sda-logcollector = { workspace = true, features = ["linux-journal"] }
+sda-inventory = { workspace = true }
+sda-sca = { workspace = true }
+sda-active-response = { workspace = true }
+sda-rootcheck = { workspace = true }
+sda-local-detection = { workspace = true }
+sda-enhanced-inventory = { workspace = true }
+sda-updater = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+gethostname = { workspace = true }
+sha2 = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+nix = { workspace = true }
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"

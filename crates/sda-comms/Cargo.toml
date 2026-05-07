@@ -1,0 +1,49 @@
+[package]
+name = "sda-comms"
+description = "SDA communication layer: SN360 native protocol (TLS 1.3 + MessagePack + HTTP/2) with an optional, feature-gated legacy SIEM protocol adapter."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+# The default build ships both the SN360 native protocol (always on)
+# and the legacy SIEM protocol adapter. A proprietary-only
+# distribution can compile out the legacy adapter with
+# `--no-default-features` (which disables the `legacy-siem` feature);
+# see docs/proprietary-licensing-rationale.md for the rationale.
+default = ["legacy-siem"]
+
+# When enabled, compiles the legacy SIEM protocol adapter (TCP/UDP +
+# Blowfish/AES wire protocol and `authd`-compatible enrolment). The
+# adapter is a clean-room implementation of a publicly documented
+# agent wire protocol used purely for interoperability with legacy
+# SIEM managers.
+legacy-siem = []
+
+[dependencies]
+sda-core = { workspace = true }
+sda-event-bus = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rmp-serde = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+ring = { workspace = true }
+aes = { workspace = true }
+cbc = { workspace = true }
+rustls = { workspace = true }
+tokio-rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
+webpki-roots = { workspace = true }
+bytes = { workspace = true }
+flate2 = { workspace = true }
+chrono = { workspace = true }
+sha2 = { workspace = true }
+md-5 = { workspace = true }
+socket2 = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+tempfile = { workspace = true }
