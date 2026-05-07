@@ -156,6 +156,8 @@ For the full configuration reference, see the [Configuration section in `device-
 - [**docs/security-audit.md**](./docs/security-audit.md) — `cargo audit` + `cargo-fuzz` setup
 - [**docs/integration.md**](./docs/integration.md) — Integration with the SN360 Security Platform, non-Wazuh components
 - [**docs/device-control/README.md**](./docs/device-control/README.md) — ShieldNet Device Control module overview, architecture, and roadmap
+- [**docs/device-control/ADR-001-functional-port.md**](./docs/device-control/ADR-001-functional-port.md) — ADR-001: SDA Device Control is a clean-room functional port (no Fleet source vendored)
+- [**docs/device-control/fleet-capability-mapping.md**](./docs/device-control/fleet-capability-mapping.md) — Fleet → SDA / SN360 capability map and do-not-port list
 - [**TEST_RESULTS.md**](./TEST_RESULTS.md) — Latest unit / E2E / security E2E results (with a Non-Wazuh Component Verification section)
 - [**CHANGELOG.md**](./CHANGELOG.md) — Release notes
 - [**device-agent-proposal.md**](./device-agent-proposal.md) — Original architecture & implementation proposal

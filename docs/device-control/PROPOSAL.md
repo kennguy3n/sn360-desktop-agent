@@ -147,10 +147,38 @@ SDA today (Phases 1–6 complete) ships:
 
 ### 3.2 Architectural correction / ADR
 
-> **ShieldNet Device Control is a functional port of Fleet-like
-> management capabilities, implemented as SDA-native Rust modules and
-> SN360 control-plane services. It is not a line-by-line Fleet
-> source-code port.**
+> **ADR-001 — ShieldNet Device Control is a functional port, not a
+> Fleet source-code port.**
+>
+> SDA Device Control is a *clean-room functional re-implementation*
+> inspired by Fleet's *concepts* (declarative queries, software
+> management, JIT admin, evidence-driven activities, GitOps workflows,
+> etc.). **No Fleet source code — MIT or Enterprise Edition — is
+> vendored, copied, or translated** into this repository.
+
+The decision is binding and rests on four explicit commitments:
+
+1. **Clean-room, concept-only port.** SDA Device Control is a
+   clean-room functional re-implementation inspired by Fleet's
+   *concepts* (declarative queries, software management, JIT admin,
+   policies, software jobs, agent vitals, GitOps workflows). The
+   *capabilities* are ported, not the implementation.
+2. **No Fleet source code.** No Fleet source code (MIT or EE) is
+   vendored, copied, or translated. Fleet's Go server source,
+   `fleetd`/Orbit agent, MySQL schema, and EE features are explicitly
+   barred from this repository (see § 4.2 do-not-port list).
+3. **SDA-native architecture.** The implementation reuses SDA's
+   existing Rust crate architecture, the bounded priority event bus
+   (`sda-event-bus`), the SN360 native protocol (`sda-comms`), the
+   YAML configuration model (`sda-core::config`), and the per-OS PAL
+   patterns (`sda-pal`). Every Device Control crate is `sda-*` Rust;
+   there is no Go on the endpoint.
+4. **Reference engines per the engine policy.** Reference engines
+   (osquery, Santa, WinGet, Munki, MakeMeAdmin, SAP Privileges,
+   MeshCentral, Tactical RMM, etc.) are *integrated*, *wrapped*, or
+   *clean-room re-implemented* per the engine policy in
+   [ARCHITECTURE.md § 9 — Open-source engine policy](./ARCHITECTURE.md#9-open-source-engine-policy).
+   Tactical RMM in particular is **benchmark-only — never base**.
 
 We studied [Fleet](https://github.com/fleetdm/fleet) (Go + osquery)
 and selected the *concepts* worth carrying forward — queries,
@@ -166,7 +194,10 @@ GitOps workflows. The implementation is:
 - No re-use of Fleet's Go server source.
 
 This ADR is binding. Everything below — every crate name, every
-struct, every protocol field — reflects it.
+struct, every protocol field — reflects it. The full record lives in
+[ADR-001-functional-port.md](./ADR-001-functional-port.md), and the
+license posture for every reference engine is documented under
+[`docs/security-audit.md` § Device Control License Audit](../security-audit.md#device-control-license-audit).
 
 ---
 
