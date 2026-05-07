@@ -25,6 +25,7 @@ pub mod approval;
 pub mod catalogue;
 pub mod manifest;
 pub mod module;
+pub mod rollback;
 
 pub use approval::{
     build_recommendation_payload, ApprovalAuditor, ApprovalDiff, ApprovalEvaluation,
@@ -33,3 +34,6 @@ pub use approval::{
 pub use catalogue::{Catalogue, CatalogueStore};
 pub use manifest::{Artefact, Manifest, ManifestError, MANIFEST_SCHEMA_VERSION};
 pub use module::SoftwareModule;
+pub use rollback::{
+    RollbackEntry, RollbackError, RollbackManifest, RollbackOrchestrator, RollbackOutcome,
+};
