@@ -219,15 +219,24 @@ All Priority 3 tasks have landed. Phase 5 is complete.
 
 | # | Task | Status |
 |---|------|--------|
-| P4.1 | Phase 0: ADR, license review, schema design | In Progress |
-| P4.2 | Phase 1: Visibility + admin/root review | Not Started |
+| P4.1 | Phase 0: ADR, license review, schema design | Done |
+| P4.2 | Phase 1: Visibility + admin/root review | In Progress |
 
-> **Phase 0 status.** 11/13 Phase 0 tasks complete (ADR + Fleet
+> **Phase 0 status.** 13/13 Phase 0 tasks complete (ADR + Fleet
 > capability map + per-engine license reviews + workspace-root
-> `deny.toml` + canonical wire spec for the five Device Control
-> schemas in [`docs/device-control/SCHEMAS.md`](./docs/device-control/SCHEMAS.md)).
-> Wire schema sign-off (Task 0.12) and the Phase 0 exit checklist
-> (Task 0.13) remain.
+> `deny.toml` + canonical wire spec in
+> [`docs/device-control/SCHEMAS.md`](./docs/device-control/SCHEMAS.md)
+> + wire-schema sign-off + Phase 0 exit checklist).
+>
+> **Phase 1 status.** 8/17 agent-side tasks complete (1.1–1.9,
+> excluding 1.9 Linux which is part of the same `AdminManager`
+> implementation): config / event / message-type plumbing,
+> `AdminManager` + `DevicePostureProvider` PAL traits with
+> Windows / macOS / Linux implementations, and the three new
+> crates `sda-device-control`, `sda-query`, and `sda-posture`
+> have all landed. With every new module gated by
+> `modules.*.enabled: false` defaults, the agent's idle
+> footprint is unchanged when Device Control is off.
 
 See [`docs/device-control/PROGRESS.md`](./docs/device-control/PROGRESS.md) for the detailed Device Control delivery log.
 

@@ -33,6 +33,52 @@ pub enum MessageType {
     Request,
     /// Local Detection Engine alert (edge-generated detection).
     LocalDetection,
+
+    // --- Device Control message types (Phase 1) ---
+    //
+    // Device Control traffic uses the SN360 native protocol path
+    // (TLS 1.3 + MessagePack/JSON envelopes routed by the Agent
+    // Gateway in `sn360-security-platform`). When the agent is
+    // talking to a legacy Wazuh manager these frames are still
+    // forwarded as logcollector messages with a `device-control:*`
+    // source tag so that operators on the legacy console can at
+    // least see them as raw JSON, but the canonical wire path is
+    // the native one (see ARCHITECTURE.md § 4 and SCHEMAS.md § 4).
+    /// Device Control `Finding` payload.
+    DeviceControlFinding,
+    /// Device Control `Recommendation` payload.
+    DeviceControlRecommendation,
+    /// Inbound `SignedActionJob` from the control plane (consumed by
+    /// `sda-device-control::router` — this variant has no matching
+    /// outbound `EventKind`).
+    DeviceControlJob,
+    /// Outbound `ActionResult` for an executed `SignedActionJob`.
+    DeviceControlActionResult,
+    /// Device-posture snapshot delta.
+    DevicePostureState,
+    /// Software-inventory delta.
+    SoftwareInventoryDelta,
+    /// Per-package outcome of a software job.
+    SoftwareJobResult,
+    /// JIT-admin grant request reached the agent.
+    JitAdminRequested,
+    /// JIT-admin grant succeeded.
+    JitAdminGranted,
+    /// JIT-admin grant revoked.
+    JitAdminRevoked,
+    /// Result of a scheduled or ad-hoc query (osquery, …).
+    QueryResult,
+    /// Result of a `RunScript` action.
+    ScriptRunResult,
+    /// A remote-support session started.
+    RemoteSupportSessionStarted,
+    /// A remote-support session ended.
+    RemoteSupportSessionEnded,
+    /// Periodic agent vitals heartbeat.
+    AgentVitals,
+    /// Signed Device Control evidence record.
+    EvidenceRecord,
+
     /// Generic message.
     Generic,
 }
@@ -52,6 +98,26 @@ impl MessageType {
             MessageType::Shutdown => "agent_stop",
             MessageType::Request => "request",
             MessageType::LocalDetection => "local-detection",
+            // Device Control protocol strings — kept stable; the Phase
+            // 0 wire-schema sign-off freezes them as the canonical
+            // names used by the Agent Gateway in
+            // `sn360-security-platform`.
+            MessageType::DeviceControlFinding => "device-control-finding",
+            MessageType::DeviceControlRecommendation => "device-control-recommendation",
+            MessageType::DeviceControlJob => "device-control-job",
+            MessageType::DeviceControlActionResult => "device-control-action-result",
+            MessageType::DevicePostureState => "device-posture-state",
+            MessageType::SoftwareInventoryDelta => "software-inventory-delta",
+            MessageType::SoftwareJobResult => "software-job-result",
+            MessageType::JitAdminRequested => "jit-admin-requested",
+            MessageType::JitAdminGranted => "jit-admin-granted",
+            MessageType::JitAdminRevoked => "jit-admin-revoked",
+            MessageType::QueryResult => "query-result",
+            MessageType::ScriptRunResult => "script-run-result",
+            MessageType::RemoteSupportSessionStarted => "remote-support-session-started",
+            MessageType::RemoteSupportSessionEnded => "remote-support-session-ended",
+            MessageType::AgentVitals => "agent-vitals",
+            MessageType::EvidenceRecord => "evidence-record",
             MessageType::Generic => "message",
         }
     }
@@ -70,6 +136,22 @@ impl MessageType {
             "agent_stop" => MessageType::Shutdown,
             "request" => MessageType::Request,
             "local-detection" => MessageType::LocalDetection,
+            "device-control-finding" => MessageType::DeviceControlFinding,
+            "device-control-recommendation" => MessageType::DeviceControlRecommendation,
+            "device-control-job" => MessageType::DeviceControlJob,
+            "device-control-action-result" => MessageType::DeviceControlActionResult,
+            "device-posture-state" => MessageType::DevicePostureState,
+            "software-inventory-delta" => MessageType::SoftwareInventoryDelta,
+            "software-job-result" => MessageType::SoftwareJobResult,
+            "jit-admin-requested" => MessageType::JitAdminRequested,
+            "jit-admin-granted" => MessageType::JitAdminGranted,
+            "jit-admin-revoked" => MessageType::JitAdminRevoked,
+            "query-result" => MessageType::QueryResult,
+            "script-run-result" => MessageType::ScriptRunResult,
+            "remote-support-session-started" => MessageType::RemoteSupportSessionStarted,
+            "remote-support-session-ended" => MessageType::RemoteSupportSessionEnded,
+            "agent-vitals" => MessageType::AgentVitals,
+            "evidence-record" => MessageType::EvidenceRecord,
             _ => MessageType::Generic,
         }
     }
@@ -156,11 +238,59 @@ impl WazuhMessage {
             // "local-detection" source tag routed through LOCALFILE_MQ.
             // Analysisd then treats the payload as a JSON log record.
             MessageType::LocalDetection => format!("1:local-detection:{}", self.payload),
+            // Device Control messages use the SN360 native protocol
+            // path. When falling back to a legacy Wazuh manager they
+            // are forwarded through LOCALFILE_MQ ('1') with a
+            // `device-control:<kind>` source tag so analysisd treats
+            // them as JSON log records and operators on the legacy
+            // console can still see them. The Agent Gateway in
+            // `sn360-security-platform` strips the prefix when
+            // routing to the native NATS topology.
+            MessageType::DeviceControlFinding => {
+                format!("1:device-control:finding:{}", self.payload)
+            }
+            MessageType::DeviceControlRecommendation => {
+                format!("1:device-control:recommendation:{}", self.payload)
+            }
+            MessageType::DeviceControlJob => {
+                format!("1:device-control:job:{}", self.payload)
+            }
+            MessageType::DeviceControlActionResult => {
+                format!("1:device-control:action-result:{}", self.payload)
+            }
+            MessageType::DevicePostureState => {
+                format!("1:device-posture:{}", self.payload)
+            }
+            MessageType::SoftwareInventoryDelta => {
+                format!("1:software-inventory:{}", self.payload)
+            }
+            MessageType::SoftwareJobResult => {
+                format!("1:software-job:{}", self.payload)
+            }
+            MessageType::JitAdminRequested => {
+                format!("1:jit-admin:requested:{}", self.payload)
+            }
+            MessageType::JitAdminGranted => {
+                format!("1:jit-admin:granted:{}", self.payload)
+            }
+            MessageType::JitAdminRevoked => {
+                format!("1:jit-admin:revoked:{}", self.payload)
+            }
+            MessageType::QueryResult => format!("1:query-result:{}", self.payload),
+            MessageType::ScriptRunResult => format!("1:script-run:{}", self.payload),
+            MessageType::RemoteSupportSessionStarted => {
+                format!("1:remote-support:started:{}", self.payload)
+            }
+            MessageType::RemoteSupportSessionEnded => {
+                format!("1:remote-support:ended:{}", self.payload)
+            }
+            MessageType::AgentVitals => format!("1:agent-vitals:{}", self.payload),
+            MessageType::EvidenceRecord => format!("1:evidence-record:{}", self.payload),
             // Control messages already carry the correct prefix.
             MessageType::Keepalive | MessageType::Startup | MessageType::Shutdown => {
                 self.payload.clone()
             }
-            _ => self.payload.clone(),
+            MessageType::Request | MessageType::Generic => self.payload.clone(),
         };
 
         if self.compress {
@@ -493,6 +623,22 @@ mod tests {
             MessageType::Shutdown,
             MessageType::Request,
             MessageType::LocalDetection,
+            MessageType::DeviceControlFinding,
+            MessageType::DeviceControlRecommendation,
+            MessageType::DeviceControlJob,
+            MessageType::DeviceControlActionResult,
+            MessageType::DevicePostureState,
+            MessageType::SoftwareInventoryDelta,
+            MessageType::SoftwareJobResult,
+            MessageType::JitAdminRequested,
+            MessageType::JitAdminGranted,
+            MessageType::JitAdminRevoked,
+            MessageType::QueryResult,
+            MessageType::ScriptRunResult,
+            MessageType::RemoteSupportSessionStarted,
+            MessageType::RemoteSupportSessionEnded,
+            MessageType::AgentVitals,
+            MessageType::EvidenceRecord,
             MessageType::Generic,
         ];
 
@@ -500,6 +646,60 @@ mod tests {
             let s = mt.as_protocol_str();
             let parsed = MessageType::from_protocol_str(s);
             assert_eq!(mt, parsed);
+        }
+    }
+
+    #[test]
+    fn test_encode_body_device_control_prefixes() {
+        // Each Device Control MessageType must prepend a stable
+        // queue-byte prefix when forwarded to a legacy Wazuh manager.
+        // Without the prefix, analysisd silently drops the payload —
+        // the same failure mode that historically affected
+        // Rootcheck/Sca/ActiveResponse.
+        let cases = [
+            (
+                MessageType::DeviceControlFinding,
+                "1:device-control:finding:",
+            ),
+            (
+                MessageType::DeviceControlRecommendation,
+                "1:device-control:recommendation:",
+            ),
+            (MessageType::DeviceControlJob, "1:device-control:job:"),
+            (
+                MessageType::DeviceControlActionResult,
+                "1:device-control:action-result:",
+            ),
+            (MessageType::DevicePostureState, "1:device-posture:"),
+            (MessageType::SoftwareInventoryDelta, "1:software-inventory:"),
+            (MessageType::SoftwareJobResult, "1:software-job:"),
+            (MessageType::JitAdminRequested, "1:jit-admin:requested:"),
+            (MessageType::JitAdminGranted, "1:jit-admin:granted:"),
+            (MessageType::JitAdminRevoked, "1:jit-admin:revoked:"),
+            (MessageType::QueryResult, "1:query-result:"),
+            (MessageType::ScriptRunResult, "1:script-run:"),
+            (
+                MessageType::RemoteSupportSessionStarted,
+                "1:remote-support:started:",
+            ),
+            (
+                MessageType::RemoteSupportSessionEnded,
+                "1:remote-support:ended:",
+            ),
+            (MessageType::AgentVitals, "1:agent-vitals:"),
+            (MessageType::EvidenceRecord, "1:evidence-record:"),
+        ];
+        for (mt, prefix) in cases {
+            let msg = WazuhMessage::new("001", mt.clone(), "{\"k\":\"v\"}");
+            let body = String::from_utf8(msg.encode_body()).unwrap();
+            assert!(
+                body.starts_with(prefix),
+                "{:?} encoded body {:?} did not start with {:?}",
+                mt,
+                body,
+                prefix
+            );
+            assert!(body.ends_with("{\"k\":\"v\"}"));
         }
     }
 }
