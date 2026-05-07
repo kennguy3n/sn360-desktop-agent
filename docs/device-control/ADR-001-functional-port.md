@@ -259,6 +259,9 @@ dm-verity-aware.
 - [`PROGRESS.md`](./PROGRESS.md) — Device Control delivery log.
 - [`fleet-capability-mapping.md`](./fleet-capability-mapping.md) —
   detailed Fleet → SDA / SN360 capability map and do-not-port list.
+- [`SCHEMAS.md`](./SCHEMAS.md) — canonical, versioned wire spec for
+  `Finding`, `Recommendation`, `SignedActionJob`, `ActionResult`,
+  and `EvidenceRecord`.
 - [`docs/security-audit.md` § Device Control License Audit](../security-audit.md#device-control-license-audit) —
   per-engine license posture (Fleet MIT / Fleet EE / MakeMeAdmin /
   SAP Privileges / Munki / Santa / MeshCentral / Tactical RMM).
