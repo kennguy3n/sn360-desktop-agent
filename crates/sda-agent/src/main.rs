@@ -436,7 +436,46 @@ async fn main() -> Result<()> {
         agent.register_module(up_handle);
     }
 
-    // 12i. Tamper-protection watchdog (P3.3). Off unless
+    // 12i. Device Control modules (Phase 1 scaffold).
+    //      Off by default; flipping `device_control.enabled` to
+    //      `true` lights up the Device Control router, which in
+    //      Phase 1 only parks on the shutdown signal — the per-
+    //      action executors land in Phase 2/3. Idle footprint is
+    //      bit-for-bit identical to a pre-Device-Control build
+    //      when this flag is `false`.
+    if config.modules.device_control.enabled {
+        info!("starting device control module");
+        let dc_handle = sda_device_control::DeviceControlModule::start(
+            &config,
+            agent.event_bus(),
+            agent.shutdown_signal(),
+        );
+        agent.register_module(dc_handle);
+    }
+
+    // 12j. Query (osquery sidecar) module — Phase 1 MVP.
+    //      Default is disabled. The supervisor probes the configured
+    //      osquery binary, runs scheduled queries, and emits
+    //      `EventKind::QueryResult` events on the bus.
+    if config.modules.query.enabled {
+        info!("starting query module");
+        let q_handle =
+            sda_query::QueryModule::start(&config, agent.event_bus(), agent.shutdown_signal());
+        agent.register_module(q_handle);
+    }
+
+    // 12k. Posture module — periodic device-posture snapshots.
+    //      Default is disabled. When enabled the supervisor takes
+    //      a snapshot at `modules.posture.interval_secs` intervals
+    //      and emits `EventKind::DevicePostureState` deltas.
+    if config.modules.posture.enabled {
+        info!("starting posture module");
+        let p_handle =
+            sda_posture::PostureModule::start(&config, agent.event_bus(), agent.shutdown_signal());
+        agent.register_module(p_handle);
+    }
+
+    // 12l. Tamper-protection watchdog (P3.3). Off unless
     // `security.tamper.watchdog_interval_secs` is non-zero AND
     // `$NOTIFY_SOCKET` is set by the service manager.
     let _watchdog_handle = tamper::spawn_watchdog(&config.security.tamper);
@@ -548,6 +587,48 @@ fn map_event_to_message(agent_id: &str, kind: &EventKind) -> Option<WazuhMessage
             (MessageType::LocalDetection, json)
         }
         EventKind::ServerMessage { payload } => (MessageType::Generic, payload.clone()),
+
+        // --- Device Control event mapping (Phase 1) ---
+        //
+        // Each Device Control `EventKind` carries an opaque pre-encoded
+        // canonical-JSON `payload` produced by `sda-device-control`.
+        // We forward it verbatim — the producing module is the single
+        // source of truth for the wire encoding (RFC 8785 canonical
+        // JSON, see SCHEMAS.md § 2).
+        EventKind::DeviceControlFinding { payload } => {
+            (MessageType::DeviceControlFinding, payload.clone())
+        }
+        EventKind::DeviceControlRecommendation { payload } => {
+            (MessageType::DeviceControlRecommendation, payload.clone())
+        }
+        EventKind::DeviceControlActionResult { payload } => {
+            (MessageType::DeviceControlActionResult, payload.clone())
+        }
+        EventKind::DevicePostureState { payload } => {
+            (MessageType::DevicePostureState, payload.clone())
+        }
+        EventKind::SoftwareInventoryDelta { payload } => {
+            (MessageType::SoftwareInventoryDelta, payload.clone())
+        }
+        EventKind::SoftwareJobResult { payload } => {
+            (MessageType::SoftwareJobResult, payload.clone())
+        }
+        EventKind::JitAdminRequested { payload } => {
+            (MessageType::JitAdminRequested, payload.clone())
+        }
+        EventKind::JitAdminGranted { payload } => (MessageType::JitAdminGranted, payload.clone()),
+        EventKind::JitAdminRevoked { payload } => (MessageType::JitAdminRevoked, payload.clone()),
+        EventKind::QueryResult { payload } => (MessageType::QueryResult, payload.clone()),
+        EventKind::ScriptRunResult { payload } => (MessageType::ScriptRunResult, payload.clone()),
+        EventKind::RemoteSupportSessionStarted { payload } => {
+            (MessageType::RemoteSupportSessionStarted, payload.clone())
+        }
+        EventKind::RemoteSupportSessionEnded { payload } => {
+            (MessageType::RemoteSupportSessionEnded, payload.clone())
+        }
+        EventKind::AgentVitals { payload } => (MessageType::AgentVitals, payload.clone()),
+        EventKind::EvidenceRecord { payload } => (MessageType::EvidenceRecord, payload.clone()),
+
         // Lifecycle / internal events are not forwarded.
         _ => return None,
     };

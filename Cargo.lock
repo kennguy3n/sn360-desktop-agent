@@ -1691,6 +1691,7 @@ dependencies = [
  "sda-active-response",
  "sda-comms",
  "sda-core",
+ "sda-device-control",
  "sda-enhanced-inventory",
  "sda-event-bus",
  "sda-fim",
@@ -1698,6 +1699,8 @@ dependencies = [
  "sda-local-detection",
  "sda-logcollector",
  "sda-pal",
+ "sda-posture",
+ "sda-query",
  "sda-rootcheck",
  "sda-sca",
  "sda-updater",
@@ -1755,6 +1758,25 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "sda-device-control"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "sda-comms",
+ "sda-core",
+ "sda-event-bus",
+ "sda-pal",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -1885,11 +1907,44 @@ dependencies = [
  "nix",
  "notify",
  "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
  "windows",
+]
+
+[[package]]
+name = "sda-posture"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "sda-core",
+ "sda-event-bus",
+ "sda-pal",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "sda-query"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "sda-core",
+ "sda-event-bus",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -2507,6 +2562,7 @@ checksum = "ddd74a9687298c6858e9b88ec8935ec45d22e8fd5e6394fa1bd4e99a87789c76"
 dependencies = [
  "getrandom 0.4.2",
  "js-sys",
+ "serde_core",
  "wasm-bindgen",
 ]
 
