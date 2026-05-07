@@ -6,10 +6,15 @@ use serde::{Deserialize, Serialize};
 pub enum Priority {
     /// Critical events that must never be deferred (active response, keepalive).
     Critical = 0,
+    /// High-priority events that should run ahead of normal operational
+    /// traffic but are not as time-critical as `Critical` (e.g. Device
+    /// Control findings, signed-job action results, evidence records).
+    High = 1,
     /// Normal operational events (real-time FIM, log collection).
-    Normal = 1,
-    /// Low-priority background events (baseline scans, inventory).
-    Low = 2,
+    Normal = 2,
+    /// Low-priority background events (baseline scans, inventory,
+    /// posture snapshots, agent vitals).
+    Low = 3,
 }
 
 /// The kind of event flowing through the bus.
@@ -131,6 +136,63 @@ pub enum EventKind {
     ServerMessage { payload: String },
     /// Message received from the server.
     ServerCommand { command: String, payload: String },
+
+    // --- Device Control events (Phase 1) ---
+    //
+    // The agent encodes Device Control payloads as already-serialized
+    // canonical JSON strings so the bus does not need to know the per-
+    // schema type system. The full Rust definitions live in
+    // `crates/sda-device-control` (see SCHEMAS.md § 5–9).
+    /// A Device Control `Finding` was emitted (admin/posture/software
+    /// observation). Payload: canonical JSON of `Finding`.
+    DeviceControlFinding { payload: String },
+    /// A Device Control `Recommendation` was received from the control
+    /// plane (informational on the agent side). Payload: canonical JSON
+    /// of `Recommendation`.
+    DeviceControlRecommendation { payload: String },
+    /// A Device Control `ActionResult` for a `SignedActionJob` the
+    /// agent executed. Payload: canonical JSON of `ActionResult`.
+    DeviceControlActionResult { payload: String },
+    /// A device-posture snapshot delta (BitLocker / FileVault / LUKS,
+    /// firewall, screen-lock, patch level, OS version). Payload:
+    /// canonical JSON of `PostureSnapshot`.
+    DevicePostureState { payload: String },
+    /// A software-inventory delta from `sda-enhanced-inventory`
+    /// re-shaped for Device Control consumers. Payload: canonical JSON
+    /// matching the SoftwareInventoryDelta wire schema.
+    SoftwareInventoryDelta { payload: String },
+    /// Per-package outcome of a software job (install/update/uninstall).
+    /// Payload: canonical JSON of the SoftwareJobResult wire schema.
+    SoftwareJobResult { payload: String },
+    /// A user-initiated JIT admin request reached the agent.
+    /// Payload: canonical JSON of the JitAdminRequested wire schema.
+    JitAdminRequested { payload: String },
+    /// JIT admin grant succeeded; payload includes user, expiry,
+    /// `GrantHandle`. Payload: canonical JSON.
+    JitAdminGranted { payload: String },
+    /// JIT admin grant was revoked (timer, watchdog, drift, or
+    /// operator). Payload: canonical JSON.
+    JitAdminRevoked { payload: String },
+    /// Result of a scheduled or ad-hoc query (osquery, etc.).
+    /// Payload: canonical JSON containing query id + rows.
+    QueryResult { payload: String },
+    /// Result of a `RunScript` action — exit code + truncated output
+    /// + sha256 of the full output. Payload: canonical JSON.
+    ScriptRunResult { payload: String },
+    /// A remote-support session started (operator id, session id,
+    /// consent state). Payload: canonical JSON.
+    RemoteSupportSessionStarted { payload: String },
+    /// A remote-support session ended (reason + duration). Payload:
+    /// canonical JSON.
+    RemoteSupportSessionEnded { payload: String },
+    /// Periodic agent vitals heartbeat — queue depth, watchdog faults,
+    /// module health. Payload: canonical JSON of the AgentVitals wire
+    /// schema.
+    AgentVitals { payload: String },
+    /// A signed Device Control evidence record produced as the audit
+    /// projection of an `ActionResult`. Payload: canonical JSON of
+    /// `EvidenceRecord`.
+    EvidenceRecord { payload: String },
 }
 
 /// An event that flows through the event bus.
@@ -161,5 +223,101 @@ impl Event {
             priority,
             kind,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn priority_order_critical_high_normal_low() {
+        // The ordering matters for the priority queue: Critical < High <
+        // Normal < Low (smaller = higher priority).
+        assert!(Priority::Critical < Priority::High);
+        assert!(Priority::High < Priority::Normal);
+        assert!(Priority::Normal < Priority::Low);
+    }
+
+    fn dc_event_kinds() -> Vec<EventKind> {
+        let payload = r#"{"k":"v"}"#.to_string();
+        vec![
+            EventKind::DeviceControlFinding {
+                payload: payload.clone(),
+            },
+            EventKind::DeviceControlRecommendation {
+                payload: payload.clone(),
+            },
+            EventKind::DeviceControlActionResult {
+                payload: payload.clone(),
+            },
+            EventKind::DevicePostureState {
+                payload: payload.clone(),
+            },
+            EventKind::SoftwareInventoryDelta {
+                payload: payload.clone(),
+            },
+            EventKind::SoftwareJobResult {
+                payload: payload.clone(),
+            },
+            EventKind::JitAdminRequested {
+                payload: payload.clone(),
+            },
+            EventKind::JitAdminGranted {
+                payload: payload.clone(),
+            },
+            EventKind::JitAdminRevoked {
+                payload: payload.clone(),
+            },
+            EventKind::QueryResult {
+                payload: payload.clone(),
+            },
+            EventKind::ScriptRunResult {
+                payload: payload.clone(),
+            },
+            EventKind::RemoteSupportSessionStarted {
+                payload: payload.clone(),
+            },
+            EventKind::RemoteSupportSessionEnded {
+                payload: payload.clone(),
+            },
+            EventKind::AgentVitals {
+                payload: payload.clone(),
+            },
+            EventKind::EvidenceRecord { payload },
+        ]
+    }
+
+    #[test]
+    fn device_control_event_kinds_round_trip_via_serde_json() {
+        for kind in dc_event_kinds() {
+            let json = serde_json::to_string(&kind).expect("encode");
+            let back: EventKind = serde_json::from_str(&json).expect("decode");
+            // Round-trip through canonical JSON re-encode to compare,
+            // because EventKind has no PartialEq.
+            let again = serde_json::to_string(&back).expect("re-encode");
+            assert_eq!(json, again, "DC event kind did not round-trip cleanly");
+        }
+    }
+
+    #[test]
+    fn device_control_event_kinds_preserve_payload() {
+        let payload = r#"{"finding_id":"abc","kind":"permanent_admin"}"#;
+        let kind = EventKind::DeviceControlFinding {
+            payload: payload.to_string(),
+        };
+        let json = serde_json::to_string(&kind).expect("encode");
+        // The payload string must be present verbatim in the JSON
+        // representation of the variant.
+        assert!(json.contains("permanent_admin"));
+        assert!(json.contains("DeviceControlFinding"));
+    }
+
+    #[test]
+    fn device_control_event_count_matches_phase0_signoff() {
+        // Phase 0 task 0.12 froze the EventKind sign-off list at 15
+        // Device Control variants. Any change to this count requires a
+        // new ADR + a major schema-version bump (SCHEMAS.md § 11).
+        assert_eq!(dc_event_kinds().len(), 15);
     }
 }

@@ -233,6 +233,29 @@ pub struct ModulesConfig {
     pub enhanced_inventory: EnhancedInventoryConfig,
     #[serde(default)]
     pub updater: UpdateConfig,
+
+    // --- Device Control modules (Phase 1) ---
+    //
+    // All Device Control modules default to `enabled: false` per the
+    // lazy-module-loading principle. With `device_control.enabled =
+    // false` the agent's idle footprint is bit-for-bit identical to
+    // the pre-Device-Control baseline.
+    #[serde(default)]
+    pub device_control: DeviceControlConfig,
+    #[serde(default)]
+    pub query: QueryConfig,
+    #[serde(default)]
+    pub posture: PostureConfig,
+    #[serde(default)]
+    pub software: SoftwareConfig,
+    #[serde(default)]
+    pub jit_admin: JitAdminConfig,
+    #[serde(default)]
+    pub script_runner: ScriptRunnerConfig,
+    #[serde(default)]
+    pub app_control: AppControlConfig,
+    #[serde(default)]
+    pub remote_support: RemoteSupportConfig,
 }
 
 /// FIM-specific configuration.
@@ -1086,6 +1109,346 @@ impl Default for LoggingConfig {
             file: None,
         }
     }
+}
+
+// =============================================================
+// Device Control configuration sections (Phase 1)
+// =============================================================
+//
+// All structs in this section default to `enabled: false`. The
+// canonical source of truth for these knobs is
+// `docs/device-control/ARCHITECTURE.md` § 6.
+
+/// Device Control core configuration.
+///
+/// Controls the `sda-device-control` router (signed-job validation +
+/// finding fan-out) and the cross-cutting policy knobs that bind every
+/// Device Control action — maintenance window, quiet hours, and the
+/// per-job resource budget.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DeviceControlConfig {
+    /// Master enable switch. Defaults to `false` per the
+    /// lazy-module-loading principle.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Maintenance window when long-running Device Control jobs may
+    /// run. Outside the window, jobs that opt into maintenance-window
+    /// gating are queued.
+    #[serde(default)]
+    pub maintenance_window: MaintenanceWindow,
+
+    /// Quiet hours when interactive prompts are suppressed and only
+    /// `Critical` events fire.
+    #[serde(default)]
+    pub quiet_hours: QuietHours,
+
+    /// Per-job resource budget. Jobs that exceed the budget are
+    /// terminated and a `JobRefused::ResourceLimit` `ActionResult` is
+    /// emitted.
+    #[serde(default)]
+    pub job_budget: JobBudget,
+}
+
+/// Maintenance window for batched Device Control work.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaintenanceWindow {
+    /// Whether the window is enabled. Disabled by default.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Start time in `HH:MM` (24h, local time).
+    #[serde(default = "default_maintenance_window_start")]
+    pub start: String,
+    /// End time in `HH:MM` (24h, local time).
+    #[serde(default = "default_maintenance_window_end")]
+    pub end: String,
+    /// Days of the week the window applies on (`mon`..`sun`).
+    #[serde(default = "default_maintenance_window_days")]
+    pub days: Vec<String>,
+}
+
+impl Default for MaintenanceWindow {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            start: default_maintenance_window_start(),
+            end: default_maintenance_window_end(),
+            days: default_maintenance_window_days(),
+        }
+    }
+}
+
+/// Quiet hours when interactive prompts and non-critical events are
+/// suppressed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuietHours {
+    /// Whether quiet hours are enforced. Disabled by default.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Start time in `HH:MM` (24h, local time).
+    #[serde(default = "default_quiet_hours_start")]
+    pub start: String,
+    /// End time in `HH:MM` (24h, local time).
+    #[serde(default = "default_quiet_hours_end")]
+    pub end: String,
+}
+
+impl Default for QuietHours {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            start: default_quiet_hours_start(),
+            end: default_quiet_hours_end(),
+        }
+    }
+}
+
+/// Per-job resource budget enforced by `sda-device-control::router`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JobBudget {
+    /// Maximum CPU percent the job is allowed to draw.
+    #[serde(default = "default_job_max_cpu_percent")]
+    pub max_cpu_percent: u8,
+    /// Maximum RSS in MB.
+    #[serde(default = "default_job_max_rss_mb")]
+    pub max_rss_mb: u32,
+    /// Maximum wall-clock duration in seconds.
+    #[serde(default = "default_job_max_wall_secs")]
+    pub max_wall_secs: u64,
+}
+
+impl Default for JobBudget {
+    fn default() -> Self {
+        Self {
+            max_cpu_percent: default_job_max_cpu_percent(),
+            max_rss_mb: default_job_max_rss_mb(),
+            max_wall_secs: default_job_max_wall_secs(),
+        }
+    }
+}
+
+/// `sda-query` (osquery sidecar) configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueryConfig {
+    /// Master enable switch.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Sidecar configuration for the osquery process the query module
+    /// drives.
+    #[serde(default)]
+    pub osquery: OsqueryConfig,
+    /// Interval in seconds between scheduled-query polls. Defaults to
+    /// 300 (5 minutes).
+    #[serde(default = "default_query_schedule_poll_secs")]
+    pub schedule_poll_secs: u64,
+}
+
+impl Default for QueryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            osquery: OsqueryConfig::default(),
+            schedule_poll_secs: default_query_schedule_poll_secs(),
+        }
+    }
+}
+
+/// osquery sidecar configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OsqueryConfig {
+    /// One of `"sidecar"` (agent spawns and supervises osquery),
+    /// `"external"` (agent connects to an existing osquery socket), or
+    /// `"disabled"`.
+    #[serde(default = "default_osquery_mode")]
+    pub mode: String,
+    /// Path to the `osqueryd` (or `osqueryi`) binary on the host.
+    #[serde(default = "default_osquery_binary_path")]
+    pub binary_path: PathBuf,
+    /// Path to the osquery extension socket.
+    #[serde(default = "default_osquery_socket_path")]
+    pub socket_path: PathBuf,
+    /// Maximum RSS the sidecar is allowed to consume.
+    #[serde(default = "default_osquery_max_rss_mb")]
+    pub max_rss_mb: u32,
+    /// Maximum CPU percent the sidecar is allowed to consume.
+    #[serde(default = "default_osquery_max_cpu_percent")]
+    pub max_cpu_percent: u8,
+}
+
+impl Default for OsqueryConfig {
+    fn default() -> Self {
+        Self {
+            mode: default_osquery_mode(),
+            binary_path: default_osquery_binary_path(),
+            socket_path: default_osquery_socket_path(),
+            max_rss_mb: default_osquery_max_rss_mb(),
+            max_cpu_percent: default_osquery_max_cpu_percent(),
+        }
+    }
+}
+
+/// `sda-posture` (device-posture snapshots) configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PostureConfig {
+    /// Master enable switch.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Interval in seconds between posture snapshots. Defaults to
+    /// 900 (15 minutes).
+    #[serde(default = "default_posture_interval_secs")]
+    pub interval_secs: u64,
+    /// Whether to defer snapshots while on battery (power-aware
+    /// scheduling). Defaults to `true`.
+    #[serde(default = "default_true")]
+    pub defer_on_battery: bool,
+}
+
+impl Default for PostureConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            interval_secs: default_posture_interval_secs(),
+            defer_on_battery: true,
+        }
+    }
+}
+
+/// Software management module placeholder (Phase 2). Defaults to
+/// disabled.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SoftwareConfig {
+    /// Master enable switch.
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+/// JIT-admin module placeholder (Phase 3). Defaults to disabled.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct JitAdminConfig {
+    /// Master enable switch.
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+/// Script-runner module placeholder (Phase 3). Defaults to disabled.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ScriptRunnerConfig {
+    /// Master enable switch.
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+/// Application-control module placeholder (Phase 4). Defaults to
+/// disabled.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AppControlConfig {
+    /// Master enable switch.
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+/// Remote-support module placeholder (Phase 4). Defaults to disabled.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RemoteSupportConfig {
+    /// Master enable switch.
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+// --- Device Control default value functions ---
+
+fn default_maintenance_window_start() -> String {
+    "02:00".to_string()
+}
+
+fn default_maintenance_window_end() -> String {
+    "05:00".to_string()
+}
+
+fn default_maintenance_window_days() -> Vec<String> {
+    vec![
+        "mon".to_string(),
+        "tue".to_string(),
+        "wed".to_string(),
+        "thu".to_string(),
+        "fri".to_string(),
+        "sat".to_string(),
+        "sun".to_string(),
+    ]
+}
+
+fn default_quiet_hours_start() -> String {
+    "22:00".to_string()
+}
+
+fn default_quiet_hours_end() -> String {
+    "07:00".to_string()
+}
+
+fn default_job_max_cpu_percent() -> u8 {
+    20
+}
+
+fn default_job_max_rss_mb() -> u32 {
+    256
+}
+
+fn default_job_max_wall_secs() -> u64 {
+    900
+}
+
+fn default_query_schedule_poll_secs() -> u64 {
+    300
+}
+
+fn default_osquery_mode() -> String {
+    "sidecar".to_string()
+}
+
+fn default_osquery_binary_path() -> PathBuf {
+    #[cfg(target_os = "linux")]
+    {
+        PathBuf::from("/usr/bin/osqueryd")
+    }
+    #[cfg(target_os = "macos")]
+    {
+        PathBuf::from("/usr/local/bin/osqueryd")
+    }
+    #[cfg(target_os = "windows")]
+    {
+        PathBuf::from(r"C:\Program Files\osquery\osqueryd\osqueryd.exe")
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        PathBuf::new()
+    }
+}
+
+fn default_osquery_socket_path() -> PathBuf {
+    #[cfg(unix)]
+    {
+        PathBuf::from("/var/lib/sn360-desktop-agent/osquery.sock")
+    }
+    #[cfg(windows)]
+    {
+        PathBuf::from(r"\\.\pipe\sn360-osquery")
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        PathBuf::new()
+    }
+}
+
+fn default_osquery_max_rss_mb() -> u32 {
+    60
+}
+
+fn default_osquery_max_cpu_percent() -> u8 {
+    5
+}
+
+fn default_posture_interval_secs() -> u64 {
+    900
 }
 
 impl AgentConfig {

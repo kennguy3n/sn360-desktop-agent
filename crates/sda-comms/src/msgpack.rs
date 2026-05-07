@@ -139,6 +139,55 @@ mod tests {
                 command: "syscheck:rescan".into(),
                 payload: String::new(),
             },
+            // Device Control variants — every variant added under the
+            // Phase 0 wire-schema sign-off must round-trip through
+            // MessagePack so the Agent Gateway can decode them on the
+            // server side.
+            EventKind::DeviceControlFinding {
+                payload: r#"{"finding_id":"f1","kind":"permanent_admin"}"#.into(),
+            },
+            EventKind::DeviceControlRecommendation {
+                payload: r#"{"recommendation_id":"r1"}"#.into(),
+            },
+            EventKind::DeviceControlActionResult {
+                payload: r#"{"action_result_id":"ar1","status":"success"}"#.into(),
+            },
+            EventKind::DevicePostureState {
+                payload: r#"{"disk_encryption":"on"}"#.into(),
+            },
+            EventKind::SoftwareInventoryDelta {
+                payload: r#"{"added":[],"removed":[]}"#.into(),
+            },
+            EventKind::SoftwareJobResult {
+                payload: r#"{"job_id":"j1","status":"success"}"#.into(),
+            },
+            EventKind::JitAdminRequested {
+                payload: r#"{"user":"alice"}"#.into(),
+            },
+            EventKind::JitAdminGranted {
+                payload: r#"{"user":"alice","until":"2026-05-08T00:00:00Z"}"#.into(),
+            },
+            EventKind::JitAdminRevoked {
+                payload: r#"{"user":"alice"}"#.into(),
+            },
+            EventKind::QueryResult {
+                payload: r#"{"query_id":"q1","rows":[]}"#.into(),
+            },
+            EventKind::ScriptRunResult {
+                payload: r#"{"script_id":"s1","exit":0}"#.into(),
+            },
+            EventKind::RemoteSupportSessionStarted {
+                payload: r#"{"session_id":"rs1"}"#.into(),
+            },
+            EventKind::RemoteSupportSessionEnded {
+                payload: r#"{"session_id":"rs1"}"#.into(),
+            },
+            EventKind::AgentVitals {
+                payload: r#"{"rss_mb":12,"cpu_percent":0.05}"#.into(),
+            },
+            EventKind::EvidenceRecord {
+                payload: r#"{"record_id":"er1","prev_hash":""}"#.into(),
+            },
         ];
 
         for kind in &kinds {

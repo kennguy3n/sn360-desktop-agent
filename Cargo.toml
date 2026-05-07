@@ -14,6 +14,9 @@ members = [
     "crates/sda-local-detection",
     "crates/sda-enhanced-inventory",
     "crates/sda-updater",
+    "crates/sda-device-control",
+    "crates/sda-query",
+    "crates/sda-posture",
 ]
 # fuzz/ has its own [workspace] stanza and is not part of the main
 # build. Keeping it excluded avoids pulling libfuzzer-sys (and the
@@ -72,7 +75,7 @@ anyhow = "1"
 # Utilities
 bytes = "1"
 chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
 sha2 = "0.10"
 md-5 = "0.10"
 flate2 = "1"
@@ -105,6 +108,9 @@ sda-rootcheck = { path = "crates/sda-rootcheck" }
 sda-local-detection = { path = "crates/sda-local-detection" }
 sda-enhanced-inventory = { path = "crates/sda-enhanced-inventory" }
 sda-updater = { path = "crates/sda-updater" }
+sda-device-control = { path = "crates/sda-device-control" }
+sda-query = { path = "crates/sda-query" }
+sda-posture = { path = "crates/sda-posture" }
 
 # Self-update (P3.1)
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "stream", "json"] }
