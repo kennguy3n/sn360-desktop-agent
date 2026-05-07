@@ -1706,6 +1706,7 @@ dependencies = [
  "sda-query",
  "sda-rootcheck",
  "sda-sca",
+ "sda-script-runner",
  "sda-software",
  "sda-updater",
  "serde_json",
@@ -2001,6 +2002,27 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "sda-script-runner"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "ed25519-dalek",
+ "hex",
+ "rand_core 0.6.4",
+ "sda-core",
+ "sda-event-bus",
+ "sda-pal",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tracing",

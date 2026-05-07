@@ -495,6 +495,22 @@ async fn main() -> Result<()> {
         agent.register_module(sw_handle);
     }
 
+    // 12l-bis. Script runner (Phase 2.7).
+    //          Off by default. Executes signed, allow-listed scripts
+    //          with hard wall-clock and output-byte budgets, then
+    //          emits `ScriptRunResult` + `EvidenceRecord` events.
+    //          The supervisor handles the disabled / mis-configured
+    //          cases internally (parks on shutdown), so we only need
+    //          to spawn it unconditionally.
+    let script_runner_work_dir = std::env::temp_dir().join("sn360-script-runner");
+    let (script_runner_handle, _script_runner_sender) = sda_script_runner::ScriptRunnerModule::start(
+        &config,
+        agent.event_bus(),
+        agent.shutdown_signal(),
+        script_runner_work_dir,
+    );
+    agent.register_module(script_runner_handle);
+
     // 12m. Agent-vitals heartbeat (Phase 1.12).
     //      Per ARCHITECTURE.md § 10 step 5 the heartbeat is always-on
     //      when Device Control is enabled. The cadence defaults to
