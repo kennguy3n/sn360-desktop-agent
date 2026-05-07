@@ -215,6 +215,15 @@ All Priority 3 tasks have landed. Phase 5 is complete.
 | P3.3 | Tamper protection — protect binary / config / keys; watchdog restart | Done (PR #50) |
 | P3.4 | Installer / packaging — MSI (Windows), `.deb` / `.rpm` (Linux), `.pkg` (macOS) | Done (PR #48) |
 
+### Priority 4 — Device Control Module
+
+| # | Task | Status |
+|---|------|--------|
+| P4.1 | Phase 0: ADR, license review, schema design | Not Started |
+| P4.2 | Phase 1: Visibility + admin/root review | Not Started |
+
+See [`docs/device-control/PROGRESS.md`](./docs/device-control/PROGRESS.md) for the detailed Device Control delivery log.
+
 ## Phase 5 detailed status
 
 | Deliverable | Status | PR |
