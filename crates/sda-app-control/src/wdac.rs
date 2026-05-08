@@ -428,6 +428,16 @@ impl PowerShellCommand {
     }
 }
 
+/// Escape a value for safe inclusion inside a single-quoted
+/// PowerShell literal. PowerShell escapes a literal single quote in a
+/// `'…'` string by doubling it (`''`), so any embedded `'` in a path
+/// or identifier must be doubled before interpolation. Without this,
+/// a single quote in the value either breaks the command's shell
+/// syntax or — worse — allows arbitrary PowerShell injection.
+fn ps_escape_single_quote(s: &str) -> String {
+    s.replace('\'', "''")
+}
+
 /// Build the PowerShell command sequence required to apply a WDAC
 /// XML policy to the local machine.
 ///
@@ -438,14 +448,20 @@ impl PowerShellCommand {
 ///    `%windir%\System32\CodeIntegrity\CiPolicies\Active`.
 /// 4. `Invoke-CimMethod -ClassName PS_UpdateAndRefreshCIPolicy` —
 ///    forces an immediate policy refresh.
+///
+/// All caller-supplied values (xml/cip paths, policy id, display
+/// name) are escaped via [`ps_escape_single_quote`] before being
+/// interpolated into single-quoted PowerShell literals.
 pub fn powershell_apply_wdac_commands(
     xml_path: &Path,
     cip_path: &Path,
     policy_id: &str,
     display_name: &str,
 ) -> Vec<PowerShellCommand> {
-    let xml = xml_path.to_string_lossy().to_string();
-    let cip = cip_path.to_string_lossy().to_string();
+    let xml = ps_escape_single_quote(&xml_path.to_string_lossy());
+    let cip = ps_escape_single_quote(&cip_path.to_string_lossy());
+    let policy_id_esc = ps_escape_single_quote(policy_id);
+    let display_name_esc = ps_escape_single_quote(display_name);
     vec![
         PowerShellCommand {
             program: "powershell.exe".into(),
@@ -455,7 +471,7 @@ pub fn powershell_apply_wdac_commands(
                 "-Command".into(),
                 format!(
                     "Set-CIPolicyIdInfo -FilePath '{}' -PolicyId '{}' -PolicyName '{}'",
-                    xml, policy_id, display_name
+                    xml, policy_id_esc, display_name_esc
                 ),
             ],
         },
@@ -476,7 +492,7 @@ pub fn powershell_apply_wdac_commands(
                 "-Command".into(),
                 format!(
                     "Copy-Item -Path '{}' -Destination \"$env:windir\\System32\\CodeIntegrity\\CiPolicies\\Active\\{}\" -Force",
-                    cip, policy_id
+                    cip, policy_id_esc
                 ),
             ],
         },
@@ -493,9 +509,10 @@ pub fn powershell_apply_wdac_commands(
 }
 
 /// Build the PowerShell command sequence to apply an AppLocker
-/// policy XML.
+/// policy XML. The XML path is escaped via [`ps_escape_single_quote`]
+/// before being interpolated.
 pub fn powershell_apply_applocker_commands(xml_path: &Path) -> Vec<PowerShellCommand> {
-    let xml = xml_path.to_string_lossy().to_string();
+    let xml = ps_escape_single_quote(&xml_path.to_string_lossy());
     vec![PowerShellCommand {
         program: "powershell.exe".into(),
         args: vec![
@@ -513,6 +530,10 @@ pub fn powershell_apply_applocker_commands(xml_path: &Path) -> Vec<PowerShellCom
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WdacApplyRecord {
     pub backend: WdacBackend,
+    /// Mode the policy was applied in. Sourced from
+    /// `AppControlPolicyPayload::target_mode` at apply time so
+    /// `current_mode()` can faithfully report it back.
+    pub mode: AppControlMode,
     pub xml: String,
     pub commands: Vec<PowerShellCommand>,
     pub applied_at: DateTime<Utc>,
@@ -599,12 +620,13 @@ impl AppControlProvider for WdacAppControlProvider {
     fn current_mode(&self) -> Result<AppControlMode, AppControlError> {
         // Probing the live Windows policy is best-effort; on every
         // host we can only safely report the last mode the agent
-        // *intended* to set.
+        // *intended* to set, recorded at apply time on the
+        // `WdacApplyRecord`.
         Ok(self
             .last_applied
             .lock()
             .ok()
-            .and_then(|g| g.as_ref().map(|_| AppControlMode::Monitor))
+            .and_then(|g| g.as_ref().map(|r| r.mode))
             .unwrap_or(AppControlMode::Disabled))
     }
 
@@ -644,6 +666,7 @@ impl AppControlProvider for WdacAppControlProvider {
         if let Ok(mut g) = self.last_applied.lock() {
             *g = Some(WdacApplyRecord {
                 backend: self.backend,
+                mode: payload.target_mode,
                 xml,
                 commands,
                 applied_at: Utc::now(),
@@ -891,6 +914,63 @@ mod tests {
             std::env::temp_dir().join("sda-wdac-test"),
         );
         assert_eq!(provider.current_mode().unwrap(), AppControlMode::Disabled);
+    }
+
+    #[test]
+    fn provider_current_mode_reflects_applied_payload_target_mode() {
+        let provider = WdacAppControlProvider::with_backend(
+            WdacBackend::Wdac,
+            std::env::temp_dir().join("sda-wdac-test"),
+        );
+        let mut payload = sample_payload(21);
+        payload.target_mode = AppControlMode::Enforce;
+        provider.apply_verified_policy(&payload).expect("apply ok");
+        assert_eq!(provider.current_mode().unwrap(), AppControlMode::Enforce);
+
+        let mut payload2 = sample_payload(22);
+        payload2.target_mode = AppControlMode::Monitor;
+        provider.apply_verified_policy(&payload2).expect("apply ok");
+        assert_eq!(provider.current_mode().unwrap(), AppControlMode::Monitor);
+    }
+
+    #[test]
+    fn ps_escape_single_quote_doubles_embedded_quotes() {
+        assert_eq!(ps_escape_single_quote("plain"), "plain");
+        assert_eq!(ps_escape_single_quote("ken's path"), "ken''s path");
+        assert_eq!(ps_escape_single_quote("a'b'c"), "a''b''c");
+    }
+
+    #[test]
+    fn powershell_apply_wdac_commands_escapes_single_quotes_in_paths() {
+        // A path containing a literal single quote must not break the
+        // single-quoted PowerShell literal. The escaped value should
+        // appear in the rendered argument with doubled quotes.
+        let xml = PathBuf::from("/tmp/ken's policy.xml");
+        let cip = PathBuf::from("/tmp/o'reilly.cip");
+        let cmds = powershell_apply_wdac_commands(&xml, &cip, "id-with-'-quote", "Display 'Name'");
+        let joined: String = cmds
+            .iter()
+            .flat_map(|c| c.args.iter())
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" ");
+        // No bare unescaped quote from the inputs leaks through.
+        assert!(joined.contains("ken''s policy.xml"));
+        assert!(joined.contains("o''reilly.cip"));
+        assert!(joined.contains("id-with-''-quote"));
+        assert!(joined.contains("Display ''Name''"));
+        // The literal pre-escape forms must NOT appear, otherwise the
+        // single-quoted literal would be broken by the embedded quote.
+        assert!(!joined.contains("ken's policy.xml"));
+        assert!(!joined.contains("o'reilly.cip"));
+    }
+
+    #[test]
+    fn powershell_apply_applocker_commands_escapes_single_quotes_in_paths() {
+        let cmds = powershell_apply_applocker_commands(&PathBuf::from("/tmp/ken's al.xml"));
+        let argline = cmds[0].args.last().unwrap();
+        assert!(argline.contains("ken''s al.xml"));
+        assert!(!argline.contains("ken's al.xml"));
     }
 
     #[test]
