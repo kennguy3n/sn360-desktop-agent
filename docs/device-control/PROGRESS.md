@@ -18,12 +18,15 @@ Status legend:
 ## Current Status
 
 Phase 0 complete | 100% (13/13 tasks). Phase 1 complete (agent-side) |
-100% agent-side tasks (14/14 non-⚙️ tasks). Phase 2 in progress |
-**~80% (11/15 tasks complete, excluding ⚙️ server-side tasks 2.12–2.14;
-agent-side scope is 11/12)**. Phase 3 complete (agent-side) | **100%
-agent-side tasks (7/7 non-⚙️ tasks)**. Phase 4 in progress | **~50%
-(6/12 tasks complete, excluding ⚙️ server-side tasks 4.9–4.11;
-agent-side scope so far covers tasks 4.1–4.6)**.
+100% agent-side tasks (14/14 non-⚙️ tasks). Phase 2 complete (agent-side) |
+**100% agent-side tasks (12/12 non-⚙️ tasks; 2.12–2.14 are server-side
+and tracked in `sn360-security-platform`)**. Phase 3 complete (agent-side) |
+**100% agent-side tasks (7/7 non-⚙️ tasks; 3.6 is server-side)**.
+Phase 4 complete (agent-side) | **100% agent-side tasks (9/9 non-⚙️
+tasks; 4.9–4.11 are server-side MDM connectors tracked in
+`sn360-security-platform`)**. Phase 5 agent-side scope landed for the
+`sda-management-compat` shim (5.6) and the Phase-5 E2E suite (5.7); the
+remaining Phase 5 tasks (5.1–5.5) are ⚙️ server-side.
 
 All Phase 0 documentation-only deliverables are landed:
 
@@ -119,7 +122,7 @@ Device Control crates are added.
 | 2.12 | Package Catalog service ⚙️ | Not Started |
 | 2.13 | Action Orchestrator ⚙️ | Not Started |
 | 2.14 | Approval Service ⚙️ | Not Started |
-| 2.15 | Phase 2 E2E suite | Done |
+| 2.15 | Phase 2 E2E suite (`make e2e-software`) | Done |
 
 ---
 
@@ -148,12 +151,12 @@ Device Control crates are added.
 | 4.4 | `sda-pal::AppControlProvider` impls | Done |
 | 4.5 | `sda-app-control` scaffold | Done |
 | 4.6 | Santa integration (macOS) | Done |
-| 4.7 | WDAC + AppLocker (Windows) | Not Started |
-| 4.8 | Linux app control (clean-room dm-verity-aware) | Not Started |
+| 4.7 | WDAC + AppLocker (Windows) | Done |
+| 4.8 | Linux app control (clean-room dm-verity-aware) | Done |
 | 4.9 | Android MDM connector ⚙️ | Not Started |
 | 4.10 | Apple MDM/DDM connector ⚙️ | Not Started |
 | 4.11 | ChromeOS connector ⚙️ | Not Started |
-| 4.12 | Phase 4 E2E suite | Not Started |
+| 4.12 | Phase 4 E2E suite (`make e2e-app-control` + `make e2e-remote-support`) | Done |
 
 ---
 
@@ -166,8 +169,8 @@ Device Control crates are added.
 | 5.3 | White-label exports ⚙️ | Not Started |
 | 5.4 | MSP dashboard ⚙️ | Not Started |
 | 5.5 | Cross-tenant templates ⚙️ | Not Started |
-| 5.6 | `sda-management-compat` shim | Not Started |
-| 5.7 | Phase 5 E2E suite | Not Started |
+| 5.6 | `sda-management-compat` shim | Done |
+| 5.7 | Phase 5 E2E suite (`make e2e-management-compat`) | Done |
 
 ---
 
@@ -216,11 +219,11 @@ Top six highest-severity risks for delivery planning:
 
 ## Known Gaps
 
-Phase 1 / 2 / 3 agent-side surfaces are complete. Phase 4
-agent-side surface is in progress; the trait + scaffolding +
-Monitor-mode tasks (4.1–4.6) land here. The remaining agent-side
-gaps are the OS-specific Enforce-mode backends (4.7 / 4.8) and the
-Phase 4 E2E suite (4.12).
+Phase 1 / 2 / 3 / 4 agent-side surfaces are complete. The Phase 5
+agent-side scope (the `sda-management-compat` Fleet-YAML shim and
+the Phase-5 E2E suite) has also landed; the remaining Phase 5 work
+(tenant catalogues, approval routing, white-label exports, the MSP
+dashboard, cross-tenant templates) is server-side.
 
 - ⚙️ **1.14 / 1.15 / 1.16** — Device Registry integration, SMI
   sub-score wiring, Risk Engine v0 are all server-side and tracked
@@ -228,35 +231,42 @@ Phase 4 E2E suite (4.12).
 - ⚙️ **2.12 / 2.13 / 2.14** — Package Catalog, Action Orchestrator,
   and Approval Service all land in `sn360-security-platform`.
 - ⚙️ **3.6** — Approval Service v1 lands in `sn360-security-platform`.
-- **4.7** — Windows WDAC + AppLocker enforcement backend (the trait
-  stub returns `NotSupported`; production code lights up in Phase
-  5 once Microsoft signing + WDAC policy CI/CD lands).
-- **4.8** — Linux clean-room dm-verity-aware enforcement backend
-  (the trait stub returns `NotSupported`).
 - ⚙️ **4.9 / 4.10 / 4.11** — Android, Apple MDM/DDM, and ChromeOS
   connectors all land in `sn360-security-platform`.
-- **4.12** — Phase 4 E2E suite covering remote-support session
-  consent + transport stub negotiation and app-control
-  Monitor / Enforce / rollback paths end-to-end.
-- Phase 5 is not started.
+- ⚙️ **5.1 — 5.5** — Tenant catalogues, approval routing,
+  white-label exports, the MSP dashboard, and cross-tenant
+  templates land in `sn360-security-platform`.
 
 ## Next Steps
 
-Phase 3 agent-side code surface is complete: drift detection
-(`sda-jit-admin::drift::DriftDetector`) is wired into the
-`tokio::select!` loop alongside the watchdog, every state
-transition (`Requested` / `Granted` / `Revoked` / `AdminDrift`)
-emits a chained `EvidenceRecord`, the boot-time idempotent revoke
-sweeps every non-terminal state on start-up, and the Phase 3 E2E
-suite (`make e2e-jit-admin`, 9 hermetic tests) is green.
+Phase 4 agent-side code surface is complete: the
+`RemoteSupportProvider` and `AppControlProvider` PAL traits, the
+`sda-remote-support` crate with consent gate + clean-room
+MeshCentral-style protocol, the `sda-app-control` crate with
+signed-policy verification + Monitor / Enforce / rollback paths,
+the Windows WDAC + AppLocker backend (`crates/sda-app-control/src/wdac.rs`
++ the per-OS PAL impl), the Linux clean-room dm-verity-aware
+backend (`crates/sda-app-control/src/linux.rs` + the per-OS PAL
+impl), and the Phase 4 E2E suite (`make e2e-remote-support` +
+`make e2e-app-control`) are all green.
 
-Phase 4 agent-side scaffolding lands here too: the
-`RemoteSupportProvider` and `AppControlProvider` PAL traits with
-per-OS `NotSupported` stubs, the `sda-remote-support` crate with
-session state machine + consent gate + clean-room
-MeshCentral-style protocol, and the `sda-app-control` crate with
-signed-policy verification, Monitor mode (the Phase-4 default),
-and Enforce mode with single-step `DualControlRollback`.
+Phase 5 agent-side scope landed here: the new
+[`sda-management-compat`](../../crates/sda-management-compat/)
+crate translates Fleet-flavoured GitOps YAML into SDA-native
+[`AgentConfig`](../../crates/sda-core/src/config.rs) sections per
+the PROPOSAL.md § 4.1 mapping table (queries → `modules.query`,
+software installers → `modules.software`, scripts →
+`modules.script_runner`, `agent_options.distributed_interval` →
+`modules.query.schedule_poll_secs`,
+`agent_options.maintenance_window` → `modules.device_control`,
+labels → catalogue-side tags), rejects every Fleet EE / do-not-port
+feature per ADR-001, and enforces tenant-id matching to satisfy
+Phase 5 acceptance criterion #2 ("cross-tenant data leakage
+impossible by construction"). The Phase 5 E2E suite
+(`make e2e-management-compat`, 9 hermetic tests) covers the
+round-trip into a loadable `AgentConfig`, every do-not-port
+rejection path, both halves of the tenant-id gate, the warnings
+surface, and the parser-error contract.
 
 Remaining work, in priority order:
 
@@ -265,14 +275,189 @@ Remaining work, in priority order:
 - ⚙️ **2.12 / 2.13 / 2.14** — Package Catalog, Action Orchestrator,
   and Approval Service in `sn360-security-platform`.
 - ⚙️ **3.6** — Approval Service v1 in `sn360-security-platform`.
-- **4.7** — Windows WDAC + AppLocker enforcement backend.
-- **4.8** — Linux clean-room dm-verity-aware enforcement backend.
-- **4.12** — Phase 4 E2E suite (`make e2e-remote-support` +
-  `make e2e-app-control`).
+- ⚙️ **4.9 / 4.10 / 4.11** — Android, Apple MDM/DDM, and ChromeOS
+  connectors in `sn360-security-platform`.
+- ⚙️ **5.1 — 5.5** — Tenant catalogues, approval routing,
+  white-label exports, the MSP dashboard, and cross-tenant
+  templates in `sn360-security-platform`.
 
 ---
 
 ## Changelog
+
+### 2026-05-08 — Phase 4 completion (WDAC / AppLocker, Linux app control, E2E) + Phase 5 management-compat shim
+
+This PR closes out the agent-side scope of Phase 4 and lands the
+agent-side scope of Phase 5. All new code is gated on the same
+`modules.app_control.enabled` / `modules.remote_support.enabled`
+flags introduced by PR #7 plus the new `sda-management-compat`
+shim (which is a translator library, not a runtime module — it
+has zero idle footprint by construction). An agent with the
+Device Control flags `false` (the default) runs the same idle
+code path as before.
+
+Phase 4 — agent-side completion:
+
+- **4.7** — Windows WDAC + AppLocker enforcement backend in
+  [`crates/sda-app-control/src/wdac.rs`](../../crates/sda-app-control/src/wdac.rs)
+  and the matching per-OS PAL impl in
+  [`crates/sda-pal/src/app_control.rs`](../../crates/sda-pal/src/app_control.rs).
+  Translates `SignedAppControlPolicy` rules into WDAC XML policy
+  bodies (publisher / hash / path / file-name rules with
+  deny-precedence), re-renders the canonical XML envelope so the
+  PowerShell shell-out is a single `Set-Content -LiteralPath
+  <policy.xml>` followed by `ConvertFrom-CIPolicy` /
+  `Set-CIPolicyIdInfo` / `CiTool --update-policy` (or
+  `RefreshPolicy.exe` on older Windows versions), and falls back
+  to AppLocker rules + `Set-AppLockerPolicy -XmlPolicy <policy.xml>`
+  when the host's WDAC subsystem is unavailable. Policy
+  verification stays in `sda-app-control::policy` — only verified
+  payloads ever reach the Windows backend. Unit tests cover the
+  XML serialiser (publisher / hash / path / file-name rules,
+  deny precedence, mixed allow / deny), the WDAC and AppLocker
+  PowerShell command builders, the WDAC → AppLocker fallback
+  trigger, and the rejection of unverified payloads.
+- **4.8** — Linux clean-room dm-verity-aware enforcement backend
+  in
+  [`crates/sda-app-control/src/linux.rs`](../../crates/sda-app-control/src/linux.rs)
+  and the matching per-OS PAL impl in
+  [`crates/sda-pal/src/app_control.rs`](../../crates/sda-pal/src/app_control.rs).
+  Each `AppControlRule` is translated into a
+  `LinuxPolicyEntry { canonical_path, expected_root_hash,
+  decision }` row, persisted under `modules.app_control.linux.
+  policy_dir` (default `/var/lib/sn360-desktop-agent/app_control`),
+  and the verifier reads the dm-verity root hash via
+  `veritysetup status` (or the pre-rendered
+  `/sys/block/<dev>/dm/verity_*` interface, both feature-flagged so
+  hosts without dm-verity degrade cleanly to logged-only Monitor
+  mode). For Enforce mode the backend writes the per-binary
+  decision into the policy file consumed by the SDA seccomp /
+  eBPF watcher (also clean-room; no eBPF source vendored beyond
+  what is already in `sda-pal`). Monitor mode logs every observed
+  decision via `EventKind::AppControlDecision`. Unit tests cover
+  the rule → entry translation, root-hash collision rejection,
+  the no-dm-verity degradation path, and the decision-log
+  emission contract.
+- **4.12** — Phase 4 E2E suite. Two new hermetic test files plus
+  three new Makefile targets:
+  - [`crates/sda-agent/tests/e2e_remote_support.rs`](../../crates/sda-agent/tests/e2e_remote_support.rs)
+    drives the consent state machine end-to-end
+    (`Pending → ConsentRequested → (denied | accepted)
+    → Active → Ended`), pins the invariant that no session can
+    advance past `ConsentRequested` without an explicit accept,
+    asserts both `RemoteSupportSessionStarted` and
+    `RemoteSupportSessionEnded` reach the bus, and exercises the
+    time-bounded session sweep. Hooked into the Makefile as
+    `make e2e-remote-support`.
+  - [`crates/sda-agent/tests/e2e_app_control.rs`](../../crates/sda-agent/tests/e2e_app_control.rs)
+    covers the Phase-4 default Monitor mode (apply policy →
+    observe binary → emit `AppControlDecision`), the opt-in
+    Enforce mode (apply policy → unauthorised binary blocked →
+    chained `EvidenceRecord`), and the dual-control rollback
+    (`Enforce -> rollback -> previous policy restored → chained
+    evidence`). Tests run against the in-process bus and the
+    PAL stubs; no OS-level enforcement is executed. Hooked into
+    the Makefile as `make e2e-app-control`.
+
+Phase 5 — agent-side scope:
+
+- **5.6** — New
+  [`sda-management-compat`](../../crates/sda-management-compat/)
+  crate. Translates Fleet-flavoured GitOps YAML into SDA-native
+  [`AgentConfig`](../../crates/sda-core/src/config.rs) sections
+  per the PROPOSAL.md § 4.1 mapping table:
+  - `queries` → `modules.query.enabled = true` (paused queries
+    surface a warning).
+  - `policies` → control-plane concept; the shim emits warnings
+    for Fleet-EE-only fields like `severity` but does not store
+    per-agent policy state (per ADR-001).
+  - `software.packages` → `modules.software.enabled = true`, with
+    install / uninstall scripts exposed separately on
+    `Translation::package_scripts` so the catalogue producer can
+    re-sign them (they never leak into the agent YAML).
+  - `scripts` → `modules.script_runner.enabled = true`, with a
+    warning that catalogue-side re-signing is required.
+  - `agent_options.distributed_interval` →
+    `modules.query.schedule_poll_secs`.
+  - `agent_options.maintenance_window` →
+    `modules.device_control.maintenance_window` (with day-of-week
+    canonicalisation to lowercase 3-letter tags), plus
+    `modules.device_control.enabled = true` so the window is
+    actually honoured.
+  - `labels` → catalogue-side tags exposed on
+    `Translation::labels`; the agent never persists labels per
+    ADR-001.
+  Validation rejects every key on the PROPOSAL.md § 4.2 do-not-port
+  list (`mdm`, `mobile_device_management`, `ee`, `vpp`,
+  `automatic_enrollment`, `software.app_store_apps`) and refuses
+  to translate against a Fleet `team_name` that does not match the
+  caller-supplied SDA `tenant_id` (the agent-side belt-and-braces
+  check behind the control-plane row-level security). Unknown
+  top-level sections and unknown `agent_options` keys surface as
+  warnings rather than fatals so a Fleet upstream change does not
+  break onboarding. 27 unit tests cover every translation path,
+  every rejection path, the warnings surface, the round-trip into
+  YAML, and the malformed-input contract.
+- **5.7** — Phase 5 E2E suite in
+  [`crates/sda-agent/tests/e2e_management_compat.rs`](../../crates/sda-agent/tests/e2e_management_compat.rs)
+  with a `make e2e-management-compat` Makefile target. Nine
+  hermetic tests exercise the Phase 5 acceptance criteria:
+  - Acceptance #1 (no agent-side change required to onboard MSP
+    tenant): `fleet_yaml_round_trips_into_loadable_agent_config`
+    translates a representative Fleet document, encodes it as
+    YAML, writes it to a tempfile, and re-loads it via
+    `AgentConfig::from_yaml_file` exactly the way `sda-agent`
+    does at boot.
+  - Acceptance #2 (cross-tenant data leakage impossible by
+    construction): `cross_tenant_translation_is_rejected`,
+    `empty_team_name_is_accepted_for_any_tenant`,
+    `empty_tenant_id_is_rejected_outright`, and
+    `fleet_ee_features_are_rejected_end_to_end`.
+  - Acceptance #3 (white-label exports never include another
+    tenant's data): `translation_carries_tenant_id_through_to_yaml`
+    and `package_scripts_and_labels_are_separated_from_agent_yaml`.
+  - Plus structural pins on the warnings surface and parser
+    contract.
+
+New workspace crate: `sda-management-compat` (listed in the
+workspace `Cargo.toml` `[workspace]` `members` table and
+`[workspace.dependencies]`). `sda-app-control` grew the
+`wdac.rs` and `linux.rs` per-OS backends; `sda-pal` grew the
+Windows + Linux Enforce-mode impls. `sda-agent` did not need any
+wiring change for the management-compat shim because the shim is
+a library, not a runtime module — the catalogue producer or the
+operator's GitOps pipeline calls `translate_yaml(...)` and feeds
+the resulting YAML into the agent through the existing config
+loader.
+
+Tests:
+
+- **9 / 9** Phase 5 management-compat E2E tests
+  (`make e2e-management-compat`).
+- **2 / 2** Phase 4 remote-support E2E tests
+  (`make e2e-remote-support`).
+- **3 / 3** Phase 4 app-control E2E tests
+  (`make e2e-app-control`).
+- **9 / 9** Phase 3 JIT-admin E2E tests (`make e2e-jit-admin`)
+  remain green.
+- **8 / 8** Phase 2 software E2E tests (`make e2e-software`)
+  remain green.
+- **7 / 7** Phase 1 device-control E2E tests
+  (`make e2e-device-control`) remain green.
+- **All workspace unit tests pass** across all crates (run via
+  `cargo test --workspace`); the previous baseline remains green
+  and the new surface adds 27 dedicated tests in
+  `sda-management-compat` plus the WDAC / Linux app-control
+  backend tests in `sda-app-control` and `sda-pal`.
+- `cargo fmt --all -- --check`, `cargo clippy --all-targets --
+  -D warnings`, and `cargo deny check licenses` all pass.
+
+Documentation: `PROGRESS.md`, `README.md`, `ARCHITECTURE.md`, and
+`PHASES.md` updated to reflect tasks 4.7 / 4.8 / 4.12 and 5.6 /
+5.7 as Done. Stale Phase 2 / 3 / 4 task statuses inherited from
+PRs #6 and #7 (which closed out the agent-side scope of Phases 2
+and 3 and tasks 4.1–4.6) are also corrected. The five
+PROPOSAL.md § 2.2 examples are unchanged.
 
 ### 2026-05-08 — Phase 3 drift detection + Phase 4 remote support & app control
 

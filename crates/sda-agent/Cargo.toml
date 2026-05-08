@@ -66,3 +66,5 @@ rand_core = { version = "0.6", features = ["getrandom"] }
 hex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+sda-management-compat = { workspace = true }

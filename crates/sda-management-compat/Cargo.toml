@@ -1,0 +1,16 @@
+[package]
+name = "sda-management-compat"
+description = "Fleet-flavoured GitOps YAML translation shim — converts customers' existing Fleet config into SDA-native AgentConfig sections (Phase 5)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sda-core = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

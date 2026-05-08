@@ -1734,6 +1734,7 @@ dependencies = [
  "sda-jit-admin",
  "sda-local-detection",
  "sda-logcollector",
+ "sda-management-compat",
  "sda-pal",
  "sda-posture",
  "sda-query",
@@ -1745,6 +1746,7 @@ dependencies = [
  "sda-updater",
  "serde",
  "serde_json",
+ "serde_yaml",
  "sha2",
  "tempfile",
  "tokio",
@@ -1992,6 +1994,18 @@ dependencies = [
  "tokio",
  "tracing",
  "windows",
+]
+
+[[package]]
+name = "sda-management-compat"
+version = "0.1.0"
+dependencies = [
+ "sda-core",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror 2.0.18",
+ "tracing",
 ]
 
 [[package]]

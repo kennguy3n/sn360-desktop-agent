@@ -23,6 +23,7 @@ members = [
     "crates/sda-agent-vitals",
     "crates/sda-remote-support",
     "crates/sda-app-control",
+    "crates/sda-management-compat",
 ]
 # fuzz/ has its own [workspace] stanza and is not part of the main
 # build. Keeping it excluded avoids pulling libfuzzer-sys (and the
@@ -124,6 +125,7 @@ sda-jit-admin = { path = "crates/sda-jit-admin" }
 sda-agent-vitals = { path = "crates/sda-agent-vitals" }
 sda-remote-support = { path = "crates/sda-remote-support" }
 sda-app-control = { path = "crates/sda-app-control" }
+sda-management-compat = { path = "crates/sda-management-compat" }
 
 # Self-update (P3.1)
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "stream", "json"] }
