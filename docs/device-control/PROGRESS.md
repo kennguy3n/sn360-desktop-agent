@@ -18,15 +18,13 @@ Status legend:
 ## Current Status
 
 Phase 0 complete | 100% (13/13 tasks). Phase 1 complete (agent-side) |
-100% agent-side tasks (14/14 non-⚙️ tasks). Phase 2 complete (agent-side) |
-**100% agent-side tasks (12/12 non-⚙️ tasks; 2.12–2.14 are server-side
-and tracked in `sn360-security-platform`)**. Phase 3 complete (agent-side) |
-**100% agent-side tasks (7/7 non-⚙️ tasks; 3.6 is server-side)**.
-Phase 4 complete (agent-side) | **100% agent-side tasks (9/9 non-⚙️
-tasks; 4.9–4.11 are server-side MDM connectors tracked in
-`sn360-security-platform`)**. Phase 5 agent-side scope landed for the
-`sda-management-compat` shim (5.6) and the Phase-5 E2E suite (5.7); the
-remaining Phase 5 tasks (5.1–5.5) are ⚙️ server-side.
+100% agent-side tasks (14/14 non-⚙️ tasks). Phase 2 complete
+(agent-side) | **100% agent-side tasks (12/12 non-⚙️ tasks)**.
+Phase 3 complete (agent-side) | **100% agent-side tasks (7/7 non-⚙️
+tasks)**. Phase 4 complete (agent-side) | **100% agent-side tasks
+(9/9 non-⚙️ tasks; 4.1–4.8 + 4.12 Done)**. Phase 5 complete
+(agent-side) | **100% agent-side tasks (2/2 non-⚙️ tasks; 5.6 + 5.7
+Done)**.
 
 All Phase 0 documentation-only deliverables are landed:
 
@@ -49,10 +47,6 @@ All Phase 0 documentation-only deliverables are landed:
   [`SCHEMAS.md`](./SCHEMAS.md), with stub references in
   [`PROPOSAL.md` § 8](./PROPOSAL.md#8-data-model) and
   [`ARCHITECTURE.md` § 3](./ARCHITECTURE.md#3-data-model).
-
-No new crates, config sections, `EventKind` variants, or
-`MessageType` variants exist yet — Phase 0 is intentionally
-documentation-only and Phase 1 code is gated on Phase 0 exit.
 
 The existing SDA test surface — **433 unit tests, 14/14 base E2E,
 10/10 security E2E** — remains green and must continue to pass as
@@ -176,22 +170,18 @@ Device Control crates are added.
 
 ## Tests & Benchmarks
 
-No Device Control tests exist yet. Existing SDA test surface
-(433 unit, 14/14 E2E, 10/10 security E2E) must continue to pass as
-Device Control crates are added. New tests will land alongside the
-phases that introduce them:
+Device Control test surface:
 
-- Phase 1 — `make e2e-device-control` covering the five PROPOSAL.md
-  § 2.2 examples (admin review, outdated apps, missing laptops,
-  unknown software, JIT-admin request flow up to the
-  `JobRefused: NotImplemented` boundary).
-- Phase 2 — software-installer install / update / uninstall +
-  rollback E2E on Windows / macOS / Linux.
-- Phase 3 — JIT admin grant → revoke E2E on Windows / macOS / Linux,
-  including process-crash, reboot, and sleep/wake recovery.
-- Phase 4 — remote-support session E2E + app-control monitor +
-  enforce E2E.
-- Phase 5 — cross-tenant isolation E2E.
+- **7 / 7** Phase 1 E2E tests (`make e2e-device-control`).
+- **8 / 8** Phase 2 E2E tests (`make e2e-software`).
+- **9 / 9** Phase 3 E2E tests (`make e2e-jit-admin`).
+- **10 / 10** Phase 4 app-control E2E tests (`make e2e-app-control`).
+- **9 / 9** Phase 4 remote-support E2E tests (`make e2e-remote-support`).
+- **9 / 9** Phase 5 management-compat E2E tests (`make e2e-management-compat`).
+- All workspace unit tests pass (`cargo test --workspace`).
+
+Existing SDA test surface (433 unit, 14/14 E2E, 10/10 security E2E)
+remains green.
 
 Existing budgets — idle RSS < 15 MB, idle CPU < 0.1 %, FIM scan peak
 < 3 %, binary < 7 MB — must remain green; the benchmark gate
@@ -219,71 +209,75 @@ Top six highest-severity risks for delivery planning:
 
 ## Known Gaps
 
-Phase 1 / 2 / 3 / 4 agent-side surfaces are complete. The Phase 5
-agent-side scope (the `sda-management-compat` Fleet-YAML shim and
-the Phase-5 E2E suite) has also landed; the remaining Phase 5 work
-(tenant catalogues, approval routing, white-label exports, the MSP
-dashboard, cross-tenant templates) is server-side.
+All agent-side tasks across Phases 0–5 are complete. The remaining
+gaps are server-side (⚙️) and tracked in
+[`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform):
 
 - ⚙️ **1.14 / 1.15 / 1.16** — Device Registry integration, SMI
-  sub-score wiring, Risk Engine v0 are all server-side and tracked
-  in [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform).
+  sub-score wiring, Risk Engine v0.
 - ⚙️ **2.12 / 2.13 / 2.14** — Package Catalog, Action Orchestrator,
-  and Approval Service all land in `sn360-security-platform`.
-- ⚙️ **3.6** — Approval Service v1 lands in `sn360-security-platform`.
+  and Approval Service.
+- ⚙️ **3.6** — Approval Service v1.
 - ⚙️ **4.9 / 4.10 / 4.11** — Android, Apple MDM/DDM, and ChromeOS
-  connectors all land in `sn360-security-platform`.
-- ⚙️ **5.1 — 5.5** — Tenant catalogues, approval routing,
-  white-label exports, the MSP dashboard, and cross-tenant
-  templates land in `sn360-security-platform`.
+  connectors.
+- ⚙️ **5.1 / 5.2 / 5.3 / 5.4 / 5.5** — Tenant catalogues, approval
+  routing, white-label exports, MSP dashboard, cross-tenant templates.
 
 ## Next Steps
 
-Phase 4 agent-side code surface is complete: the
-`RemoteSupportProvider` and `AppControlProvider` PAL traits, the
-`sda-remote-support` crate with consent gate + clean-room
-MeshCentral-style protocol, the `sda-app-control` crate with
-signed-policy verification + Monitor / Enforce / rollback paths,
-the Windows WDAC + AppLocker backend (`crates/sda-app-control/src/wdac.rs`
-+ the per-OS PAL impl), the Linux clean-room dm-verity-aware
-backend (`crates/sda-app-control/src/linux.rs` + the per-OS PAL
-impl), and the Phase 4 E2E suite (`make e2e-remote-support` +
-`make e2e-app-control`) are all green.
-
-Phase 5 agent-side scope landed here: the new
-[`sda-management-compat`](../../crates/sda-management-compat/)
-crate translates Fleet-flavoured GitOps YAML into SDA-native
-[`AgentConfig`](../../crates/sda-core/src/config.rs) sections per
-the PROPOSAL.md § 4.1 mapping table (queries → `modules.query`,
-software installers → `modules.software`, scripts →
-`modules.script_runner`, `agent_options.distributed_interval` →
-`modules.query.schedule_poll_secs`,
-`agent_options.maintenance_window` → `modules.device_control`,
-labels → catalogue-side tags), rejects every Fleet EE / do-not-port
-feature per ADR-001, and enforces tenant-id matching to satisfy
-Phase 5 acceptance criterion #2 ("cross-tenant data leakage
-impossible by construction"). The Phase 5 E2E suite
-(`make e2e-management-compat`, 9 hermetic tests) covers the
-round-trip into a loadable `AgentConfig`, every do-not-port
-rejection path, both halves of the tenant-id gate, the warnings
-surface, and the parser-error contract.
-
-Remaining work, in priority order:
+All agent-side Device Control code is complete across Phases 0–5.
+The remaining work is server-side and tracked in
+[`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform):
 
 - ⚙️ **1.14 / 1.15 / 1.16** — Device Registry, SMI sub-score, and
-  Risk Engine v0 integration in `sn360-security-platform`.
+  Risk Engine v0 integration.
 - ⚙️ **2.12 / 2.13 / 2.14** — Package Catalog, Action Orchestrator,
-  and Approval Service in `sn360-security-platform`.
-- ⚙️ **3.6** — Approval Service v1 in `sn360-security-platform`.
+  and Approval Service.
+- ⚙️ **3.6** — Approval Service v1.
 - ⚙️ **4.9 / 4.10 / 4.11** — Android, Apple MDM/DDM, and ChromeOS
-  connectors in `sn360-security-platform`.
-- ⚙️ **5.1 — 5.5** — Tenant catalogues, approval routing,
-  white-label exports, the MSP dashboard, and cross-tenant
-  templates in `sn360-security-platform`.
+  connectors.
+- ⚙️ **5.1–5.5** — Tenant catalogues, approval routing, white-label
+  exports, MSP dashboard, cross-tenant templates.
 
 ---
 
 ## Changelog
+
+### 2026-05-08 — Phase 4 completion (4.7/4.8/4.12) + Phase 5 agent-side (5.6/5.7)
+
+This PR completes the agent-side scope of Phase 4 and lands the
+Phase 5 agent-side deliverable (`sda-management-compat`).
+
+Phase 4 — agent-side completion:
+
+- **4.7** — Windows WDAC + AppLocker enforcement backend in
+  `crates/sda-app-control/src/wdac.rs`. Selects WDAC (build ≥ 18362)
+  or AppLocker (legacy) at runtime. Renders signed policies to WDAC
+  XML or AppLocker XML, emits PowerShell command sequences for
+  `Set-CIPolicyIdInfo`, `ConvertFrom-CIPolicy`, `Copy-Item` (with
+  `.cip` extension), and `Invoke-CimMethod` refresh. All
+  caller-supplied values escaped via `ps_escape_single_quote` and
+  placed inside single-quoted PS literals to prevent injection.
+- **4.8** — Linux clean-room dm-verity-aware enforcement backend in
+  `crates/sda-app-control/src/linux.rs`. Renders policy artifacts
+  to an on-disk policy file, queries dm-verity status, and matches
+  observations against the active policy with verity state in
+  evidence.
+- **4.12** — Phase 4 E2E suites: `make e2e-app-control` (10 tests)
+  and `make e2e-remote-support` (9 tests). Both hermetic.
+
+Phase 5 — agent-side completion:
+
+- **5.6** — New `sda-management-compat` crate. Translates
+  Fleet-flavoured GitOps YAML into SDA-native `AgentConfig`.
+  Rejects Fleet EE / do-not-port features per ADR-001. Enforces
+  tenant-id matching as agent-side belt-and-braces check.
+- **5.7** — Phase 5 E2E suite: `make e2e-management-compat`
+  (9 tests). Covers round-trip into loadable AgentConfig,
+  cross-tenant rejection, EE feature rejection, and warning
+  surfacing.
+
+All agent-side Device Control tasks are now complete.
 
 ### 2026-05-08 — Phase 4 completion (WDAC / AppLocker, Linux app control, E2E) + Phase 5 management-compat shim
 
