@@ -449,9 +449,15 @@ fn ps_escape_single_quote(s: &str) -> String {
 /// 4. `Invoke-CimMethod -ClassName PS_UpdateAndRefreshCIPolicy` —
 ///    forces an immediate policy refresh.
 ///
-/// All caller-supplied values (xml/cip paths, policy id, display
-/// name) are escaped via [`ps_escape_single_quote`] before being
-/// interpolated into single-quoted PowerShell literals.
+/// Every caller-supplied value (xml/cip paths, policy id, display
+/// name) is interpolated **only** inside single-quoted PowerShell
+/// literals after being escaped via [`ps_escape_single_quote`]. The
+/// `Copy-Item -Destination` argument needs `$env:windir` to expand,
+/// so the destination is built with `Join-Path $env:windir '<rest>'`
+/// — `$env:windir` lives outside any quote, while `policy_id_esc`
+/// stays inside a single-quoted literal. This avoids the
+/// double-quoted-string injection vector where a `policy_id`
+/// containing `$(…)` would otherwise be evaluated.
 pub fn powershell_apply_wdac_commands(
     xml_path: &Path,
     cip_path: &Path,
@@ -491,7 +497,7 @@ pub fn powershell_apply_wdac_commands(
                 "-NonInteractive".into(),
                 "-Command".into(),
                 format!(
-                    "Copy-Item -Path '{}' -Destination \"$env:windir\\System32\\CodeIntegrity\\CiPolicies\\Active\\{}\" -Force",
+                    "Copy-Item -Path '{}' -Destination (Join-Path $env:windir 'System32\\CodeIntegrity\\CiPolicies\\Active\\{}') -Force",
                     cip, policy_id_esc
                 ),
             ],
@@ -971,6 +977,58 @@ mod tests {
         let argline = cmds[0].args.last().unwrap();
         assert!(argline.contains("ken''s al.xml"));
         assert!(!argline.contains("ken's al.xml"));
+    }
+
+    #[test]
+    fn powershell_apply_wdac_commands_neutralises_policy_id_subexpression() {
+        // A `policy_id` that tries to smuggle a PowerShell
+        // sub-expression must end up wrapped in a single-quoted
+        // literal in every command — including the `Copy-Item`
+        // destination, which previously used a double-quoted string
+        // (where `$(…)` would be evaluated).
+        let xml = PathBuf::from("/tmp/policy.xml");
+        let cip = PathBuf::from("/tmp/policy.cip");
+        let evil_id = "abc$(Invoke-Expression 'malicious')def";
+        let cmds = powershell_apply_wdac_commands(&xml, &cip, evil_id, "Test");
+
+        let copy_item_arg = cmds[2].args.last().expect("Copy-Item -Command arg");
+        // Destination is now built via Join-Path with the policy id
+        // inside a single-quoted literal, so no double-quoted PS
+        // string is emitted at all.
+        assert!(
+            !copy_item_arg.contains('"'),
+            "unexpected double quote in: {copy_item_arg}"
+        );
+        assert!(
+            copy_item_arg
+                .contains("Join-Path $env:windir 'System32\\CodeIntegrity\\CiPolicies\\Active\\"),
+            "destination should use Join-Path with single-quoted tail: {copy_item_arg}"
+        );
+        // The literal `$(...)` must appear *inside* a single-quoted
+        // literal — i.e. preceded somewhere on the line by an opening
+        // single quote and followed by a closing one — so PowerShell
+        // treats it as a string, not a sub-expression.
+        assert!(
+            copy_item_arg.contains("'System32\\CodeIntegrity\\CiPolicies\\Active\\abc$(Invoke-Expression ''malicious'')def'"),
+            "policy_id sub-expression must be inside a single-quoted literal: {copy_item_arg}"
+        );
+
+        // And every other rendered argument across all four commands
+        // must also keep the sub-expression bytes inside a
+        // single-quoted literal — never as a bare token.
+        let joined: String = cmds
+            .iter()
+            .flat_map(|c| c.args.iter())
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" ");
+        // Embedded single quotes inside the policy id are doubled by
+        // ps_escape_single_quote, so the `'malicious'` portion is
+        // rendered as `''malicious''`.
+        assert!(joined.contains("abc$(Invoke-Expression ''malicious'')def"));
+        // Pre-escape form must NOT survive — that would mean the
+        // outer single-quoted literal is broken.
+        assert!(!joined.contains("abc$(Invoke-Expression 'malicious')def"));
     }
 
     #[test]
