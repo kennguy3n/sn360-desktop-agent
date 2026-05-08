@@ -175,9 +175,9 @@ Device Control test surface:
 - **7 / 7** Phase 1 E2E tests (`make e2e-device-control`).
 - **8 / 8** Phase 2 E2E tests (`make e2e-software`).
 - **9 / 9** Phase 3 E2E tests (`make e2e-jit-admin`).
-- **8 / 8** Phase 4 app-control E2E tests (`make e2e-app-control`).
+- **10 / 10** Phase 4 app-control E2E tests (`make e2e-app-control`).
 - **9 / 9** Phase 4 remote-support E2E tests (`make e2e-remote-support`).
-- **7 / 7** Phase 5 management-compat E2E tests (`make e2e-management-compat`).
+- **9 / 9** Phase 5 management-compat E2E tests (`make e2e-management-compat`).
 - All workspace unit tests pass (`cargo test --workspace`).
 
 Existing SDA test surface (433 unit, 14/14 E2E, 10/10 security E2E)
@@ -263,7 +263,7 @@ Phase 4 — agent-side completion:
   to an on-disk policy file, queries dm-verity status, and matches
   observations against the active policy with verity state in
   evidence.
-- **4.12** — Phase 4 E2E suites: `make e2e-app-control` (8 tests)
+- **4.12** — Phase 4 E2E suites: `make e2e-app-control` (10 tests)
   and `make e2e-remote-support` (9 tests). Both hermetic.
 
 Phase 5 — agent-side completion:
@@ -273,7 +273,7 @@ Phase 5 — agent-side completion:
   Rejects Fleet EE / do-not-port features per ADR-001. Enforces
   tenant-id matching as agent-side belt-and-braces check.
 - **5.7** — Phase 5 E2E suite: `make e2e-management-compat`
-  (7 tests). Covers round-trip into loadable AgentConfig,
+  (9 tests). Covers round-trip into loadable AgentConfig,
   cross-tenant rejection, EE feature rejection, and warning
   surfacing.
 
