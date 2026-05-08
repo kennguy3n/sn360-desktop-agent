@@ -444,9 +444,13 @@ fn ps_escape_single_quote(s: &str) -> String {
 /// Sequence:
 /// 1. `Set-CIPolicyIdInfo` — stamps the policy GUID + display name.
 /// 2. `ConvertFrom-CIPolicy` — converts XML to the binary `.cip`.
-/// 3. `Copy-Item` — drops the `.cip` into
-///    `%windir%\System32\CodeIntegrity\CiPolicies\Active`.
-/// 4. `Invoke-CimMethod -ClassName PS_UpdateAndRefreshCIPolicy` —
+/// 3. `Copy-Item` — drops the binary into
+///    `%windir%\System32\CodeIntegrity\CiPolicies\Active\{PolicyGUID}.cip`.
+///    The `.cip` extension is mandatory: WDAC's multiple-policy-format
+///    refresh path (`PS_UpdateAndCompareCIPolicy`) only enumerates files
+///    whose name matches `{PolicyGUID}.cip`, so a destination missing the
+///    extension would silently no-op.
+/// 4. `Invoke-CimMethod -ClassName PS_UpdateAndCompareCIPolicy` —
 ///    forces an immediate policy refresh.
 ///
 /// Every caller-supplied value (xml/cip paths, policy id, display
@@ -497,7 +501,7 @@ pub fn powershell_apply_wdac_commands(
                 "-NonInteractive".into(),
                 "-Command".into(),
                 format!(
-                    "Copy-Item -Path '{}' -Destination (Join-Path $env:windir 'System32\\CodeIntegrity\\CiPolicies\\Active\\{}') -Force",
+                    "Copy-Item -Path '{}' -Destination (Join-Path $env:windir 'System32\\CodeIntegrity\\CiPolicies\\Active\\{}.cip') -Force",
                     cip, policy_id_esc
                 ),
             ],
@@ -1007,10 +1011,12 @@ mod tests {
         // The literal `$(...)` must appear *inside* a single-quoted
         // literal — i.e. preceded somewhere on the line by an opening
         // single quote and followed by a closing one — so PowerShell
-        // treats it as a string, not a sub-expression.
+        // treats it as a string, not a sub-expression. The literal
+        // must also end with `.cip'` so WDAC's refresh path enumerates
+        // the dropped file.
         assert!(
-            copy_item_arg.contains("'System32\\CodeIntegrity\\CiPolicies\\Active\\abc$(Invoke-Expression ''malicious'')def'"),
-            "policy_id sub-expression must be inside a single-quoted literal: {copy_item_arg}"
+            copy_item_arg.contains("'System32\\CodeIntegrity\\CiPolicies\\Active\\abc$(Invoke-Expression ''malicious'')def.cip'"),
+            "policy_id sub-expression must be inside a single-quoted literal ending in .cip: {copy_item_arg}"
         );
 
         // And every other rendered argument across all four commands
@@ -1028,7 +1034,32 @@ mod tests {
         assert!(joined.contains("abc$(Invoke-Expression ''malicious'')def"));
         // Pre-escape form must NOT survive — that would mean the
         // outer single-quoted literal is broken.
-        assert!(!joined.contains("abc$(Invoke-Expression 'malicious')def"));
+        assert!(!joined.contains("abc$(Invoke-Expression 'malicious')def.cip"));
+    }
+
+    #[test]
+    fn powershell_apply_wdac_commands_destination_ends_in_cip_extension() {
+        // WDAC's multiple-policy-format refresh path
+        // (`PS_UpdateAndCompareCIPolicy`) only enumerates files named
+        // `{PolicyGUID}.cip` inside `Active\`. The Copy-Item
+        // destination must therefore append `.cip` to the policy id
+        // — the *destination filename*, not the source file extension,
+        // is what governs activation.
+        let xml = PathBuf::from("/tmp/policy.xml");
+        let cip = PathBuf::from("/tmp/policy.cip");
+        let cmds = powershell_apply_wdac_commands(&xml, &cip, "policy-guid-1", "Test");
+        let copy_item_arg = cmds[2].args.last().expect("Copy-Item -Command arg");
+        assert!(
+            copy_item_arg.contains("Active\\policy-guid-1.cip'"),
+            "destination must end in `{{policy_id}}.cip`: {copy_item_arg}"
+        );
+        // And the destination single-quoted literal must close right
+        // after the .cip — i.e. nothing else got appended after the
+        // extension that would form a different filename.
+        assert!(
+            copy_item_arg.contains("Active\\policy-guid-1.cip') -Force"),
+            "destination single-quoted literal must close immediately after .cip: {copy_item_arg}"
+        );
     }
 
     #[test]
