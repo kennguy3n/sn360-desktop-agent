@@ -550,15 +550,47 @@ mod linux_impl {
             // Atomic-ish swap into place.
             fs::rename(&tmp, &drop_in).map_err(AdminError::from)?;
 
-            let mut grants = read_grants(&self.state_file)?;
-            grants.retain(|g| g.user.username != user.username);
             let handle = GrantHandle {
                 id: grant_id,
                 user: user.clone(),
                 until,
             };
-            grants.push(handle.clone());
-            write_grants(&self.state_file, &grants)?;
+
+            // Post-mutation ledger update. The sudoers drop-in is
+            // live on disk and `NOPASSWD:ALL` is now grantable for
+            // the user, but the supervisor has not yet been handed
+            // the [`GrantHandle`]. If `read_grants` (corrupt JSON,
+            // permission error, race with another writer) or
+            // `write_grants` (disk full, parent dir wiped, partition
+            // unmounted) fails before we return, the caller treats
+            // the entire grant as failed: no `Granted` record is
+            // ever persisted in `sda-jit-admin`'s ledger and no
+            // watchdog branch (timer, heartbeat, power, boot sweep)
+            // ever sees the orphan. `revoke_admin` cannot reach in
+            // either, since the only handle is the one we are about
+            // to fail to return. The drop-in would stay live until
+            // external cleanup. PROPOSAL.md § 21 calls this out as
+            // a High-severity orphaning risk.
+            //
+            // Roll back the OS-level grant best-effort before
+            // surfacing the ledger error. We deliberately do not
+            // call `revoke_admin` here because it reacquires
+            // `ledger_lock` and would deadlock — inline removal is
+            // the safe path. If the cleanup itself fails, there is
+            // nothing more we can do at this layer; the error from
+            // the ledger write is the operationally interesting one
+            // and is what we return.
+            let ledger_result = (|| -> Result<(), AdminError> {
+                let mut grants = read_grants(&self.state_file)?;
+                grants.retain(|g| g.user.username != handle.user.username);
+                grants.push(handle.clone());
+                write_grants(&self.state_file, &grants)?;
+                Ok(())
+            })();
+            if let Err(err) = ledger_result {
+                let _ = fs::remove_file(&drop_in);
+                return Err(err);
+            }
             Ok(handle)
         }
 
@@ -701,15 +733,53 @@ mod macos_impl {
                     &["-o", "edit", "-a", &user.username, "-t", "user", "admin"],
                 )?
                 .require_success("dseditgroup add")?;
-            let mut grants = read_grants(&self.state_file)?;
-            grants.retain(|g| g.user.username != user.username);
+
             let handle = GrantHandle {
                 id: new_grant_id(),
                 user: user.clone(),
                 until,
             };
-            grants.push(handle.clone());
-            write_grants(&self.state_file, &grants)?;
+
+            // Post-mutation ledger update. The user is now a member
+            // of the macOS `admin` group on the device, but the
+            // supervisor has not yet been handed the
+            // [`GrantHandle`]. If the ledger read or write fails
+            // here, the caller treats the entire grant as failed —
+            // no `Granted` record is ever persisted in
+            // `sda-jit-admin`'s ledger and no watchdog branch sees
+            // the orphan. `revoke_admin` cannot reach in either
+            // (the only handle is the one we are about to fail to
+            // return). The membership would stay live until external
+            // cleanup. PROPOSAL.md § 21 calls this out as a
+            // High-severity orphaning risk.
+            //
+            // Roll back the OS-level grant best-effort with the
+            // reverse `dseditgroup -d` before surfacing the ledger
+            // error. We deliberately do not call `revoke_admin`
+            // because it reacquires `ledger_lock` and would
+            // deadlock — inline removal is the safe path.
+            let ledger_result = (|| -> Result<(), AdminError> {
+                let mut grants = read_grants(&self.state_file)?;
+                grants.retain(|g| g.user.username != handle.user.username);
+                grants.push(handle.clone());
+                write_grants(&self.state_file, &grants)?;
+                Ok(())
+            })();
+            if let Err(err) = ledger_result {
+                let _ = self.runner.run(
+                    "dseditgroup",
+                    &[
+                        "-o",
+                        "edit",
+                        "-d",
+                        &handle.user.username,
+                        "-t",
+                        "user",
+                        "admin",
+                    ],
+                );
+                return Err(err);
+            }
             Ok(handle)
         }
 
@@ -883,15 +953,50 @@ mod windows_impl {
                     &["localgroup", "Administrators", &user.username, "/add"],
                 )?
                 .require_success("net localgroup add")?;
-            let mut grants = read_grants(&self.state_file)?;
-            grants.retain(|g| g.user.username != user.username);
+
             let handle = GrantHandle {
                 id: new_grant_id(),
                 user: user.clone(),
                 until,
             };
-            grants.push(handle.clone());
-            write_grants(&self.state_file, &grants)?;
+
+            // Post-mutation ledger update. The user is now a member
+            // of the local `Administrators` group on this Windows
+            // host, but the supervisor has not yet been handed the
+            // [`GrantHandle`]. If the ledger read or write fails
+            // here, the caller treats the entire grant as failed —
+            // no `Granted` record is ever persisted in
+            // `sda-jit-admin`'s ledger and no watchdog branch sees
+            // the orphan. `revoke_admin` cannot reach in either (the
+            // only handle is the one we are about to fail to
+            // return). The membership would stay live until external
+            // cleanup. PROPOSAL.md § 21 calls this out as a
+            // High-severity orphaning risk.
+            //
+            // Roll back the OS-level grant best-effort with the
+            // reverse `net localgroup … /delete` before surfacing
+            // the ledger error. We deliberately do not call
+            // `revoke_admin` because it reacquires `ledger_lock`
+            // and would deadlock — inline removal is the safe path.
+            let ledger_result = (|| -> Result<(), AdminError> {
+                let mut grants = read_grants(&self.state_file)?;
+                grants.retain(|g| g.user.username != handle.user.username);
+                grants.push(handle.clone());
+                write_grants(&self.state_file, &grants)?;
+                Ok(())
+            })();
+            if let Err(err) = ledger_result {
+                let _ = self.runner.run(
+                    "net",
+                    &[
+                        "localgroup",
+                        "Administrators",
+                        &handle.user.username,
+                        "/delete",
+                    ],
+                );
+                return Err(err);
+            }
             Ok(handle)
         }
 
@@ -1291,6 +1396,63 @@ bin:x:2:2:bin:/bin:/usr/sbin/nologin
             assert!(matches!(err, AdminError::InvalidInput(_)), "got {err:?}");
             assert!(runner.calls().is_empty());
         }
+
+        /// Regression guard for the orphaned-admin-grant bug on the
+        /// PAL grant path (Round 8). Pre-fix flow:
+        /// 1. `visudo -c` validates the candidate drop-in.
+        /// 2. `fs::rename(&tmp, &drop_in)` lands the
+        ///    `NOPASSWD:ALL` sudoers file — the OS-level admin
+        ///    privilege is now live on the device.
+        /// 3. `read_grants(&self.state_file)` fails (e.g. corrupt
+        ///    JSON, permissions, partition unmounted) →
+        ///    `grant_admin` returns `Err` at the early-bail with
+        ///    NO cleanup of the drop-in.
+        ///
+        /// Net effect pre-fix: permanent untracked
+        /// `NOPASSWD:ALL` on the device. The supervisor sees the
+        /// `Err` from `grant_admin` so it never even reaches the
+        /// Round 7 ledger-failure path; no `Granted` record is
+        /// persisted, so the watchdog branches (timer / heartbeat
+        /// / power / boot sweep) cannot revoke the orphan; drift
+        /// detection (Phase 3.5) is not yet implemented.
+        ///
+        /// This test simulates step 3 by pre-populating the state
+        /// file with garbage so `read_grants` returns
+        /// `StateCorrupt`. With the fix in place the supervisor's
+        /// `grant_admin` call still fails (correct behaviour from
+        /// the supervisor's perspective) but the sudoers drop-in
+        /// is removed before returning, so the device stays in a
+        /// safe state.
+        #[test]
+        fn linux_grant_cleans_up_drop_in_when_state_file_read_fails() {
+            let (_dir, runner, mgr) = fixtures();
+            // Pre-populate the state file with non-JSON garbage so
+            // `read_grants` returns `AdminError::StateCorrupt` once
+            // the sudoers drop-in has already been written.
+            std::fs::write(mgr.state_file(), b"not-json").unwrap();
+            runner.enqueue_success("visudo");
+
+            let user = UserRef {
+                username: "alice".into(),
+                domain: None,
+            };
+            let err = mgr
+                .grant_admin(&user, Utc::now())
+                .expect_err("must fail when state file is corrupt");
+            assert!(
+                matches!(err, AdminError::StateCorrupt(_)),
+                "expected StateCorrupt, got {err:?}",
+            );
+
+            // CRITICAL: the drop-in must NOT be left behind — pre-fix
+            // it would be live with `NOPASSWD:ALL` and no record in
+            // the ledger.
+            let drop_in = mgr.sudoers_dir().join("sda-jit-alice");
+            assert!(
+                !drop_in.exists(),
+                "drop-in must be cleaned up after ledger read failure; still present at {drop_in:?}",
+            );
+        }
     }
 
     // Cross-platform tests: dscl and net-localgroup parsing live in
@@ -1329,6 +1491,93 @@ bin:x:2:2:bin:/bin:/usr/sbin/nologin
             let admins = mgr.list_admins().expect("list_admins");
             // Build host should always have at least the local admin.
             assert!(!admins.is_empty());
+        }
+
+        /// Regression guard for the orphaned-admin-grant bug on the
+        /// PAL grant path (Round 8). Pre-fix flow on macOS:
+        /// 1. `dseditgroup -o edit -a <user> -t user admin` succeeds
+        ///    — the user is now a member of the `admin` group on
+        ///    the device.
+        /// 2. `read_grants(&self.state_file)` fails (e.g. corrupt
+        ///    JSON, permissions, partition unmounted) →
+        ///    `grant_admin` returns `Err` with NO cleanup of the
+        ///    OS-level group membership.
+        ///
+        /// Net effect pre-fix: permanent untracked admin-group
+        /// membership on the device. Same failure class as the
+        /// Linux variant — the supervisor sees `Err` from
+        /// `grant_admin` so it never even reaches the Round 7
+        /// ledger-failure path; no `Granted` record is persisted,
+        /// the watchdog branches cannot revoke the orphan, and
+        /// drift detection (Phase 3.5) is not yet implemented.
+        ///
+        /// This test simulates step 2 by pre-populating the state
+        /// file with garbage so `read_grants` returns
+        /// `StateCorrupt`. With the fix in place the supervisor's
+        /// `grant_admin` call still fails, but the reverse
+        /// `dseditgroup -d` is issued before returning so the
+        /// device stays in a safe state.
+        #[test]
+        fn mac_grant_reverses_membership_when_state_file_read_fails() {
+            let dir = tempfile::tempdir().unwrap();
+            let state_file = dir.path().join("grants.json");
+            // Pre-populate with garbage so read_grants returns
+            // StateCorrupt once the OS-level mutation has landed.
+            std::fs::write(&state_file, b"not-json").unwrap();
+
+            let runner = std::sync::Arc::new(MockCommandRunner::new());
+            // Successful `-a` (the OS-level grant); the cleanup
+            // `-d` falls through to the mock's generic-success
+            // default since we don't enqueue a specific response.
+            runner.enqueue_success("dseditgroup");
+
+            #[derive(Debug)]
+            struct ArcRunner(std::sync::Arc<MockCommandRunner>);
+            impl CommandRunner for ArcRunner {
+                fn run(&self, program: &str, args: &[&str]) -> Result<CommandOutput, AdminError> {
+                    self.0.run(program, args)
+                }
+            }
+            let mgr =
+                MacAdminManager::with_components(Box::new(ArcRunner(runner.clone())), state_file);
+
+            let user = UserRef {
+                username: "alice".into(),
+                domain: None,
+            };
+            let err = mgr
+                .grant_admin(&user, Utc::now())
+                .expect_err("must fail when state file is corrupt");
+            assert!(
+                matches!(err, AdminError::StateCorrupt(_)),
+                "expected StateCorrupt, got {err:?}",
+            );
+
+            // CRITICAL: the reverse `dseditgroup -d` must have
+            // been issued — pre-fix this was zero, leaving alice
+            // a permanent untracked member of the `admin` group.
+            let calls = runner.calls();
+            let dseditgroup_calls: Vec<&(String, Vec<String>)> =
+                calls.iter().filter(|(p, _)| p == "dseditgroup").collect();
+            assert_eq!(
+                dseditgroup_calls.len(),
+                2,
+                "expected exactly two dseditgroup calls (add + cleanup); got {dseditgroup_calls:?}",
+            );
+            let add_args = &dseditgroup_calls[0].1;
+            let cleanup_args = &dseditgroup_calls[1].1;
+            assert!(
+                add_args.iter().any(|a| a == "-a"),
+                "first call must be the -a (add); got {add_args:?}",
+            );
+            assert!(
+                cleanup_args.iter().any(|a| a == "-d"),
+                "second call must be the -d (cleanup); got {cleanup_args:?}",
+            );
+            assert!(
+                cleanup_args.iter().any(|a| a == "alice"),
+                "cleanup must target alice; got {cleanup_args:?}",
+            );
         }
     }
 
@@ -1416,6 +1665,98 @@ The command completed successfully.
 ";
             let admins = WindowsAdminManager::parse_net_localgroup(out);
             assert!(admins.is_empty());
+        }
+
+        /// Regression guard for the orphaned-admin-grant bug on the
+        /// PAL grant path (Round 8). Pre-fix flow on Windows:
+        /// 1. `net localgroup Administrators <user> /add` succeeds
+        ///    — the user is now a member of the local
+        ///    `Administrators` group on the device.
+        /// 2. `read_grants(&self.state_file)` fails (e.g. corrupt
+        ///    JSON, ACL denied, partition unmounted) →
+        ///    `grant_admin` returns `Err` with NO cleanup of the
+        ///    OS-level group membership.
+        ///
+        /// Net effect pre-fix: permanent untracked
+        /// `Administrators` membership on the device. Same failure
+        /// class as the Linux + macOS variants — the supervisor
+        /// sees `Err` from `grant_admin` so it never even reaches
+        /// the Round 7 ledger-failure path; no `Granted` record is
+        /// persisted, the watchdog branches cannot revoke the
+        /// orphan, and drift detection (Phase 3.5) is not yet
+        /// implemented.
+        ///
+        /// This test simulates step 2 by pre-populating the state
+        /// file with garbage so `read_grants` returns
+        /// `StateCorrupt`. With the fix in place the supervisor's
+        /// `grant_admin` call still fails, but the reverse
+        /// `net localgroup … /delete` is issued before returning
+        /// so the device stays in a safe state.
+        #[test]
+        fn windows_grant_reverses_membership_when_state_file_read_fails() {
+            let dir = tempfile::tempdir().unwrap();
+            let state_file = dir.path().join("grants.json");
+            // Pre-populate with garbage so read_grants returns
+            // StateCorrupt once the OS-level mutation has landed.
+            std::fs::write(&state_file, b"not-json").unwrap();
+
+            let runner = std::sync::Arc::new(MockCommandRunner::new());
+            // Successful `/add` (the OS-level grant); the cleanup
+            // `/delete` falls through to the mock's
+            // generic-success default since we don't enqueue a
+            // specific response.
+            runner.enqueue_success("net");
+
+            #[derive(Debug)]
+            struct ArcRunner(std::sync::Arc<MockCommandRunner>);
+            impl CommandRunner for ArcRunner {
+                fn run(&self, program: &str, args: &[&str]) -> Result<CommandOutput, AdminError> {
+                    self.0.run(program, args)
+                }
+            }
+            let mgr = WindowsAdminManager::with_components(
+                Box::new(ArcRunner(runner.clone())),
+                state_file,
+            );
+
+            let user = UserRef {
+                username: "alice".into(),
+                domain: None,
+            };
+            let err = mgr
+                .grant_admin(&user, Utc::now())
+                .expect_err("must fail when state file is corrupt");
+            assert!(
+                matches!(err, AdminError::StateCorrupt(_)),
+                "expected StateCorrupt, got {err:?}",
+            );
+
+            // CRITICAL: the reverse `net localgroup … /delete`
+            // must have been issued — pre-fix this was zero,
+            // leaving alice a permanent untracked member of the
+            // local `Administrators` group.
+            let calls = runner.calls();
+            let net_calls: Vec<&(String, Vec<String>)> =
+                calls.iter().filter(|(p, _)| p == "net").collect();
+            assert_eq!(
+                net_calls.len(),
+                2,
+                "expected exactly two `net` calls (add + cleanup); got {net_calls:?}",
+            );
+            let add_args = &net_calls[0].1;
+            let cleanup_args = &net_calls[1].1;
+            assert!(
+                add_args.iter().any(|a| a == "/add"),
+                "first call must be the /add; got {add_args:?}",
+            );
+            assert!(
+                cleanup_args.iter().any(|a| a == "/delete"),
+                "second call must be the /delete (cleanup); got {cleanup_args:?}",
+            );
+            assert!(
+                cleanup_args.iter().any(|a| a == "alice"),
+                "cleanup must target alice; got {cleanup_args:?}",
+            );
         }
     }
 }
