@@ -21,7 +21,8 @@ TARGETS := \
 	x86_64-pc-windows-msvc
 
 .PHONY: build release test lint fmt clippy all-targets clean e2e e2e-compat e2e-macos e2e-windows security-e2e \
-        e2e-device-control e2e-software e2e-jit-admin benchmark-ci deb rpm pkg msi
+        e2e-device-control e2e-software e2e-jit-admin e2e-app-control e2e-remote-support \
+        e2e-management-compat benchmark-ci deb rpm pkg msi
 
 build:
 	$(CARGO) build
@@ -94,6 +95,35 @@ e2e-software:
 # hermetic — no external server or admin manager is required.
 e2e-jit-admin:
 	$(CARGO) test --package sda-agent --test e2e_jit_admin -- --nocapture
+
+# Phase 4 app-control E2E suite (PHASES.md task 4.12). Exercises the
+# WDAC + AppLocker (Windows) and dm-verity-aware (Linux) backends,
+# the monitor / enforce controllers, dual-control rollback,
+# anti-rollback + tampered-signature rejection, and evidence
+# emission. The suite lives in
+# crates/sda-agent/tests/e2e_app_control.rs and is hermetic — no
+# OS-level capture stack is required.
+e2e-app-control:
+	$(CARGO) test --package sda-agent --test e2e_app_control -- --nocapture
+
+# Phase 4 remote-support E2E suite (PHASES.md task 4.12). Walks the
+# consent-gated session lifecycle end-to-end: explicit user click
+# (approve/deny/timeout), wall-clock cap sweep, and the fail-closed
+# stub prompt that prevents any production session from starting
+# without a real consent UI. The suite lives in
+# crates/sda-agent/tests/e2e_remote_support.rs and is hermetic — no
+# capture or transport backend is required.
+e2e-remote-support:
+	$(CARGO) test --package sda-agent --test e2e_remote_support -- --nocapture
+
+# Phase 5 management-compat E2E suite (PHASES.md task 5.7).
+# Exercises the sda-management-compat shim translating
+# Fleet-flavoured GitOps YAML into SDA-native config: valid
+# Fleet -> SDA, EE-feature rejection, cross-tenant isolation, and
+# round-trip into AgentConfig. Hermetic — no MSP control plane is
+# required.
+e2e-management-compat:
+	$(CARGO) test --package sda-agent --test e2e_management_compat -- --nocapture
 
 clean:
 	$(CARGO) clean

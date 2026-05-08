@@ -7,9 +7,10 @@ use std::sync::Arc;
 use chrono::Utc;
 use sda_core::config::AppControlConfig;
 use sda_event_bus::{Event, EventBus, EventKind, Priority};
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+use sda_pal::app_control::default_app_control_provider;
 use sda_pal::app_control::{
-    default_app_control_provider, AppControlError as PalError, AppControlMode, AppControlProvider,
-    SignedAppControlPolicy,
+    AppControlError as PalError, AppControlMode, AppControlProvider, SignedAppControlPolicy,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, Mutex};
@@ -115,8 +116,36 @@ impl std::fmt::Debug for AppControlSupervisor {
 impl AppControlSupervisor {
     /// Build a supervisor with the platform-default PAL provider.
     /// Returns `None` on hosts the PAL does not support.
+    ///
+    /// On Linux the rich [`crate::linux::LinuxAppControlProvider`]
+    /// is used so the supervisor exercises the dm-verity-aware
+    /// policy persistence path (Task 4.8). On Windows the rich
+    /// [`crate::wdac::WdacAppControlProvider`] is used so the
+    /// supervisor renders WDAC / AppLocker XML and invokes the
+    /// signed-policy push (Task 4.7). On macOS the PAL Santa
+    /// stub is used (Task 4.6, already shipped in PR #7).
     pub fn with_defaults(config: AppControlConfig, bus: Arc<EventBus>) -> Option<Self> {
-        let provider = default_app_control_provider()?;
+        let provider: Box<dyn AppControlProvider> = {
+            #[cfg(target_os = "linux")]
+            {
+                Box::new(crate::linux::LinuxAppControlProvider::default_dir())
+            }
+            #[cfg(target_os = "windows")]
+            {
+                let staging = std::path::PathBuf::from(
+                    std::env::var("ProgramData").unwrap_or_else(|_| "C:\\ProgramData".into()),
+                )
+                .join("sn360-desktop-agent")
+                .join("app-control");
+                // OS build is best-effort; the modern WDAC stack is
+                // GA on every supported Windows 10 22H2 / 11 host.
+                Box::new(crate::wdac::WdacAppControlProvider::new(19_045, staging))
+            }
+            #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+            {
+                default_app_control_provider()?
+            }
+        };
         Some(Self::new(config, bus, provider))
     }
 

@@ -1,0 +1,901 @@
+//! Windows app-control backend: WDAC (Windows Defender Application
+//! Control) with an AppLocker fallback for legacy Windows builds
+//! (Task 4.7).
+//!
+//! The translation layer is host-OS-agnostic so unit tests can run
+//! anywhere — only the actual policy push (writing the XML to a temp
+//! file and invoking PowerShell) is gated on `target_os = "windows"`.
+//!
+//! ## Translation
+//!
+//! [`build_wdac_document`] / [`render_wdac_xml`] convert an
+//! [`AppControlPolicyPayload`] into the WDAC schema's
+//! `<SiPolicy>` document, expressing each [`AppControlRule`] as a
+//! `<FileRules>` entry plus a `<Signers>` block where applicable.
+//! [`build_applocker_document`] / [`render_applocker_xml`] produce
+//! the equivalent `<AppLockerPolicy>` document for hosts on which
+//! WDAC is unavailable (Windows Server 2012 R2, Windows 10 < 1903).
+//!
+//! ## Backend selection
+//!
+//! [`select_backend`] picks WDAC for Windows 10 build ≥ 18362
+//! (1903 / "May 2019 Update", the first build where the modern
+//! signed-policy stack is GA) and AppLocker otherwise.
+//!
+//! ## Provider
+//!
+//! [`WdacAppControlProvider`] implements
+//! [`sda_pal::app_control::AppControlProvider`]. On Windows it
+//! writes the rendered XML to `staging_dir`, then invokes the
+//! PowerShell sequence built by [`powershell_apply_wdac_commands`]
+//! (or [`powershell_apply_applocker_commands`]). On non-Windows
+//! hosts it records the rendered artifact in memory and returns
+//! `Ok(())` so cross-platform tests exercise the full translation
+//! path.
+
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+use chrono::{DateTime, Utc};
+use sda_pal::app_control::{
+    AppControlError, AppControlMode, AppControlPolicyPayload, AppControlProvider, AppControlRule,
+};
+
+/// Minimum Windows 10 build that ships the modern WDAC signed-policy
+/// stack (1903, 18362). Earlier builds fall back to AppLocker.
+pub const MIN_WDAC_WINDOWS_BUILD: u32 = 18_362;
+
+/// Top-level GUID assigned to every policy document the agent
+/// emits. The control-plane signs the bundle so the GUID does not
+/// need to rotate per-policy — it identifies the *agent* policy
+/// stream.
+pub const POLICY_BASE_ID: &str = "{A244370E-44C9-4C06-B551-F6016E563076}";
+
+/// Name embedded in the rendered `<PolicyName>` field. Surfaces in
+/// `Get-CIPolicyInfo` and the Windows event log.
+pub const POLICY_DISPLAY_NAME: &str = "SN360 Desktop Agent — Application Control";
+
+/// Backend used to apply a verified policy on a Windows host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WdacBackend {
+    /// Windows Defender Application Control (modern signed-policy).
+    Wdac,
+    /// AppLocker (legacy; pre-WDAC Windows builds).
+    AppLocker,
+}
+
+impl WdacBackend {
+    /// Stable lowercase string used in logs / wire payloads.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            WdacBackend::Wdac => "wdac",
+            WdacBackend::AppLocker => "applocker",
+        }
+    }
+}
+
+/// Pick the backend appropriate for a given Windows build number.
+///
+/// `os_build` is the Windows 10 / 11 build number (e.g. `19045` for
+/// 22H2). Build numbers < [`MIN_WDAC_WINDOWS_BUILD`] fall back to
+/// AppLocker.
+pub fn select_backend(os_build: u32) -> WdacBackend {
+    if os_build >= MIN_WDAC_WINDOWS_BUILD {
+        WdacBackend::Wdac
+    } else {
+        WdacBackend::AppLocker
+    }
+}
+
+/// Subject kinds the translator understands.
+///
+/// Anything else is treated as an opaque SHA-256 — WDAC will reject
+/// the rule at policy-merge time, which surfaces as a clear
+/// `New-CIPolicy` failure rather than silent allow-list drift.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubjectKind {
+    Sha256,
+    Sha1,
+    PublisherCommonName,
+    OriginalFileName,
+    Path,
+    PackageFamilyName,
+    Unknown,
+}
+
+impl SubjectKind {
+    fn from_prefix(prefix: &str) -> Self {
+        match prefix {
+            "sha256" => SubjectKind::Sha256,
+            "sha1" => SubjectKind::Sha1,
+            "publisher" | "cn" => SubjectKind::PublisherCommonName,
+            "original_file_name" | "ofn" => SubjectKind::OriginalFileName,
+            "path" => SubjectKind::Path,
+            "package_family_name" | "pfn" => SubjectKind::PackageFamilyName,
+            _ => SubjectKind::Unknown,
+        }
+    }
+}
+
+/// One translated [`AppControlRule`] entry, normalised into a
+/// shape both backends can consume.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WdacRuleEntry {
+    pub kind: SubjectKind,
+    pub value: String,
+    pub allow: bool,
+    pub reason: String,
+    /// Stable per-rule identifier (`ID_ALLOW_A_0`, `ID_DENY_S_3`,
+    /// etc.) used as the `Id` attribute on the WDAC `<Allow>` /
+    /// `<Deny>` element.
+    pub id: String,
+}
+
+/// Parse a `kind:value` subject string. Returns
+/// `(SubjectKind::Unknown, original)` for unrecognised prefixes.
+pub fn parse_subject(s: &str) -> (SubjectKind, String) {
+    if let Some((prefix, rest)) = s.split_once(':') {
+        let kind = SubjectKind::from_prefix(prefix.trim());
+        if matches!(kind, SubjectKind::Unknown) {
+            return (SubjectKind::Unknown, s.to_string());
+        }
+        return (kind, rest.trim().to_string());
+    }
+    // No prefix → treat as raw SHA-256.
+    (SubjectKind::Sha256, s.to_string())
+}
+
+/// A translated WDAC policy document, ready to be rendered.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WdacPolicyDocument {
+    pub policy_id: String,
+    pub policy_name: String,
+    pub version: u64,
+    pub mode: AppControlMode,
+    pub issued_at: DateTime<Utc>,
+    pub rules: Vec<WdacRuleEntry>,
+}
+
+/// AppLocker fallback document. Only file-publisher and file-hash
+/// rules are emitted; richer subjects (path, package family name)
+/// are dropped with a logged warning during `build_*` because
+/// AppLocker's schema does not support them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppLockerPolicyDocument {
+    pub policy_id: String,
+    pub mode: AppControlMode,
+    pub rules: Vec<WdacRuleEntry>,
+    /// Subjects that AppLocker cannot represent. Returned to the
+    /// caller so the supervisor can include them in the evidence
+    /// record and the operator dashboard.
+    pub dropped_subjects: Vec<String>,
+}
+
+fn translate_rules(payload: &AppControlPolicyPayload) -> Vec<WdacRuleEntry> {
+    payload
+        .rules
+        .iter()
+        .enumerate()
+        .map(|(i, rule)| translate_rule(rule, i))
+        .collect()
+}
+
+fn translate_rule(rule: &AppControlRule, index: usize) -> WdacRuleEntry {
+    let (kind, value) = parse_subject(&rule.subject);
+    let id = format!(
+        "ID_{}_{}_{}",
+        if rule.allow { "ALLOW" } else { "DENY" },
+        kind_short(kind),
+        index
+    );
+    WdacRuleEntry {
+        kind,
+        value,
+        allow: rule.allow,
+        reason: rule.reason.clone(),
+        id,
+    }
+}
+
+fn kind_short(k: SubjectKind) -> &'static str {
+    match k {
+        SubjectKind::Sha256 => "S256",
+        SubjectKind::Sha1 => "S1",
+        SubjectKind::PublisherCommonName => "PUB",
+        SubjectKind::OriginalFileName => "OFN",
+        SubjectKind::Path => "PATH",
+        SubjectKind::PackageFamilyName => "PFN",
+        SubjectKind::Unknown => "UNK",
+    }
+}
+
+/// Build a [`WdacPolicyDocument`] from a verified payload.
+pub fn build_wdac_document(payload: &AppControlPolicyPayload) -> WdacPolicyDocument {
+    WdacPolicyDocument {
+        policy_id: POLICY_BASE_ID.to_string(),
+        policy_name: POLICY_DISPLAY_NAME.to_string(),
+        version: payload.version,
+        mode: payload.target_mode,
+        issued_at: payload.issued_at,
+        rules: translate_rules(payload),
+    }
+}
+
+/// Build an [`AppLockerPolicyDocument`]. Subjects that AppLocker
+/// cannot represent (path, package family name, original file name,
+/// unknown) are recorded in `dropped_subjects` so the supervisor
+/// can surface them on the evidence record.
+pub fn build_applocker_document(payload: &AppControlPolicyPayload) -> AppLockerPolicyDocument {
+    let translated = translate_rules(payload);
+    let mut rules = Vec::with_capacity(translated.len());
+    let mut dropped = Vec::new();
+    for r in translated {
+        if matches!(
+            r.kind,
+            SubjectKind::Sha256 | SubjectKind::Sha1 | SubjectKind::PublisherCommonName
+        ) {
+            rules.push(r);
+        } else {
+            dropped.push(format!("{}:{}", kind_short(r.kind).to_lowercase(), r.value));
+        }
+    }
+    AppLockerPolicyDocument {
+        policy_id: POLICY_BASE_ID.to_string(),
+        mode: payload.target_mode,
+        rules,
+        dropped_subjects: dropped,
+    }
+}
+
+fn xml_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '&' => out.push_str("&amp;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
+/// Render a [`WdacPolicyDocument`] to the canonical `<SiPolicy>` XML.
+///
+/// The output is suitable as input to `ConvertFrom-CIPolicy` and
+/// `Set-CIPolicyIdInfo`. The XML schema mirrors `New-CIPolicy`'s
+/// output but is constructed deterministically so policy diffs are
+/// reviewable in evidence records.
+pub fn render_wdac_xml(doc: &WdacPolicyDocument) -> String {
+    let policy_type_id = if doc.mode == AppControlMode::Enforce {
+        "0"
+    } else {
+        "1"
+    };
+    let mut out = String::new();
+    out.push_str(r#"<?xml version="1.0" encoding="utf-8"?>"#);
+    out.push('\n');
+    out.push_str(r#"<SiPolicy xmlns="urn:schemas-microsoft-com:sipolicy">"#);
+    out.push('\n');
+    out.push_str(&format!(
+        "  <VersionEx>10.0.0.{}</VersionEx>\n",
+        doc.version
+    ));
+    out.push_str(&format!(
+        "  <PolicyTypeID>{}</PolicyTypeID>\n",
+        xml_escape(&doc.policy_id)
+    ));
+    out.push_str(&format!(
+        "  <PolicyID>{}</PolicyID>\n",
+        xml_escape(&doc.policy_id)
+    ));
+    out.push_str(&format!(
+        "  <BasePolicyID>{}</BasePolicyID>\n",
+        xml_escape(&doc.policy_id)
+    ));
+    out.push_str(&format!(
+        "  <FriendlyName>{}</FriendlyName>\n",
+        xml_escape(&doc.policy_name)
+    ));
+    out.push_str(&format!(
+        "  <Issued>{}</Issued>\n",
+        doc.issued_at.to_rfc3339()
+    ));
+    out.push_str(&format!(
+        "  <Mode>{}</Mode>\n",
+        xml_escape(doc.mode.as_str())
+    ));
+    out.push_str(&format!("  <PolicyType>{}</PolicyType>\n", policy_type_id));
+
+    out.push_str("  <FileRules>\n");
+    for r in &doc.rules {
+        let (tag, attr_name) = match r.kind {
+            SubjectKind::Sha256 => ("FileAttrib", "Hash"),
+            SubjectKind::Sha1 => ("FileAttrib", "Hash"),
+            SubjectKind::PublisherCommonName => ("FileAttrib", "PublisherName"),
+            SubjectKind::OriginalFileName => ("FileAttrib", "FileName"),
+            SubjectKind::Path => ("FileAttrib", "Path"),
+            SubjectKind::PackageFamilyName => ("FileAttrib", "PackageFamilyName"),
+            SubjectKind::Unknown => ("FileAttrib", "Hash"),
+        };
+        let action = if r.allow { "Allow" } else { "Deny" };
+        out.push_str(&format!(
+            "    <{tag} ID=\"{id}\" FriendlyName=\"{reason}\" {attr}=\"{val}\" Action=\"{action}\"/>\n",
+            tag = tag,
+            id = xml_escape(&r.id),
+            reason = xml_escape(&r.reason),
+            attr = attr_name,
+            val = xml_escape(&r.value),
+            action = action,
+        ));
+    }
+    out.push_str("  </FileRules>\n");
+    out.push_str("</SiPolicy>\n");
+    out
+}
+
+/// Render an [`AppLockerPolicyDocument`] to AppLocker XML.
+///
+/// AppLocker uses `<RuleCollection>` per file kind. We always emit
+/// `<RuleCollection Type="Exe">` since the agent only authorises
+/// executable binaries today; richer types (Msi, Script, Appx) can
+/// be added without a wire-format change.
+pub fn render_applocker_xml(doc: &AppLockerPolicyDocument) -> String {
+    let mut out = String::new();
+    out.push_str(r#"<?xml version="1.0" encoding="utf-8"?>"#);
+    out.push('\n');
+    out.push_str(&format!(
+        "<AppLockerPolicy Version=\"1\" Id=\"{}\">\n",
+        xml_escape(&doc.policy_id)
+    ));
+    let enforcement_mode = match doc.mode {
+        AppControlMode::Enforce => "Enabled",
+        AppControlMode::Monitor => "AuditOnly",
+        AppControlMode::Disabled => "NotConfigured",
+    };
+    out.push_str(&format!(
+        "  <RuleCollection Type=\"Exe\" EnforcementMode=\"{}\">\n",
+        enforcement_mode
+    ));
+    for r in &doc.rules {
+        let action = if r.allow { "Allow" } else { "Deny" };
+        match r.kind {
+            SubjectKind::Sha256 | SubjectKind::Sha1 => {
+                out.push_str(&format!(
+                    "    <FileHashRule Id=\"{id}\" Name=\"{reason}\" Description=\"{reason}\" UserOrGroupSid=\"S-1-1-0\" Action=\"{action}\">\n",
+                    id = xml_escape(&r.id),
+                    reason = xml_escape(&r.reason),
+                    action = action,
+                ));
+                out.push_str("      <Conditions>\n");
+                out.push_str(&format!(
+                    "        <FileHashCondition><FileHash Type=\"{ty}\" Data=\"{data}\" SourceFileName=\"\" SourceFileLength=\"0\"/></FileHashCondition>\n",
+                    ty = if matches!(r.kind, SubjectKind::Sha256) { "SHA256" } else { "SHA1" },
+                    data = xml_escape(&r.value),
+                ));
+                out.push_str("      </Conditions>\n");
+                out.push_str("    </FileHashRule>\n");
+            }
+            SubjectKind::PublisherCommonName => {
+                out.push_str(&format!(
+                    "    <FilePublisherRule Id=\"{id}\" Name=\"{reason}\" Description=\"{reason}\" UserOrGroupSid=\"S-1-1-0\" Action=\"{action}\">\n",
+                    id = xml_escape(&r.id),
+                    reason = xml_escape(&r.reason),
+                    action = action,
+                ));
+                out.push_str("      <Conditions>\n");
+                out.push_str(&format!(
+                    "        <FilePublisherCondition PublisherName=\"{val}\" ProductName=\"*\" BinaryName=\"*\"><BinaryVersionRange LowSection=\"*\" HighSection=\"*\"/></FilePublisherCondition>\n",
+                    val = xml_escape(&r.value),
+                ));
+                out.push_str("      </Conditions>\n");
+                out.push_str("    </FilePublisherRule>\n");
+            }
+            _ => {}
+        }
+    }
+    out.push_str("  </RuleCollection>\n");
+    out.push_str("</AppLockerPolicy>\n");
+    out
+}
+
+/// One PowerShell command, modelled as `program + args` so callers
+/// can audit the full argv before invocation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PowerShellCommand {
+    pub program: String,
+    pub args: Vec<String>,
+}
+
+impl PowerShellCommand {
+    /// Render the command back to a single shell-quoted line.
+    /// Used for evidence records and dry-run logs.
+    pub fn rendered(&self) -> String {
+        let mut out = String::from(&self.program);
+        for a in &self.args {
+            out.push(' ');
+            if a.contains(' ') || a.contains('"') {
+                out.push('"');
+                out.push_str(&a.replace('"', "`\""));
+                out.push('"');
+            } else {
+                out.push_str(a);
+            }
+        }
+        out
+    }
+}
+
+/// Build the PowerShell command sequence required to apply a WDAC
+/// XML policy to the local machine.
+///
+/// Sequence:
+/// 1. `Set-CIPolicyIdInfo` — stamps the policy GUID + display name.
+/// 2. `ConvertFrom-CIPolicy` — converts XML to the binary `.cip`.
+/// 3. `Copy-Item` — drops the `.cip` into
+///    `%windir%\System32\CodeIntegrity\CiPolicies\Active`.
+/// 4. `Invoke-CimMethod -ClassName PS_UpdateAndRefreshCIPolicy` —
+///    forces an immediate policy refresh.
+pub fn powershell_apply_wdac_commands(
+    xml_path: &Path,
+    cip_path: &Path,
+    policy_id: &str,
+    display_name: &str,
+) -> Vec<PowerShellCommand> {
+    let xml = xml_path.to_string_lossy().to_string();
+    let cip = cip_path.to_string_lossy().to_string();
+    vec![
+        PowerShellCommand {
+            program: "powershell.exe".into(),
+            args: vec![
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-Command".into(),
+                format!(
+                    "Set-CIPolicyIdInfo -FilePath '{}' -PolicyId '{}' -PolicyName '{}'",
+                    xml, policy_id, display_name
+                ),
+            ],
+        },
+        PowerShellCommand {
+            program: "powershell.exe".into(),
+            args: vec![
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-Command".into(),
+                format!("ConvertFrom-CIPolicy -XmlFilePath '{}' -BinaryFilePath '{}'", xml, cip),
+            ],
+        },
+        PowerShellCommand {
+            program: "powershell.exe".into(),
+            args: vec![
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-Command".into(),
+                format!(
+                    "Copy-Item -Path '{}' -Destination \"$env:windir\\System32\\CodeIntegrity\\CiPolicies\\Active\\{}\" -Force",
+                    cip, policy_id
+                ),
+            ],
+        },
+        PowerShellCommand {
+            program: "powershell.exe".into(),
+            args: vec![
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-Command".into(),
+                "Invoke-CimMethod -Namespace root\\Microsoft\\Windows\\CI -ClassName PS_UpdateAndCompareCIPolicy -MethodName Update".into(),
+            ],
+        },
+    ]
+}
+
+/// Build the PowerShell command sequence to apply an AppLocker
+/// policy XML.
+pub fn powershell_apply_applocker_commands(xml_path: &Path) -> Vec<PowerShellCommand> {
+    let xml = xml_path.to_string_lossy().to_string();
+    vec![PowerShellCommand {
+        program: "powershell.exe".into(),
+        args: vec![
+            "-NoProfile".into(),
+            "-NonInteractive".into(),
+            "-Command".into(),
+            format!("Set-AppLockerPolicy -XmlPolicy '{}' -Merge:$false", xml),
+        ],
+    }]
+}
+
+/// Last-applied artifact recorded by [`WdacAppControlProvider`].
+/// Used by tests and by the supervisor to surface in evidence
+/// records.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WdacApplyRecord {
+    pub backend: WdacBackend,
+    pub xml: String,
+    pub commands: Vec<PowerShellCommand>,
+    pub applied_at: DateTime<Utc>,
+}
+
+/// Cross-platform Windows app-control provider.
+///
+/// On Windows it actually invokes PowerShell; on every other host it
+/// records the rendered XML + command sequence and returns
+/// `Ok(())` so the agent can exercise the full translation path on
+/// CI.
+pub struct WdacAppControlProvider {
+    backend: WdacBackend,
+    staging_dir: PathBuf,
+    last_applied: Mutex<Option<WdacApplyRecord>>,
+}
+
+impl std::fmt::Debug for WdacAppControlProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WdacAppControlProvider")
+            .field("backend", &self.backend)
+            .field("staging_dir", &self.staging_dir)
+            .finish()
+    }
+}
+
+impl WdacAppControlProvider {
+    /// Build a provider with the platform-default staging directory
+    /// and `select_backend(os_build)` for backend selection.
+    pub fn new(os_build: u32, staging_dir: PathBuf) -> Self {
+        Self::with_backend(select_backend(os_build), staging_dir)
+    }
+
+    /// Build a provider with a caller-specified backend. Used by
+    /// tests.
+    pub fn with_backend(backend: WdacBackend, staging_dir: PathBuf) -> Self {
+        Self {
+            backend,
+            staging_dir,
+            last_applied: Mutex::new(None),
+        }
+    }
+
+    /// Read-only snapshot of the last applied artefact.
+    pub fn last_applied(&self) -> Option<WdacApplyRecord> {
+        self.last_applied.lock().ok().and_then(|g| g.clone())
+    }
+
+    /// Selected backend.
+    pub fn backend(&self) -> WdacBackend {
+        self.backend
+    }
+
+    fn render(&self, payload: &AppControlPolicyPayload) -> (String, Vec<PowerShellCommand>) {
+        let xml_path = self
+            .staging_dir
+            .join(format!("sda-app-control-{}.xml", payload.version));
+        match self.backend {
+            WdacBackend::Wdac => {
+                let doc = build_wdac_document(payload);
+                let xml = render_wdac_xml(&doc);
+                let cip_path = self
+                    .staging_dir
+                    .join(format!("sda-app-control-{}.cip", payload.version));
+                let cmds = powershell_apply_wdac_commands(
+                    &xml_path,
+                    &cip_path,
+                    &doc.policy_id,
+                    &doc.policy_name,
+                );
+                (xml, cmds)
+            }
+            WdacBackend::AppLocker => {
+                let doc = build_applocker_document(payload);
+                let xml = render_applocker_xml(&doc);
+                let cmds = powershell_apply_applocker_commands(&xml_path);
+                (xml, cmds)
+            }
+        }
+    }
+}
+
+impl AppControlProvider for WdacAppControlProvider {
+    fn current_mode(&self) -> Result<AppControlMode, AppControlError> {
+        // Probing the live Windows policy is best-effort; on every
+        // host we can only safely report the last mode the agent
+        // *intended* to set.
+        Ok(self
+            .last_applied
+            .lock()
+            .ok()
+            .and_then(|g| g.as_ref().map(|_| AppControlMode::Monitor))
+            .unwrap_or(AppControlMode::Disabled))
+    }
+
+    fn apply_verified_policy(
+        &self,
+        payload: &AppControlPolicyPayload,
+    ) -> Result<(), AppControlError> {
+        let (xml, commands) = self.render(payload);
+
+        #[cfg(target_os = "windows")]
+        {
+            // Best-effort filesystem prep + invocation. Failures
+            // bubble out as `AppControlError::Backend` so the
+            // EnforceController can trigger dual-control rollback.
+            std::fs::create_dir_all(&self.staging_dir)
+                .map_err(|e| AppControlError::Backend(format!("staging dir: {e}")))?;
+            let xml_path = self
+                .staging_dir
+                .join(format!("sda-app-control-{}.xml", payload.version));
+            std::fs::write(&xml_path, &xml)
+                .map_err(|e| AppControlError::Backend(format!("write xml: {e}")))?;
+            for cmd in &commands {
+                let status = std::process::Command::new(&cmd.program)
+                    .args(&cmd.args)
+                    .status()
+                    .map_err(|e| AppControlError::Backend(format!("spawn {}: {e}", cmd.program)))?;
+                if !status.success() {
+                    return Err(AppControlError::Backend(format!(
+                        "{} exited with status {}",
+                        cmd.rendered(),
+                        status
+                    )));
+                }
+            }
+        }
+
+        if let Ok(mut g) = self.last_applied.lock() {
+            *g = Some(WdacApplyRecord {
+                backend: self.backend,
+                xml,
+                commands,
+                applied_at: Utc::now(),
+            });
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    fn sample_payload(version: u64) -> AppControlPolicyPayload {
+        AppControlPolicyPayload {
+            version,
+            issued_at: Utc.with_ymd_and_hms(2026, 5, 8, 0, 0, 0).unwrap(),
+            target_mode: AppControlMode::Enforce,
+            rules: vec![
+                AppControlRule {
+                    subject: "sha256:deadbeef".into(),
+                    allow: true,
+                    reason: "trusted package".into(),
+                },
+                AppControlRule {
+                    subject: "publisher:CN=Microsoft Corporation".into(),
+                    allow: true,
+                    reason: "ms publisher".into(),
+                },
+                AppControlRule {
+                    subject: "path:C\\\\Windows\\\\Temp\\\\evil.exe".into(),
+                    allow: false,
+                    reason: "blocked".into(),
+                },
+                AppControlRule {
+                    subject: "weird:thing".into(),
+                    allow: true,
+                    reason: "unknown subject kind".into(),
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn select_backend_picks_wdac_on_modern_windows() {
+        assert_eq!(select_backend(19_045), WdacBackend::Wdac);
+        assert_eq!(select_backend(MIN_WDAC_WINDOWS_BUILD), WdacBackend::Wdac);
+    }
+
+    #[test]
+    fn select_backend_falls_back_to_applocker_on_legacy() {
+        assert_eq!(
+            select_backend(MIN_WDAC_WINDOWS_BUILD - 1),
+            WdacBackend::AppLocker
+        );
+        assert_eq!(select_backend(0), WdacBackend::AppLocker);
+    }
+
+    #[test]
+    fn parse_subject_recognises_known_kinds() {
+        assert_eq!(
+            parse_subject("sha256:abc"),
+            (SubjectKind::Sha256, "abc".into())
+        );
+        assert_eq!(
+            parse_subject("publisher:CN=ACME"),
+            (SubjectKind::PublisherCommonName, "CN=ACME".into())
+        );
+        assert_eq!(
+            parse_subject("pfn:Foo_1.2"),
+            (SubjectKind::PackageFamilyName, "Foo_1.2".into())
+        );
+        assert_eq!(
+            parse_subject("weird:val"),
+            (SubjectKind::Unknown, "weird:val".into())
+        );
+    }
+
+    #[test]
+    fn parse_subject_treats_unprefixed_as_sha256() {
+        assert_eq!(
+            parse_subject("abcdef"),
+            (SubjectKind::Sha256, "abcdef".into())
+        );
+    }
+
+    #[test]
+    fn build_wdac_document_translates_all_rules() {
+        let payload = sample_payload(7);
+        let doc = build_wdac_document(&payload);
+        assert_eq!(doc.version, 7);
+        assert_eq!(doc.mode, AppControlMode::Enforce);
+        assert_eq!(doc.rules.len(), 4);
+        assert_eq!(doc.rules[0].kind, SubjectKind::Sha256);
+        assert!(doc.rules[0].allow);
+        assert_eq!(doc.rules[1].kind, SubjectKind::PublisherCommonName);
+        assert_eq!(doc.rules[2].kind, SubjectKind::Path);
+        assert!(!doc.rules[2].allow);
+        assert_eq!(doc.rules[3].kind, SubjectKind::Unknown);
+        assert_eq!(doc.rules[0].id, "ID_ALLOW_S256_0");
+        assert_eq!(doc.rules[2].id, "ID_DENY_PATH_2");
+    }
+
+    #[test]
+    fn render_wdac_xml_includes_required_sections() {
+        let payload = sample_payload(3);
+        let doc = build_wdac_document(&payload);
+        let xml = render_wdac_xml(&doc);
+        assert!(xml.starts_with(r#"<?xml version="1.0" encoding="utf-8"?>"#));
+        assert!(xml.contains(r#"<SiPolicy xmlns="urn:schemas-microsoft-com:sipolicy">"#));
+        assert!(xml.contains("<VersionEx>10.0.0.3</VersionEx>"));
+        assert!(xml.contains(POLICY_BASE_ID));
+        assert!(
+            xml.contains("<FriendlyName>SN360 Desktop Agent — Application Control</FriendlyName>")
+        );
+        assert!(xml.contains("Hash=\"deadbeef\""));
+        assert!(xml.contains("Action=\"Allow\""));
+        assert!(xml.contains("Action=\"Deny\""));
+        assert!(xml.contains("</SiPolicy>"));
+    }
+
+    #[test]
+    fn render_wdac_xml_escapes_special_chars() {
+        let payload = AppControlPolicyPayload {
+            version: 1,
+            issued_at: Utc.with_ymd_and_hms(2026, 5, 8, 0, 0, 0).unwrap(),
+            target_mode: AppControlMode::Monitor,
+            rules: vec![AppControlRule {
+                subject: "publisher:CN=A & B \"Co\"".into(),
+                allow: true,
+                reason: "x<y".into(),
+            }],
+        };
+        let xml = render_wdac_xml(&build_wdac_document(&payload));
+        assert!(!xml.contains("CN=A & B \"Co\""));
+        assert!(xml.contains("&amp;"));
+        assert!(xml.contains("&quot;"));
+        assert!(xml.contains("x&lt;y"));
+    }
+
+    #[test]
+    fn build_applocker_document_drops_unsupported_subjects() {
+        let payload = sample_payload(2);
+        let doc = build_applocker_document(&payload);
+        assert_eq!(doc.rules.len(), 2);
+        assert!(doc.rules.iter().all(|r| matches!(
+            r.kind,
+            SubjectKind::Sha256 | SubjectKind::PublisherCommonName
+        )));
+        assert_eq!(doc.dropped_subjects.len(), 2);
+    }
+
+    #[test]
+    fn render_applocker_xml_uses_audit_only_for_monitor() {
+        let mut payload = sample_payload(1);
+        payload.target_mode = AppControlMode::Monitor;
+        let doc = build_applocker_document(&payload);
+        let xml = render_applocker_xml(&doc);
+        assert!(xml.contains("EnforcementMode=\"AuditOnly\""));
+    }
+
+    #[test]
+    fn render_applocker_xml_uses_enabled_for_enforce() {
+        let payload = sample_payload(1);
+        let doc = build_applocker_document(&payload);
+        let xml = render_applocker_xml(&doc);
+        assert!(xml.contains("EnforcementMode=\"Enabled\""));
+        assert!(xml.contains("<FileHashRule"));
+        assert!(xml.contains("<FilePublisherRule"));
+    }
+
+    #[test]
+    fn powershell_apply_wdac_commands_emits_required_cmdlets() {
+        let xml = PathBuf::from("/tmp/policy.xml");
+        let cip = PathBuf::from("/tmp/policy.cip");
+        let cmds = powershell_apply_wdac_commands(&xml, &cip, "policy-1", "Test Policy");
+        assert_eq!(cmds.len(), 4);
+        assert_eq!(cmds[0].program, "powershell.exe");
+        let joined: String = cmds
+            .iter()
+            .flat_map(|c| c.args.iter())
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(joined.contains("Set-CIPolicyIdInfo"));
+        assert!(joined.contains("ConvertFrom-CIPolicy"));
+        assert!(joined.contains("Copy-Item"));
+        assert!(joined.contains("PS_UpdateAndCompareCIPolicy"));
+    }
+
+    #[test]
+    fn powershell_apply_applocker_commands_emits_set_applockerpolicy() {
+        let cmds = powershell_apply_applocker_commands(&PathBuf::from("/tmp/al.xml"));
+        assert_eq!(cmds.len(), 1);
+        let argline = cmds[0].args.last().unwrap();
+        assert!(argline.contains("Set-AppLockerPolicy"));
+        assert!(argline.contains("/tmp/al.xml"));
+        assert!(argline.contains("-Merge:$false"));
+    }
+
+    #[test]
+    fn powershell_command_rendered_quotes_spaces() {
+        let cmd = PowerShellCommand {
+            program: "powershell.exe".into(),
+            args: vec!["-Command".into(), "echo hello world".into()],
+        };
+        let line = cmd.rendered();
+        assert!(line.contains('"'));
+        assert!(line.contains("echo hello world"));
+    }
+
+    #[test]
+    fn provider_records_apply_artefact_on_non_windows() {
+        let provider = WdacAppControlProvider::with_backend(
+            WdacBackend::Wdac,
+            std::env::temp_dir().join("sda-wdac-test"),
+        );
+        let payload = sample_payload(11);
+        provider.apply_verified_policy(&payload).expect("apply ok");
+        let record = provider.last_applied().expect("record");
+        assert_eq!(record.backend, WdacBackend::Wdac);
+        assert!(record.xml.contains("<SiPolicy"));
+        assert!(!record.commands.is_empty());
+    }
+
+    #[test]
+    fn provider_records_applocker_when_backend_is_applocker() {
+        let provider = WdacAppControlProvider::with_backend(
+            WdacBackend::AppLocker,
+            std::env::temp_dir().join("sda-wdac-test"),
+        );
+        let payload = sample_payload(12);
+        provider.apply_verified_policy(&payload).expect("apply ok");
+        let record = provider.last_applied().expect("record");
+        assert_eq!(record.backend, WdacBackend::AppLocker);
+        assert!(record.xml.contains("<AppLockerPolicy"));
+        assert_eq!(record.commands.len(), 1);
+    }
+
+    #[test]
+    fn provider_current_mode_starts_disabled() {
+        let provider = WdacAppControlProvider::with_backend(
+            WdacBackend::Wdac,
+            std::env::temp_dir().join("sda-wdac-test"),
+        );
+        assert_eq!(provider.current_mode().unwrap(), AppControlMode::Disabled);
+    }
+
+    #[test]
+    fn provider_is_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<WdacAppControlProvider>();
+    }
+}

@@ -19,13 +19,27 @@
 //!   `EventKind::AppControlDecision` events on the bus.
 
 pub mod enforce;
+pub mod linux;
 pub mod module;
 pub mod monitor;
 pub mod policy;
+pub mod wdac;
 
 pub use enforce::{DualControlRollback, EnforceController, RollbackError};
+pub use linux::{
+    build_policy_artifact as build_linux_policy_artifact, parse_dm_verity_status,
+    render_policy_file as render_linux_policy_file, DmVerityState, DmVerityStatus,
+    LinuxAppControlProvider as LinuxAppControlProviderImpl, LinuxDecisionRecord,
+    LinuxPolicyArtifact, LinuxPolicyEntry, LinuxSubjectKind,
+};
 pub use module::{
     AppControlCommand, AppControlError, AppControlEvent, AppControlModule, AppControlSupervisor,
 };
 pub use monitor::{Decision, MonitorController};
 pub use policy::{verify_signed_policy, PolicyVerificationError, VerifiedPolicy};
+pub use wdac::{
+    build_applocker_document, build_wdac_document, powershell_apply_applocker_commands,
+    powershell_apply_wdac_commands, render_applocker_xml, render_wdac_xml, select_backend,
+    AppLockerPolicyDocument, PowerShellCommand, SubjectKind as WdacSubjectKind,
+    WdacAppControlProvider, WdacApplyRecord, WdacBackend, WdacPolicyDocument, WdacRuleEntry,
+};

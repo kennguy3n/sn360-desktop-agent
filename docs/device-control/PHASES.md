@@ -302,12 +302,12 @@ PROPOSAL.md § 2.3.
 | 4.4 | `sda-pal::AppControlProvider` impls | Per-OS app control providers. | Done |
 | 4.5 | `sda-app-control` scaffold | Monitor mode default + signed policy push. | Done |
 | 4.6 | Santa integration (macOS) | Wrap Santa's binauthorize / file-modification rules. | Done |
-| 4.7 | WDAC + AppLocker (Windows) | Signed-policy push via PowerShell. | Not Started |
-| 4.8 | Linux app control | Clean-room dm-verity-aware enforcement. | Not Started |
+| 4.7 | WDAC + AppLocker (Windows) | Signed-policy push via PowerShell; clean-room WDAC XML emitter in [`crates/sda-app-control/src/wdac.rs`](../../crates/sda-app-control/src/wdac.rs); AppLocker fallback for hosts without WDAC. | Done |
+| 4.8 | Linux app control | Clean-room dm-verity-aware enforcement in [`crates/sda-app-control/src/linux.rs`](../../crates/sda-app-control/src/linux.rs); root-hash-pinned policy entries; degrades to logged-only Monitor mode without dm-verity. | Done |
 | 4.9 | Android MDM connector ⚙️ | Implemented in `sn360-security-platform`. | Not Started |
 | 4.10 | Apple MDM/DDM connector ⚙️ | Implemented in `sn360-security-platform`. | Not Started |
 | 4.11 | ChromeOS connector ⚙️ | Implemented in `sn360-security-platform`. | Not Started |
-| 4.12 | Phase 4 E2E suite | Remote-support session, app-control monitor + enforce, evidence. | Not Started |
+| 4.12 | Phase 4 E2E suite | Remote-support session ([`crates/sda-agent/tests/e2e_remote_support.rs`](../../crates/sda-agent/tests/e2e_remote_support.rs), `make e2e-remote-support`); app-control monitor + enforce + rollback + evidence ([`crates/sda-agent/tests/e2e_app_control.rs`](../../crates/sda-agent/tests/e2e_app_control.rs), `make e2e-app-control`). | Done |
 
 ### Acceptance criteria
 
@@ -345,8 +345,8 @@ PROPOSAL.md § 2.3.
 | 5.3 | White-label exports ⚙️ | Branded PDF + JSON evidence exports. Implemented in `sn360-security-platform`. | Not Started |
 | 5.4 | MSP dashboard ⚙️ | Cross-tenant operational view. Implemented in `sn360-security-platform`. | Not Started |
 | 5.5 | Cross-tenant templates ⚙️ | Shared templates + per-tenant overrides. Implemented in `sn360-security-platform`. | Not Started |
-| 5.6 | `sda-management-compat` shim | Translate Fleet-flavoured GitOps YAML into SDA-native config. | Not Started |
-| 5.7 | Phase 5 E2E suite | Cross-tenant scenario coverage. | Not Started |
+| 5.6 | `sda-management-compat` shim | Translate Fleet-flavoured GitOps YAML into SDA-native config. New [`sda-management-compat`](../../crates/sda-management-compat/) crate maps Fleet `queries` / `policies` / `software` / `scripts` / `agent_options` / `labels` per the [PROPOSAL.md § 4.1 mapping](./PROPOSAL.md#41-fleet-concepts-to-port-into-sda) and rejects every key on the [PROPOSAL.md § 4.2 do-not-port list](./PROPOSAL.md#42-fleet-concepts-not-to-port-into-sda) per [ADR-001](./ADR-001-functional-port.md). | Done |
+| 5.7 | Phase 5 E2E suite | Cross-tenant scenario coverage in [`crates/sda-agent/tests/e2e_management_compat.rs`](../../crates/sda-agent/tests/e2e_management_compat.rs); `make e2e-management-compat`. | Done |
 
 ### Acceptance criteria
 
