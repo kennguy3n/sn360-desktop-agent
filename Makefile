@@ -21,7 +21,7 @@ TARGETS := \
 	x86_64-pc-windows-msvc
 
 .PHONY: build release test lint fmt clippy all-targets clean e2e e2e-compat e2e-macos e2e-windows security-e2e \
-        e2e-device-control benchmark-ci deb rpm pkg msi
+        e2e-device-control e2e-software benchmark-ci deb rpm pkg msi
 
 build:
 	$(CARGO) build
@@ -76,6 +76,15 @@ security-e2e:
 # external server is required.
 e2e-device-control:
 	$(CARGO) test --package sda-agent --test e2e_device_control -- --nocapture
+
+# Phase 2 Device Control E2E suite. Exercises every Phase 2 surface
+# (catalogue manifest signature verification, maintenance windows,
+# install/update/uninstall evidence chain, rollback orchestrator,
+# approval-state recommendations, and the script runner) end-to-end.
+# The suite lives in crates/sda-agent/tests/e2e_software.rs and is
+# hermetic — no external server or package manager is required.
+e2e-software:
+	$(CARGO) test --package sda-agent --test e2e_software -- --nocapture
 
 clean:
 	$(CARGO) clean

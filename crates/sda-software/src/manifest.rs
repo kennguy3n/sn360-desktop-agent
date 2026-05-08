@@ -3,36 +3,81 @@
 //!
 //! The manifest is fetched from
 //! [`SoftwareConfig::catalogue_url`](sda_core::config::SoftwareConfig::catalogue_url)
-//! and verified against
-//! [`SoftwareConfig::pinned_signing_key_hex`](sda_core::config::SoftwareConfig::pinned_signing_key_hex)
+//! and verified against the keys configured in
+//! [`SoftwareConfig::pinned_signing_keys`](sda_core::config::SoftwareConfig::pinned_signing_keys)
+//! (or the legacy single-key
+//! [`SoftwareConfig::pinned_signing_key_hex`](sda_core::config::SoftwareConfig::pinned_signing_key_hex))
 //! before any artefact is exposed to the action orchestrator. Per
 //! `docs/device-control/PHASES.md` task 2.6 the manifest carries:
 //!
 //! - An Ed25519 detached signature over the canonical-JSON pre-image
 //!   (`signature` field replaced by an empty string, key sort).
+//! - A `signed_at` timestamp the agent uses to reject manifests that
+//!   are older than the operator-configured maximum age.
 //! - A pinned SHA-256 per artefact so the agent can verify the bytes
 //!   it actually downloaded match what the catalogue authority signed.
 //!
 //! Verification is intentionally split from network fetch so unit
 //! tests can drive the verifier with hand-constructed bytes (see the
 //! `tests` module below) without spinning up an HTTP server.
+//!
+//! ## Verifier surface
+//!
+//! [`Verifier`] is the production-grade entry point — pass it the
+//! [`SoftwareConfig`](sda_core::config::SoftwareConfig) and it will:
+//!
+//! 1. Look up the manifest's `key_id` in the configured pinned set
+//!    (rejecting [`ManifestError::UnknownKeyId`] when no match).
+//! 2. Verify the Ed25519 signature against that key
+//!    ([`ManifestError::SignatureMismatch`] on failure).
+//! 3. Check the manifest is not older than `manifest_max_age_secs`
+//!    ([`ManifestError::Expired`] when stale).
+//!
+//! Each failure mode is surfaced as a distinct error variant so the
+//! supervisor task can emit precise findings to the operator.
 
-use ed25519_dalek::{Signature, Verifier, VerifyingKey, PUBLIC_KEY_LENGTH, SIGNATURE_LENGTH};
+use std::collections::BTreeMap;
+
+use chrono::{DateTime, Utc};
+use ed25519_dalek::{
+    Signature, Verifier as Ed25519Verifier, VerifyingKey, PUBLIC_KEY_LENGTH, SIGNATURE_LENGTH,
+};
+use sda_core::config::{PinnedSigningKey, SoftwareConfig};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 /// Errors raised while parsing or verifying a catalogue manifest.
+///
+/// Every wire-level failure mode is its own variant so the
+/// supervisor task can map errors back to operator-readable
+/// findings without inspecting strings.
 #[derive(Debug, thiserror::Error)]
 pub enum ManifestError {
     /// Manifest body did not deserialise into [`Manifest`].
     #[error("manifest JSON parse error: {0}")]
     Json(#[from] serde_json::Error),
     /// Pinned key was not a 32-byte hex string.
-    #[error("pinned signing key is not 64 hex characters")]
-    PinnedKeyShape,
+    #[error("pinned signing key {key_id} is not 64 hex characters")]
+    PinnedKeyShape {
+        /// `key_id` of the pinned key whose hex shape was wrong.
+        key_id: String,
+    },
     /// Pinned key bytes were not a valid Ed25519 public key.
-    #[error("pinned signing key bytes are not a valid Ed25519 public key")]
-    PinnedKeyInvalid,
+    #[error("pinned signing key {key_id} bytes are not a valid Ed25519 public key")]
+    PinnedKeyInvalid {
+        /// `key_id` of the pinned key whose bytes were rejected by
+        /// Ed25519.
+        key_id: String,
+    },
+    /// Manifest's `key_id` was not in the configured pinned set.
+    #[error("manifest key_id {0} is not in the pinned signing-key set")]
+    UnknownKeyId(String),
+    /// Verifier was constructed from a [`SoftwareConfig`] that had no
+    /// pinned keys at all (neither `pinned_signing_keys` nor the
+    /// legacy `pinned_signing_key_hex`). Surfaces as a distinct
+    /// variant so the supervisor task can log a clear diagnostic.
+    #[error("software config has no pinned signing keys configured")]
+    NoPinnedKeys,
     /// Signature field was not 128 hex chars / 64 bytes.
     #[error("signature is not 128 hex characters / 64 bytes")]
     SignatureShape,
@@ -41,14 +86,36 @@ pub enum ManifestError {
     SignatureMismatch,
     /// Per-artefact `sha256` field shape was wrong.
     #[error("artefact {id} has malformed sha256")]
-    ArtefactHashShape { id: String },
+    ArtefactHashShape {
+        /// `id` of the artefact whose hash field was malformed.
+        id: String,
+    },
     /// Computed SHA-256 of the artefact bytes did not match the
     /// pinned hash.
     #[error("artefact {id} downloaded bytes do not match pinned sha256")]
-    ArtefactHashMismatch { id: String },
+    ArtefactHashMismatch {
+        /// `id` of the artefact whose bytes failed verification.
+        id: String,
+    },
     /// Manifest schema version is unsupported.
     #[error("manifest schema_version {0} is unsupported")]
     SchemaVersion(u16),
+    /// Manifest's `signed_at` is older than the configured maximum
+    /// age, or is set in the future beyond clock skew tolerance.
+    #[error("manifest is expired (signed_at {signed_at}, max_age_secs {max_age_secs})")]
+    Expired {
+        /// `signed_at` field on the manifest that triggered the
+        /// rejection.
+        signed_at: DateTime<Utc>,
+        /// Configured maximum age in seconds.
+        max_age_secs: u64,
+    },
+    /// Manifest is missing a `signed_at` timestamp. Required as of
+    /// schema version 1 hardening (task 2.6); old unsigned-time
+    /// manifests cannot be evaluated for expiry and are therefore
+    /// rejected.
+    #[error("manifest is missing the required signed_at timestamp")]
+    MissingSignedAt,
 }
 
 /// Approved-software catalogue manifest. Mirrors the structure
@@ -64,9 +131,19 @@ pub struct Manifest {
     pub catalogue_id: String,
     /// Bumped each time the control plane re-publishes the catalogue.
     pub revision: u64,
+    /// UTC timestamp when the catalogue authority signed this
+    /// manifest. The agent rejects manifests where `now -
+    /// signed_at` exceeds the operator-configured maximum age.
+    /// Optional on the wire for backward compatibility — the
+    /// hardened verifier rejects manifests without it
+    /// ([`ManifestError::MissingSignedAt`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_at: Option<DateTime<Utc>>,
     /// Approved artefacts.
     pub artefacts: Vec<Artefact>,
-    /// Lowercase hex; 64 hex chars / 32 bytes when expanded.
+    /// Stable identifier of the signing key used to produce
+    /// [`Self::signature`]. Looked up by the agent's pinned-key
+    /// set; mismatches surface as [`ManifestError::UnknownKeyId`].
     pub key_id: String,
     /// Lowercase hex; 128 hex chars / 64 bytes when expanded.
     pub signature: String,
@@ -102,6 +179,10 @@ fn default_approval_state() -> String {
 /// Schema version this build understands.
 pub const MANIFEST_SCHEMA_VERSION: u16 = 1;
 
+/// Tolerance applied to `signed_at` to absorb minor clock skew
+/// between the catalogue authority and the agent.
+pub const MANIFEST_CLOCK_SKEW_TOLERANCE_SECS: u64 = 60;
+
 impl Manifest {
     /// Parse a manifest from JSON bytes (no signature check).
     pub fn parse(bytes: &[u8]) -> Result<Self, ManifestError> {
@@ -133,11 +214,22 @@ impl Manifest {
     /// Verify the manifest signature against `pinned_pubkey_hex`.
     /// Returns `Ok(())` only when the signature is well-formed and
     /// validates.
+    ///
+    /// Retained for callers that already maintain a single pinned
+    /// key by hand. New code should prefer [`Verifier::verify`]
+    /// which also enforces `key_id` membership and expiry.
     pub fn verify_signature(&self, pinned_pubkey_hex: &str) -> Result<(), ManifestError> {
-        let pubkey_bytes = parse_hex_fixed::<PUBLIC_KEY_LENGTH>(pinned_pubkey_hex)
-            .ok_or(ManifestError::PinnedKeyShape)?;
-        let verifying_key =
-            VerifyingKey::from_bytes(&pubkey_bytes).map_err(|_| ManifestError::PinnedKeyInvalid)?;
+        let pubkey_bytes =
+            parse_hex_fixed::<PUBLIC_KEY_LENGTH>(pinned_pubkey_hex).ok_or_else(|| {
+                ManifestError::PinnedKeyShape {
+                    key_id: self.key_id.clone(),
+                }
+            })?;
+        let verifying_key = VerifyingKey::from_bytes(&pubkey_bytes).map_err(|_| {
+            ManifestError::PinnedKeyInvalid {
+                key_id: self.key_id.clone(),
+            }
+        })?;
         let sig_bytes = parse_hex_fixed::<SIGNATURE_LENGTH>(&self.signature)
             .ok_or(ManifestError::SignatureShape)?;
         let signature = Signature::from_bytes(&sig_bytes);
@@ -166,6 +258,135 @@ impl Artefact {
         }
         Ok(())
     }
+}
+
+/// Production-grade manifest verifier supporting key rotation and
+/// expiry checking.
+///
+/// Construct from a [`SoftwareConfig`] with [`Verifier::from_config`]
+/// or directly with [`Verifier::new`]. Holds parsed Ed25519 verifying
+/// keys keyed by their stable `key_id`, plus the configured maximum
+/// manifest age.
+#[derive(Debug, Clone)]
+pub struct Verifier {
+    keys: BTreeMap<String, VerifyingKey>,
+    max_age_secs: u64,
+}
+
+impl Verifier {
+    /// Construct a verifier from a [`SoftwareConfig`]. Parses every
+    /// configured pinned key (including the legacy single-key
+    /// fallback) into Ed25519 verifying keys, returning errors if
+    /// any key is malformed.
+    ///
+    /// When `pinned_signing_keys` has at least one entry, the legacy
+    /// `pinned_signing_key_hex` field is ignored entirely. When the
+    /// list is empty and the legacy field is set, the legacy field
+    /// is used with `key_id = "default"`.
+    ///
+    /// At least one pinned key is required —
+    /// [`ManifestError::NoPinnedKeys`] is returned if none are
+    /// configured.
+    pub fn from_config(config: &SoftwareConfig) -> Result<Self, ManifestError> {
+        let mut keys: BTreeMap<String, VerifyingKey> = BTreeMap::new();
+        if !config.pinned_signing_keys.is_empty() {
+            for entry in &config.pinned_signing_keys {
+                let parsed = parse_pinned_key(entry)?;
+                keys.insert(entry.key_id.clone(), parsed);
+            }
+        } else if let Some(hex) = config.pinned_signing_key_hex.as_deref() {
+            let entry = PinnedSigningKey {
+                key_id: "default".to_string(),
+                public_key_hex: hex.to_string(),
+            };
+            let parsed = parse_pinned_key(&entry)?;
+            keys.insert(entry.key_id, parsed);
+        }
+        if keys.is_empty() {
+            return Err(ManifestError::NoPinnedKeys);
+        }
+        Ok(Self {
+            keys,
+            max_age_secs: config.manifest_max_age_secs,
+        })
+    }
+
+    /// Construct a verifier from an explicit list of pinned keys.
+    /// Mostly useful in unit tests that don't want to go through
+    /// [`SoftwareConfig`].
+    pub fn new(keys: &[PinnedSigningKey], max_age_secs: u64) -> Result<Self, ManifestError> {
+        if keys.is_empty() {
+            return Err(ManifestError::NoPinnedKeys);
+        }
+        let mut parsed: BTreeMap<String, VerifyingKey> = BTreeMap::new();
+        for entry in keys {
+            parsed.insert(entry.key_id.clone(), parse_pinned_key(entry)?);
+        }
+        Ok(Self {
+            keys: parsed,
+            max_age_secs,
+        })
+    }
+
+    /// `key_id`s currently configured for verification. Sorted
+    /// lexicographically (the underlying map is a [`BTreeMap`]).
+    pub fn key_ids(&self) -> Vec<String> {
+        self.keys.keys().cloned().collect()
+    }
+
+    /// Configured maximum manifest age in seconds.
+    pub fn max_age_secs(&self) -> u64 {
+        self.max_age_secs
+    }
+
+    /// Run the production verification pipeline on `manifest` at the
+    /// observed wall clock `now`:
+    ///
+    /// 1. The manifest's `key_id` must be in the pinned set
+    ///    ([`ManifestError::UnknownKeyId`] otherwise).
+    /// 2. The manifest must carry a `signed_at` timestamp
+    ///    ([`ManifestError::MissingSignedAt`] otherwise).
+    /// 3. `now - signed_at` must be within `max_age_secs +
+    ///    MANIFEST_CLOCK_SKEW_TOLERANCE_SECS` and `signed_at` must
+    ///    not be in the future beyond
+    ///    `MANIFEST_CLOCK_SKEW_TOLERANCE_SECS`
+    ///    ([`ManifestError::Expired`] otherwise).
+    /// 4. The Ed25519 signature must verify against the pinned key
+    ///    selected in step 1
+    ///    ([`ManifestError::SignatureMismatch`] otherwise).
+    pub fn verify(&self, manifest: &Manifest, now: DateTime<Utc>) -> Result<(), ManifestError> {
+        let key = self
+            .keys
+            .get(&manifest.key_id)
+            .ok_or_else(|| ManifestError::UnknownKeyId(manifest.key_id.clone()))?;
+        let signed_at = manifest.signed_at.ok_or(ManifestError::MissingSignedAt)?;
+        let age_secs = (now - signed_at).num_seconds();
+        let tolerance = MANIFEST_CLOCK_SKEW_TOLERANCE_SECS as i64;
+        let max = self.max_age_secs as i64 + tolerance;
+        if age_secs > max || age_secs < -tolerance {
+            return Err(ManifestError::Expired {
+                signed_at,
+                max_age_secs: self.max_age_secs,
+            });
+        }
+        let sig_bytes = parse_hex_fixed::<SIGNATURE_LENGTH>(&manifest.signature)
+            .ok_or(ManifestError::SignatureShape)?;
+        let signature = Signature::from_bytes(&sig_bytes);
+        let pre_image = manifest.canonical_pre_image()?;
+        key.verify(&pre_image, &signature)
+            .map_err(|_| ManifestError::SignatureMismatch)
+    }
+}
+
+fn parse_pinned_key(entry: &PinnedSigningKey) -> Result<VerifyingKey, ManifestError> {
+    let bytes = parse_hex_fixed::<PUBLIC_KEY_LENGTH>(&entry.public_key_hex).ok_or_else(|| {
+        ManifestError::PinnedKeyShape {
+            key_id: entry.key_id.clone(),
+        }
+    })?;
+    VerifyingKey::from_bytes(&bytes).map_err(|_| ManifestError::PinnedKeyInvalid {
+        key_id: entry.key_id.clone(),
+    })
 }
 
 /// Decode a lowercase-hex string into a fixed-size byte array.
@@ -272,6 +493,7 @@ fn write_string(s: &str, out: &mut Vec<u8>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Duration as ChronoDuration;
     use ed25519_dalek::{Signer, SigningKey};
 
     fn sample_manifest(signature_hex: &str, key_id: &str) -> Manifest {
@@ -279,6 +501,7 @@ mod tests {
             schema_version: MANIFEST_SCHEMA_VERSION,
             catalogue_id: "sn360-test".into(),
             revision: 7,
+            signed_at: None,
             artefacts: vec![Artefact {
                 id: "Mozilla.Firefox".into(),
                 name: "Mozilla Firefox".into(),
@@ -298,6 +521,13 @@ mod tests {
         manifest.signature = saved;
         let sig = signing_key.sign(&pre_image);
         manifest.signature = hex::encode(sig.to_bytes());
+    }
+
+    fn pinned(key_id: &str, signing_key: &SigningKey) -> PinnedSigningKey {
+        PinnedSigningKey {
+            key_id: key_id.into(),
+            public_key_hex: hex::encode(signing_key.verifying_key().to_bytes()),
+        }
     }
 
     #[test]
@@ -380,7 +610,7 @@ mod tests {
     fn signature_rejects_malformed_pinned_key_shape() {
         let m = sample_manifest("00", "k");
         let err = m.verify_signature("zzzz").unwrap_err();
-        assert!(matches!(err, ManifestError::PinnedKeyShape));
+        assert!(matches!(err, ManifestError::PinnedKeyShape { .. }));
     }
 
     #[test]
@@ -448,5 +678,194 @@ mod tests {
     fn parse_hex_fixed_rejects_non_hex_chars() {
         let s = "z".repeat(64);
         assert!(parse_hex_fixed::<32>(&s).is_none());
+    }
+
+    #[test]
+    fn verifier_accepts_valid_manifest_with_signed_at() {
+        let signing_key = SigningKey::from_bytes(&[3u8; 32]);
+        let pinned_key = pinned("sn360-2026-05", &signing_key);
+        let now = Utc::now();
+        let mut m = sample_manifest("", "sn360-2026-05");
+        m.signed_at = Some(now - ChronoDuration::seconds(3600));
+        sign(&mut m, &signing_key);
+        let v = Verifier::new(&[pinned_key], 7 * 24 * 3600).unwrap();
+        v.verify(&m, now).expect("valid manifest verifies");
+    }
+
+    #[test]
+    fn verifier_rejects_unknown_key_id() {
+        let signing_key = SigningKey::from_bytes(&[4u8; 32]);
+        let pinned_key = pinned("sn360-2026-05", &signing_key);
+        let now = Utc::now();
+        let mut m = sample_manifest("", "some-other-key-id");
+        m.signed_at = Some(now);
+        sign(&mut m, &signing_key);
+        let v = Verifier::new(&[pinned_key], 7 * 24 * 3600).unwrap();
+        let err = v.verify(&m, now).unwrap_err();
+        assert!(matches!(err, ManifestError::UnknownKeyId(_)));
+    }
+
+    #[test]
+    fn verifier_rejects_expired_manifest() {
+        let signing_key = SigningKey::from_bytes(&[5u8; 32]);
+        let pinned_key = pinned("sn360-2026-05", &signing_key);
+        let now = Utc::now();
+        let mut m = sample_manifest("", "sn360-2026-05");
+        m.signed_at = Some(now - ChronoDuration::seconds(7 * 24 * 3600 + 3600));
+        sign(&mut m, &signing_key);
+        let v = Verifier::new(&[pinned_key], 7 * 24 * 3600).unwrap();
+        let err = v.verify(&m, now).unwrap_err();
+        assert!(matches!(err, ManifestError::Expired { .. }));
+    }
+
+    #[test]
+    fn verifier_rejects_future_signed_at_beyond_skew() {
+        let signing_key = SigningKey::from_bytes(&[6u8; 32]);
+        let pinned_key = pinned("sn360-2026-05", &signing_key);
+        let now = Utc::now();
+        let mut m = sample_manifest("", "sn360-2026-05");
+        m.signed_at = Some(now + ChronoDuration::seconds(3600));
+        sign(&mut m, &signing_key);
+        let v = Verifier::new(&[pinned_key], 7 * 24 * 3600).unwrap();
+        let err = v.verify(&m, now).unwrap_err();
+        assert!(matches!(err, ManifestError::Expired { .. }));
+    }
+
+    #[test]
+    fn verifier_accepts_within_clock_skew_tolerance() {
+        let signing_key = SigningKey::from_bytes(&[7u8; 32]);
+        let pinned_key = pinned("sn360-2026-05", &signing_key);
+        let now = Utc::now();
+        let mut m = sample_manifest("", "sn360-2026-05");
+        m.signed_at = Some(now + ChronoDuration::seconds(30));
+        sign(&mut m, &signing_key);
+        let v = Verifier::new(&[pinned_key], 7 * 24 * 3600).unwrap();
+        v.verify(&m, now)
+            .expect("manifest within +-60s skew should verify");
+    }
+
+    #[test]
+    fn verifier_rejects_missing_signed_at() {
+        let signing_key = SigningKey::from_bytes(&[8u8; 32]);
+        let pinned_key = pinned("sn360-2026-05", &signing_key);
+        let now = Utc::now();
+        let mut m = sample_manifest("", "sn360-2026-05");
+        m.signed_at = None;
+        sign(&mut m, &signing_key);
+        let v = Verifier::new(&[pinned_key], 7 * 24 * 3600).unwrap();
+        let err = v.verify(&m, now).unwrap_err();
+        assert!(matches!(err, ManifestError::MissingSignedAt));
+    }
+
+    #[test]
+    fn verifier_rejects_tampered_hash() {
+        let signing_key = SigningKey::from_bytes(&[9u8; 32]);
+        let pinned_key = pinned("sn360-2026-05", &signing_key);
+        let now = Utc::now();
+        let mut m = sample_manifest("", "sn360-2026-05");
+        m.signed_at = Some(now);
+        sign(&mut m, &signing_key);
+        // Tamper with the artefact body after signing — this also
+        // exercises the SignatureMismatch path on a manifest that
+        // would otherwise be valid (correct key_id, in-window).
+        m.artefacts[0].sha256 = "1".repeat(64);
+        let v = Verifier::new(&[pinned_key], 7 * 24 * 3600).unwrap();
+        let err = v.verify(&m, now).unwrap_err();
+        assert!(matches!(err, ManifestError::SignatureMismatch));
+    }
+
+    #[test]
+    fn verifier_supports_key_rotation() {
+        let key_old = SigningKey::from_bytes(&[10u8; 32]);
+        let key_new = SigningKey::from_bytes(&[11u8; 32]);
+        let v = Verifier::new(
+            &[pinned("old", &key_old), pinned("new", &key_new)],
+            7 * 24 * 3600,
+        )
+        .unwrap();
+        let now = Utc::now();
+        // Sign with the new key and verify it routes to the new
+        // pinned entry.
+        let mut m = sample_manifest("", "new");
+        m.signed_at = Some(now);
+        sign(&mut m, &key_new);
+        v.verify(&m, now).expect("new key still pinned");
+        // Sign with the retired key and verify the old pinned
+        // entry still accepts it (the rotation is a superset).
+        let mut m_old = sample_manifest("", "old");
+        m_old.signed_at = Some(now);
+        sign(&mut m_old, &key_old);
+        v.verify(&m_old, now).expect("old key still pinned");
+        // A manifest claiming `key_id = "new"` but signed by the
+        // old key must fail with SignatureMismatch (the key_id
+        // pointer was bogus).
+        let mut spoof = sample_manifest("", "new");
+        spoof.signed_at = Some(now);
+        sign(&mut spoof, &key_old);
+        let err = v.verify(&spoof, now).unwrap_err();
+        assert!(matches!(err, ManifestError::SignatureMismatch));
+    }
+
+    #[test]
+    fn verifier_from_config_uses_legacy_field_when_no_rotation_set() {
+        let signing_key = SigningKey::from_bytes(&[12u8; 32]);
+        let pubkey_hex = hex::encode(signing_key.verifying_key().to_bytes());
+        let cfg = SoftwareConfig {
+            enabled: true,
+            catalogue_url: Some("https://example.test/c.json".into()),
+            pinned_signing_key_hex: Some(pubkey_hex),
+            pinned_signing_keys: Vec::new(),
+            manifest_max_age_secs: 7 * 24 * 3600,
+            refresh_interval_secs: 3600,
+        };
+        let v = Verifier::from_config(&cfg).unwrap();
+        assert_eq!(v.key_ids(), vec!["default".to_string()]);
+        let now = Utc::now();
+        let mut m = sample_manifest("", "default");
+        m.signed_at = Some(now);
+        sign(&mut m, &signing_key);
+        v.verify(&m, now).expect("legacy single key works");
+    }
+
+    #[test]
+    fn verifier_from_config_prefers_pinned_signing_keys() {
+        let legacy_key = SigningKey::from_bytes(&[13u8; 32]);
+        let new_key = SigningKey::from_bytes(&[14u8; 32]);
+        let cfg = SoftwareConfig {
+            enabled: true,
+            catalogue_url: Some("https://example.test/c.json".into()),
+            pinned_signing_key_hex: Some(hex::encode(legacy_key.verifying_key().to_bytes())),
+            pinned_signing_keys: vec![pinned("primary", &new_key)],
+            manifest_max_age_secs: 7 * 24 * 3600,
+            refresh_interval_secs: 3600,
+        };
+        let v = Verifier::from_config(&cfg).unwrap();
+        assert_eq!(v.key_ids(), vec!["primary".to_string()]);
+        let now = Utc::now();
+        // Manifest signed by the legacy key with key_id "default"
+        // must be rejected because pinned_signing_keys takes
+        // precedence.
+        let mut m = sample_manifest("", "default");
+        m.signed_at = Some(now);
+        sign(&mut m, &legacy_key);
+        let err = v.verify(&m, now).unwrap_err();
+        assert!(matches!(err, ManifestError::UnknownKeyId(_)));
+    }
+
+    #[test]
+    fn verifier_from_config_rejects_empty_key_set() {
+        let cfg = SoftwareConfig::default();
+        let err = Verifier::from_config(&cfg).unwrap_err();
+        assert!(matches!(err, ManifestError::NoPinnedKeys));
+    }
+
+    #[test]
+    fn verifier_rejects_malformed_pinned_key_shape() {
+        let bad = PinnedSigningKey {
+            key_id: "kid".into(),
+            public_key_hex: "zzzz".into(),
+        };
+        let err = Verifier::new(&[bad], 60).unwrap_err();
+        assert!(matches!(err, ManifestError::PinnedKeyShape { .. }));
     }
 }

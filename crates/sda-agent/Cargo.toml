@@ -39,6 +39,8 @@ sda-device-control = { workspace = true }
 sda-query = { workspace = true }
 sda-posture = { workspace = true }
 sda-software = { workspace = true }
+sda-script-runner = { workspace = true }
+sda-jit-admin = { workspace = true }
 sda-agent-vitals = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing = { workspace = true }
@@ -57,3 +59,8 @@ tempfile = "3"
 chrono = { workspace = true }
 uuid = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+ed25519-dalek = { workspace = true, features = ["rand_core"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+hex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 sda-core = { workspace = true }
+sda-device-control = { workspace = true }
 sda-event-bus = { workspace = true }
 sda-pal = { workspace = true }
 tokio = { workspace = true }
@@ -19,8 +20,10 @@ chrono = { workspace = true }
 ed25519-dalek = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "test-util", "macros"] }
 ed25519-dalek = { workspace = true, features = ["rand_core"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
+tempfile = { workspace = true }

@@ -7,9 +7,15 @@
 //! always go through the trait and never reach for the OS-specific
 //! types directly.
 //!
-//! Phase 1 scope (this file): `list_admins()` is functional on every
-//! supported OS. `grant_admin` / `revoke_admin` / `observed_grants`
-//! are stubs that return `Err` until the JIT-admin work in Phase 3.
+//! Phase 1 scope: `list_admins()` is functional on every supported
+//! OS.
+//!
+//! Phase 3 (this file): `grant_admin` / `revoke_admin` /
+//! `observed_grants` issue real time-boxed admin grants on every
+//! supported platform and persist them in a JSON state file under
+//! the agent's cache directory. The actual privileged commands are
+//! invoked through a [`CommandRunner`] indirection so that the per-OS
+//! grant/revoke logic can be unit-tested without root.
 //!
 //! See `docs/device-control/ARCHITECTURE.md` § 5 for the trait
 //! definition and `docs/device-control/SCHEMAS.md` § 5 for how the
@@ -18,7 +24,10 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::io;
+use std::fs;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 /// Errors produced by [`AdminManager`] implementations.
 #[derive(Debug, thiserror::Error)]
@@ -33,6 +42,12 @@ pub enum AdminError {
     /// Operation is not implemented for this phase / platform yet.
     #[error("not implemented in Phase 1")]
     NotImplemented,
+    /// Caller-supplied input failed validation (bad username, etc.).
+    #[error("admin manager input invalid: {0}")]
+    InvalidInput(String),
+    /// The grant state file could not be parsed.
+    #[error("admin manager grant state corrupt: {0}")]
+    StateCorrupt(String),
 }
 
 /// A single administrator-equivalent account observed on this device.
@@ -109,6 +124,188 @@ pub trait AdminManager: Send + Sync {
 }
 
 // =====================================================================
+// Command runner abstraction (test-friendly indirection)
+// =====================================================================
+
+/// Captured stdout / stderr / exit-status of an external command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandOutput {
+    pub status: i32,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+}
+
+impl CommandOutput {
+    /// `true` iff the wrapped command exited with status 0.
+    pub fn is_success(&self) -> bool {
+        self.status == 0
+    }
+
+    /// Raise [`AdminError::Command`] when the command failed, otherwise
+    /// pass the output through.
+    pub fn require_success(self, label: &str) -> Result<Self, AdminError> {
+        if self.is_success() {
+            Ok(self)
+        } else {
+            let stderr = String::from_utf8_lossy(&self.stderr).trim().to_string();
+            Err(AdminError::Command(format!(
+                "{label} exited with status {} stderr={stderr}",
+                self.status
+            )))
+        }
+    }
+}
+
+/// Cross-platform shim over `std::process::Command` so the per-OS
+/// grant/revoke logic can be unit-tested with a fake runner.
+pub trait CommandRunner: Send + Sync + std::fmt::Debug {
+    /// Run `program` with `args` and return its captured output. The
+    /// caller decides how to interpret the exit status.
+    fn run(&self, program: &str, args: &[&str]) -> Result<CommandOutput, AdminError>;
+}
+
+/// Default [`CommandRunner`] that shells out via
+/// `std::process::Command`.
+#[derive(Debug, Default)]
+pub struct OsCommandRunner;
+
+impl CommandRunner for OsCommandRunner {
+    fn run(&self, program: &str, args: &[&str]) -> Result<CommandOutput, AdminError> {
+        let output = std::process::Command::new(program)
+            .args(args)
+            .output()
+            .map_err(AdminError::from)?;
+        Ok(CommandOutput {
+            status: output.status.code().unwrap_or(-1),
+            stdout: output.stdout,
+            stderr: output.stderr,
+        })
+    }
+}
+
+// =====================================================================
+// Grant-state file helpers (cross-platform JSON ledger)
+// =====================================================================
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+struct GrantState {
+    /// Schema version for forward compatibility.
+    #[serde(default = "default_state_version")]
+    schema_version: u16,
+    grants: Vec<GrantHandle>,
+}
+
+fn default_state_version() -> u16 {
+    1
+}
+
+fn read_grants(state_file: &Path) -> Result<Vec<GrantHandle>, AdminError> {
+    if !state_file.exists() {
+        return Ok(Vec::new());
+    }
+    let bytes = fs::read(state_file).map_err(AdminError::from)?;
+    if bytes.is_empty() {
+        return Ok(Vec::new());
+    }
+    let state: GrantState = serde_json::from_slice(&bytes)
+        .map_err(|e| AdminError::StateCorrupt(format!("{state_file:?}: {e}")))?;
+    Ok(state.grants)
+}
+
+/// Persist `grants` to `state_file` via a tempfile + atomic rename so
+/// a crash mid-write cannot leave a partially-written ledger on disk.
+///
+/// The OS-level admin grant is applied *before* the ledger write
+/// completes, so a non-atomic `fs::write` could be interrupted between
+/// the grant taking effect and the ledger entry being persisted —
+/// that orphan would survive across restarts because `read_grants`
+/// either returns `StateCorrupt` (truncated JSON) or an empty vec
+/// (zero-length file), and `revoke_admin` would have nothing to look
+/// up. Mirrors the pattern already used by `GrantStore::flush` in
+/// `sda-jit-admin` and `RollbackOrchestrator::persist` in
+/// `sda-software`.
+fn write_grants(state_file: &Path, grants: &[GrantHandle]) -> Result<(), AdminError> {
+    if let Some(parent) = state_file.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(AdminError::from)?;
+        }
+    }
+    let state = GrantState {
+        schema_version: 1,
+        grants: grants.to_vec(),
+    };
+    let bytes = serde_json::to_vec_pretty(&state)
+        .map_err(|e| AdminError::StateCorrupt(format!("serialize: {e}")))?;
+    let parent = state_file.parent().unwrap_or_else(|| Path::new("."));
+    let mut tmp = tempfile::NamedTempFile::new_in(parent).map_err(AdminError::from)?;
+    tmp.write_all(&bytes).map_err(AdminError::from)?;
+    tmp.flush().map_err(AdminError::from)?;
+    tmp.persist(state_file)
+        .map_err(|e| AdminError::Io(e.error))?;
+    Ok(())
+}
+
+/// Reject usernames containing characters that have meaning for shells,
+/// path separators, or sudoers files.
+///
+/// Accepts the conservative POSIX-portable set
+/// `[A-Za-z0-9._-]+` plus an optional single backslash for Windows
+/// `DOMAIN\user` syntax. The first character must not be `-` so the
+/// argument cannot be parsed as a flag.
+fn validate_username(username: &str) -> Result<(), AdminError> {
+    if username.is_empty() {
+        return Err(AdminError::InvalidInput("empty username".into()));
+    }
+    if username.len() > 256 {
+        return Err(AdminError::InvalidInput("username too long".into()));
+    }
+    if username.starts_with('-') {
+        return Err(AdminError::InvalidInput(format!(
+            "username may not start with '-': {username}"
+        )));
+    }
+    let mut backslashes = 0;
+    for ch in username.chars() {
+        let ok = ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | '-');
+        if ok {
+            continue;
+        }
+        if ch == '\\' {
+            backslashes += 1;
+            if backslashes > 1 {
+                return Err(AdminError::InvalidInput(format!(
+                    "username has multiple backslashes: {username}"
+                )));
+            }
+            continue;
+        }
+        return Err(AdminError::InvalidInput(format!(
+            "username has disallowed character {ch:?}: {username}"
+        )));
+    }
+    Ok(())
+}
+
+fn new_grant_id() -> String {
+    // 128-bit random hex; matches the format the JIT-admin server uses
+    // for opaque IDs while remaining trivially decodable.
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    // Mix in a few bits from the current thread id so two calls in the
+    // same nanosecond stay distinguishable.
+    let tid = format!("{:?}", std::thread::current().id());
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    use std::hash::{Hash, Hasher};
+    nanos.hash(&mut hasher);
+    tid.hash(&mut hasher);
+    let suffix = hasher.finish();
+    format!("sda-jit-{nanos:x}-{suffix:x}")
+}
+
+// =====================================================================
 // Linux implementation
 // =====================================================================
 
@@ -118,10 +315,46 @@ mod linux_impl {
     use std::fs;
     use std::process::Command;
 
+    /// Default sudoers drop-in directory.
+    pub(crate) const DEFAULT_SUDOERS_DIR: &str = "/etc/sudoers.d";
+    /// Default JIT-admin grant ledger path.
+    pub(crate) const DEFAULT_STATE_FILE: &str = "/var/lib/sn360/jit-admin-grants.json";
+
+    /// Build the sudoers drop-in body for a JIT grant.
+    pub(crate) fn render_sudoers(user: &str, grant_id: &str, until: DateTime<Utc>) -> String {
+        // Hard-coded NOPASSWD ALL is what the JIT-admin spec asks for —
+        // the watchdog enforces the time bound and the sudoers content
+        // itself is removed at revocation.
+        format!(
+            "# sn360 JIT admin grant\n\
+             # grant_id: {grant_id}\n\
+             # until:    {until}\n\
+             {user} ALL=(ALL) NOPASSWD:ALL\n",
+            grant_id = grant_id,
+            until = until.to_rfc3339(),
+            user = user,
+        )
+    }
+
+    /// Filesystem path of the drop-in for `user`.
+    pub(crate) fn drop_in_path(sudoers_dir: &Path, user: &str) -> PathBuf {
+        sudoers_dir.join(format!("sda-jit-{user}"))
+    }
+
     /// Linux admin-manager backed by `/etc/group` and `id` for UID 0
     /// detection. Enumerates `wheel` and `sudo` group members plus
     /// any non-root account whose UID == 0.
-    pub struct LinuxAdminManager;
+    ///
+    /// JIT-admin grants are issued by writing a `NOPASSWD` drop-in to
+    /// `sudoers_dir` (default `/etc/sudoers.d`) after `visudo -c`
+    /// validates it, and persisted in `state_file`. Revocation removes
+    /// the drop-in and the corresponding ledger entry.
+    pub struct LinuxAdminManager {
+        runner: Box<dyn CommandRunner>,
+        state_file: PathBuf,
+        sudoers_dir: PathBuf,
+        ledger_lock: Mutex<()>,
+    }
 
     impl Default for LinuxAdminManager {
         fn default() -> Self {
@@ -130,8 +363,39 @@ mod linux_impl {
     }
 
     impl LinuxAdminManager {
+        /// Production constructor: uses the real `std::process::Command`
+        /// runner and the canonical sudoers / state-file paths.
         pub fn new() -> Self {
-            Self
+            Self::with_components(
+                Box::new(OsCommandRunner),
+                PathBuf::from(DEFAULT_STATE_FILE),
+                PathBuf::from(DEFAULT_SUDOERS_DIR),
+            )
+        }
+
+        /// Test-friendly constructor: inject a mock runner and override
+        /// every path the manager will write to.
+        pub fn with_components(
+            runner: Box<dyn CommandRunner>,
+            state_file: PathBuf,
+            sudoers_dir: PathBuf,
+        ) -> Self {
+            Self {
+                runner,
+                state_file,
+                sudoers_dir,
+                ledger_lock: Mutex::new(()),
+            }
+        }
+
+        /// Path to the JSON ledger of active grants.
+        pub fn state_file(&self) -> &Path {
+            &self.state_file
+        }
+
+        /// Drop-in directory used for JIT-admin sudoers files.
+        pub fn sudoers_dir(&self) -> &Path {
+            &self.sudoers_dir
         }
 
         /// Parse `/etc/group` content for the named groups and return
@@ -234,18 +498,119 @@ mod linux_impl {
 
         fn grant_admin(
             &self,
-            _user: &UserRef,
-            _until: DateTime<Utc>,
+            user: &UserRef,
+            until: DateTime<Utc>,
         ) -> Result<GrantHandle, AdminError> {
-            Err(AdminError::NotImplemented)
+            validate_username(&user.username)?;
+            let _guard = self
+                .ledger_lock
+                .lock()
+                .map_err(|e| AdminError::Command(format!("ledger lock poisoned: {e}")))?;
+
+            let grant_id = new_grant_id();
+            let body = render_sudoers(&user.username, &grant_id, until);
+            let drop_in = drop_in_path(&self.sudoers_dir, &user.username);
+
+            // Write the candidate sudoers file to a sibling temp path
+            // first so `visudo -c` can validate it before we make it
+            // active.
+            fs::create_dir_all(&self.sudoers_dir).map_err(AdminError::from)?;
+            let tmp = self
+                .sudoers_dir
+                .join(format!("sda-jit-{}.tmp", user.username));
+            fs::write(&tmp, body.as_bytes()).map_err(AdminError::from)?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mut perm = fs::metadata(&tmp).map_err(AdminError::from)?.permissions();
+                perm.set_mode(0o440);
+                fs::set_permissions(&tmp, perm).map_err(AdminError::from)?;
+            }
+            let tmp_str = tmp.to_string_lossy().into_owned();
+            let validation = self
+                .runner
+                .run("visudo", &["-c", "-f", &tmp_str])
+                .inspect_err(|_| {
+                    // If visudo is missing entirely we treat that as a
+                    // grant failure so we never install an unvalidated
+                    // sudoers file.
+                    let _ = fs::remove_file(&tmp);
+                })?;
+            if !validation.is_success() {
+                let _ = fs::remove_file(&tmp);
+                let stderr = String::from_utf8_lossy(&validation.stderr)
+                    .trim()
+                    .to_string();
+                return Err(AdminError::Command(format!(
+                    "visudo rejected drop-in for {}: {stderr}",
+                    user.username
+                )));
+            }
+
+            // Atomic-ish swap into place.
+            fs::rename(&tmp, &drop_in).map_err(AdminError::from)?;
+
+            let handle = GrantHandle {
+                id: grant_id,
+                user: user.clone(),
+                until,
+            };
+
+            // Post-mutation ledger update. The sudoers drop-in is
+            // live on disk and `NOPASSWD:ALL` is now grantable for
+            // the user, but the supervisor has not yet been handed
+            // the [`GrantHandle`]. If `read_grants` (corrupt JSON,
+            // permission error, race with another writer) or
+            // `write_grants` (disk full, parent dir wiped, partition
+            // unmounted) fails before we return, the caller treats
+            // the entire grant as failed: no `Granted` record is
+            // ever persisted in `sda-jit-admin`'s ledger and no
+            // watchdog branch (timer, heartbeat, power, boot sweep)
+            // ever sees the orphan. `revoke_admin` cannot reach in
+            // either, since the only handle is the one we are about
+            // to fail to return. The drop-in would stay live until
+            // external cleanup. PROPOSAL.md § 21 calls this out as
+            // a High-severity orphaning risk.
+            //
+            // Roll back the OS-level grant best-effort before
+            // surfacing the ledger error. We deliberately do not
+            // call `revoke_admin` here because it reacquires
+            // `ledger_lock` and would deadlock — inline removal is
+            // the safe path. If the cleanup itself fails, there is
+            // nothing more we can do at this layer; the error from
+            // the ledger write is the operationally interesting one
+            // and is what we return.
+            let ledger_result = (|| -> Result<(), AdminError> {
+                let mut grants = read_grants(&self.state_file)?;
+                grants.retain(|g| g.user.username != handle.user.username);
+                grants.push(handle.clone());
+                write_grants(&self.state_file, &grants)?;
+                Ok(())
+            })();
+            if let Err(err) = ledger_result {
+                let _ = fs::remove_file(&drop_in);
+                return Err(err);
+            }
+            Ok(handle)
         }
 
-        fn revoke_admin(&self, _handle: &GrantHandle) -> Result<(), AdminError> {
-            Err(AdminError::NotImplemented)
+        fn revoke_admin(&self, handle: &GrantHandle) -> Result<(), AdminError> {
+            let _guard = self
+                .ledger_lock
+                .lock()
+                .map_err(|e| AdminError::Command(format!("ledger lock poisoned: {e}")))?;
+            let drop_in = drop_in_path(&self.sudoers_dir, &handle.user.username);
+            if drop_in.exists() {
+                fs::remove_file(&drop_in).map_err(AdminError::from)?;
+            }
+            let grants = read_grants(&self.state_file)?;
+            let kept: Vec<GrantHandle> = grants.into_iter().filter(|g| g.id != handle.id).collect();
+            write_grants(&self.state_file, &kept)?;
+            Ok(())
         }
 
         fn observed_grants(&self) -> Result<Vec<GrantHandle>, AdminError> {
-            Err(AdminError::NotImplemented)
+            read_grants(&self.state_file)
         }
     }
 
@@ -275,15 +640,41 @@ pub use linux_impl::LinuxAdminManager;
 #[cfg(target_os = "macos")]
 mod macos_impl {
     use super::*;
-    use std::process::Command;
+
+    /// Default JIT-admin grant ledger path (macOS).
+    pub(crate) const DEFAULT_STATE_FILE: &str =
+        "/Library/Application Support/sn360/jit-admin-grants.json";
 
     /// macOS admin-manager backed by `dscl . -read /Groups/admin
-    /// GroupMembership`.
-    pub struct MacAdminManager;
+    /// GroupMembership` for inventory and `dseditgroup -o edit` for
+    /// JIT-admin grants and revocations.
+    pub struct MacAdminManager {
+        runner: Box<dyn CommandRunner>,
+        state_file: PathBuf,
+        ledger_lock: Mutex<()>,
+    }
+
+    impl Default for MacAdminManager {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
 
     impl MacAdminManager {
         pub fn new() -> Self {
-            Self
+            Self::with_components(Box::new(OsCommandRunner), PathBuf::from(DEFAULT_STATE_FILE))
+        }
+
+        pub fn with_components(runner: Box<dyn CommandRunner>, state_file: PathBuf) -> Self {
+            Self {
+                runner,
+                state_file,
+                ledger_lock: Mutex::new(()),
+            }
+        }
+
+        pub fn state_file(&self) -> &Path {
+            &self.state_file
         }
 
         /// Parse the multi-line output of
@@ -309,16 +700,10 @@ mod macos_impl {
 
     impl AdminManager for MacAdminManager {
         fn list_admins(&self) -> Result<Vec<AdminAccount>, AdminError> {
-            let output = Command::new("dscl")
-                .args([".", "-read", "/Groups/admin", "GroupMembership"])
-                .output()
-                .map_err(AdminError::from)?;
-            if !output.status.success() {
-                return Err(AdminError::Command(format!(
-                    "dscl exited with status {:?}",
-                    output.status.code()
-                )));
-            }
+            let output = self
+                .runner
+                .run("dscl", &[".", "-read", "/Groups/admin", "GroupMembership"])?
+                .require_success("dscl")?;
             let stdout = String::from_utf8_lossy(&output.stdout);
             let users = Self::parse_dscl_membership(&stdout);
             Ok(users
@@ -334,18 +719,100 @@ mod macos_impl {
 
         fn grant_admin(
             &self,
-            _user: &UserRef,
-            _until: DateTime<Utc>,
+            user: &UserRef,
+            until: DateTime<Utc>,
         ) -> Result<GrantHandle, AdminError> {
-            Err(AdminError::NotImplemented)
+            validate_username(&user.username)?;
+            let _guard = self
+                .ledger_lock
+                .lock()
+                .map_err(|e| AdminError::Command(format!("ledger lock poisoned: {e}")))?;
+            self.runner
+                .run(
+                    "dseditgroup",
+                    &["-o", "edit", "-a", &user.username, "-t", "user", "admin"],
+                )?
+                .require_success("dseditgroup add")?;
+
+            let handle = GrantHandle {
+                id: new_grant_id(),
+                user: user.clone(),
+                until,
+            };
+
+            // Post-mutation ledger update. The user is now a member
+            // of the macOS `admin` group on the device, but the
+            // supervisor has not yet been handed the
+            // [`GrantHandle`]. If the ledger read or write fails
+            // here, the caller treats the entire grant as failed —
+            // no `Granted` record is ever persisted in
+            // `sda-jit-admin`'s ledger and no watchdog branch sees
+            // the orphan. `revoke_admin` cannot reach in either
+            // (the only handle is the one we are about to fail to
+            // return). The membership would stay live until external
+            // cleanup. PROPOSAL.md § 21 calls this out as a
+            // High-severity orphaning risk.
+            //
+            // Roll back the OS-level grant best-effort with the
+            // reverse `dseditgroup -d` before surfacing the ledger
+            // error. We deliberately do not call `revoke_admin`
+            // because it reacquires `ledger_lock` and would
+            // deadlock — inline removal is the safe path.
+            let ledger_result = (|| -> Result<(), AdminError> {
+                let mut grants = read_grants(&self.state_file)?;
+                grants.retain(|g| g.user.username != handle.user.username);
+                grants.push(handle.clone());
+                write_grants(&self.state_file, &grants)?;
+                Ok(())
+            })();
+            if let Err(err) = ledger_result {
+                let _ = self.runner.run(
+                    "dseditgroup",
+                    &[
+                        "-o",
+                        "edit",
+                        "-d",
+                        &handle.user.username,
+                        "-t",
+                        "user",
+                        "admin",
+                    ],
+                );
+                return Err(err);
+            }
+            Ok(handle)
         }
 
-        fn revoke_admin(&self, _handle: &GrantHandle) -> Result<(), AdminError> {
-            Err(AdminError::NotImplemented)
+        fn revoke_admin(&self, handle: &GrantHandle) -> Result<(), AdminError> {
+            let _guard = self
+                .ledger_lock
+                .lock()
+                .map_err(|e| AdminError::Command(format!("ledger lock poisoned: {e}")))?;
+            // dseditgroup is idempotent — removing a non-member is a
+            // no-op. We still surface non-zero exits because they
+            // typically indicate a permissions issue we want logged.
+            self.runner
+                .run(
+                    "dseditgroup",
+                    &[
+                        "-o",
+                        "edit",
+                        "-d",
+                        &handle.user.username,
+                        "-t",
+                        "user",
+                        "admin",
+                    ],
+                )?
+                .require_success("dseditgroup remove")?;
+            let grants = read_grants(&self.state_file)?;
+            let kept: Vec<GrantHandle> = grants.into_iter().filter(|g| g.id != handle.id).collect();
+            write_grants(&self.state_file, &kept)?;
+            Ok(())
         }
 
         fn observed_grants(&self) -> Result<Vec<GrantHandle>, AdminError> {
-            Err(AdminError::NotImplemented)
+            read_grants(&self.state_file)
         }
     }
 }
@@ -360,14 +827,40 @@ pub use macos_impl::MacAdminManager;
 #[cfg(target_os = "windows")]
 mod windows_impl {
     use super::*;
-    use std::process::Command;
 
-    /// Windows admin-manager backed by `net localgroup Administrators`.
-    pub struct WindowsAdminManager;
+    /// Default JIT-admin grant ledger path (Windows).
+    pub(crate) const DEFAULT_STATE_FILE: &str = r"C:\ProgramData\sn360\jit-admin-grants.json";
+
+    /// Windows admin-manager backed by `net localgroup Administrators`
+    /// for inventory and `net localgroup Administrators <user> /add`
+    /// for JIT-admin grants and revocations.
+    pub struct WindowsAdminManager {
+        runner: Box<dyn CommandRunner>,
+        state_file: PathBuf,
+        ledger_lock: Mutex<()>,
+    }
+
+    impl Default for WindowsAdminManager {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
 
     impl WindowsAdminManager {
         pub fn new() -> Self {
-            Self
+            Self::with_components(Box::new(OsCommandRunner), PathBuf::from(DEFAULT_STATE_FILE))
+        }
+
+        pub fn with_components(runner: Box<dyn CommandRunner>, state_file: PathBuf) -> Self {
+            Self {
+                runner,
+                state_file,
+                ledger_lock: Mutex::new(()),
+            }
+        }
+
+        pub fn state_file(&self) -> &Path {
+            &self.state_file
         }
 
         /// Parse `net localgroup Administrators` output. Format:
@@ -436,34 +929,101 @@ mod windows_impl {
 
     impl AdminManager for WindowsAdminManager {
         fn list_admins(&self) -> Result<Vec<AdminAccount>, AdminError> {
-            let output = Command::new("net")
-                .args(["localgroup", "Administrators"])
-                .output()
-                .map_err(AdminError::from)?;
-            if !output.status.success() {
-                return Err(AdminError::Command(format!(
-                    "net localgroup exited with status {:?}",
-                    output.status.code()
-                )));
-            }
+            let output = self
+                .runner
+                .run("net", &["localgroup", "Administrators"])?
+                .require_success("net localgroup")?;
             let stdout = String::from_utf8_lossy(&output.stdout);
             Ok(Self::parse_net_localgroup(&stdout))
         }
 
         fn grant_admin(
             &self,
-            _user: &UserRef,
-            _until: DateTime<Utc>,
+            user: &UserRef,
+            until: DateTime<Utc>,
         ) -> Result<GrantHandle, AdminError> {
-            Err(AdminError::NotImplemented)
+            validate_username(&user.username)?;
+            let _guard = self
+                .ledger_lock
+                .lock()
+                .map_err(|e| AdminError::Command(format!("ledger lock poisoned: {e}")))?;
+            self.runner
+                .run(
+                    "net",
+                    &["localgroup", "Administrators", &user.username, "/add"],
+                )?
+                .require_success("net localgroup add")?;
+
+            let handle = GrantHandle {
+                id: new_grant_id(),
+                user: user.clone(),
+                until,
+            };
+
+            // Post-mutation ledger update. The user is now a member
+            // of the local `Administrators` group on this Windows
+            // host, but the supervisor has not yet been handed the
+            // [`GrantHandle`]. If the ledger read or write fails
+            // here, the caller treats the entire grant as failed —
+            // no `Granted` record is ever persisted in
+            // `sda-jit-admin`'s ledger and no watchdog branch sees
+            // the orphan. `revoke_admin` cannot reach in either (the
+            // only handle is the one we are about to fail to
+            // return). The membership would stay live until external
+            // cleanup. PROPOSAL.md § 21 calls this out as a
+            // High-severity orphaning risk.
+            //
+            // Roll back the OS-level grant best-effort with the
+            // reverse `net localgroup … /delete` before surfacing
+            // the ledger error. We deliberately do not call
+            // `revoke_admin` because it reacquires `ledger_lock`
+            // and would deadlock — inline removal is the safe path.
+            let ledger_result = (|| -> Result<(), AdminError> {
+                let mut grants = read_grants(&self.state_file)?;
+                grants.retain(|g| g.user.username != handle.user.username);
+                grants.push(handle.clone());
+                write_grants(&self.state_file, &grants)?;
+                Ok(())
+            })();
+            if let Err(err) = ledger_result {
+                let _ = self.runner.run(
+                    "net",
+                    &[
+                        "localgroup",
+                        "Administrators",
+                        &handle.user.username,
+                        "/delete",
+                    ],
+                );
+                return Err(err);
+            }
+            Ok(handle)
         }
 
-        fn revoke_admin(&self, _handle: &GrantHandle) -> Result<(), AdminError> {
-            Err(AdminError::NotImplemented)
+        fn revoke_admin(&self, handle: &GrantHandle) -> Result<(), AdminError> {
+            let _guard = self
+                .ledger_lock
+                .lock()
+                .map_err(|e| AdminError::Command(format!("ledger lock poisoned: {e}")))?;
+            self.runner
+                .run(
+                    "net",
+                    &[
+                        "localgroup",
+                        "Administrators",
+                        &handle.user.username,
+                        "/delete",
+                    ],
+                )?
+                .require_success("net localgroup delete")?;
+            let grants = read_grants(&self.state_file)?;
+            let kept: Vec<GrantHandle> = grants.into_iter().filter(|g| g.id != handle.id).collect();
+            write_grants(&self.state_file, &kept)?;
+            Ok(())
         }
 
         fn observed_grants(&self) -> Result<Vec<GrantHandle>, AdminError> {
-            Err(AdminError::NotImplemented)
+            read_grants(&self.state_file)
         }
     }
 }
@@ -506,6 +1066,82 @@ pub fn default_admin_manager() -> Option<Box<dyn AdminManager>> {
 mod tests {
     use super::*;
 
+    /// Single canned response for one program name.
+    #[derive(Debug, Clone)]
+    pub(crate) struct MockResponse {
+        pub program: String,
+        pub output: CommandOutput,
+    }
+
+    /// Test-double for [`CommandRunner`] that records every invocation
+    /// and returns a queued canned response per program. Unknown
+    /// programs return a generic success.
+    #[derive(Debug, Default)]
+    pub(crate) struct MockCommandRunner {
+        pub calls: std::sync::Mutex<Vec<(String, Vec<String>)>>,
+        pub responses: std::sync::Mutex<Vec<MockResponse>>,
+    }
+
+    impl MockCommandRunner {
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        pub fn enqueue(&self, program: &str, output: CommandOutput) {
+            self.responses.lock().unwrap().push(MockResponse {
+                program: program.into(),
+                output,
+            });
+        }
+
+        pub fn enqueue_success(&self, program: &str) {
+            self.enqueue(
+                program,
+                CommandOutput {
+                    status: 0,
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                },
+            );
+        }
+
+        pub fn enqueue_failure(&self, program: &str, code: i32, stderr: &str) {
+            self.enqueue(
+                program,
+                CommandOutput {
+                    status: code,
+                    stdout: Vec::new(),
+                    stderr: stderr.as_bytes().to_vec(),
+                },
+            );
+        }
+
+        pub fn calls(&self) -> Vec<(String, Vec<String>)> {
+            self.calls.lock().unwrap().clone()
+        }
+    }
+
+    impl CommandRunner for MockCommandRunner {
+        fn run(&self, program: &str, args: &[&str]) -> Result<CommandOutput, AdminError> {
+            self.calls.lock().unwrap().push((
+                program.to_string(),
+                args.iter().map(|s| s.to_string()).collect(),
+            ));
+            let mut responses = self.responses.lock().unwrap();
+            // Pop the next response keyed on the program name; fall back
+            // to a generic success.
+            if let Some(idx) = responses.iter().position(|r| r.program == program) {
+                Ok(responses.remove(idx).output)
+            } else {
+                Ok(CommandOutput {
+                    status: 0,
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                })
+            }
+        }
+    }
+
     #[test]
     fn admin_account_serde_roundtrip() {
         let acc = AdminAccount {
@@ -523,6 +1159,60 @@ mod tests {
     fn admin_error_not_implemented_message() {
         let err = AdminError::NotImplemented;
         assert_eq!(err.to_string(), "not implemented in Phase 1");
+    }
+
+    #[test]
+    fn validate_username_accepts_simple_logins() {
+        validate_username("alice").unwrap();
+        validate_username("alice.bob").unwrap();
+        validate_username("alice_bob").unwrap();
+        validate_username("alice-bob").unwrap();
+        validate_username("CONTOSO\\alice").unwrap();
+    }
+
+    #[test]
+    fn validate_username_rejects_dangerous_inputs() {
+        assert!(validate_username("").is_err());
+        assert!(validate_username("-rm").is_err());
+        assert!(validate_username("alice;rm -rf /").is_err());
+        assert!(validate_username("alice space").is_err());
+        assert!(validate_username("alice/bob").is_err());
+        assert!(validate_username("a\\b\\c").is_err());
+    }
+
+    #[test]
+    fn grant_state_round_trips_through_state_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let state_file = dir.path().join("grants.json");
+        let handle = GrantHandle {
+            id: "grant-xyz".into(),
+            user: UserRef {
+                username: "alice".into(),
+                domain: None,
+            },
+            until: chrono::Utc::now(),
+        };
+        write_grants(&state_file, std::slice::from_ref(&handle)).unwrap();
+        let read_back = read_grants(&state_file).unwrap();
+        assert_eq!(read_back.len(), 1);
+        assert_eq!(read_back[0].id, "grant-xyz");
+        assert_eq!(read_back[0].user.username, "alice");
+    }
+
+    #[test]
+    fn grant_state_corrupt_file_yields_state_corrupt() {
+        let dir = tempfile::tempdir().unwrap();
+        let state_file = dir.path().join("grants.json");
+        std::fs::write(&state_file, b"not-json").unwrap();
+        let err = read_grants(&state_file).expect_err("must fail on garbage");
+        assert!(matches!(err, AdminError::StateCorrupt(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn grant_state_missing_file_returns_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let state_file = dir.path().join("does-not-exist.json");
+        assert!(read_grants(&state_file).unwrap().is_empty());
     }
 
     #[cfg(target_os = "linux")]
@@ -576,31 +1266,192 @@ bin:x:2:2:bin:/bin:/usr/sbin/nologin
             );
         }
 
+        fn fixtures() -> (
+            tempfile::TempDir,
+            std::sync::Arc<MockCommandRunner>,
+            LinuxAdminManager,
+        ) {
+            let dir = tempfile::tempdir().unwrap();
+            let state_file = dir.path().join("grants.json");
+            let sudoers_dir = dir.path().join("sudoers.d");
+            let runner = std::sync::Arc::new(MockCommandRunner::new());
+            // Re-wrap the Arc in a Box-of-trait-object for the manager
+            // so the test side keeps a clone of the Arc to inspect
+            // recorded calls after each operation.
+            #[derive(Debug)]
+            struct ArcRunner(std::sync::Arc<MockCommandRunner>);
+            impl CommandRunner for ArcRunner {
+                fn run(&self, program: &str, args: &[&str]) -> Result<CommandOutput, AdminError> {
+                    self.0.run(program, args)
+                }
+            }
+            let mgr = LinuxAdminManager::with_components(
+                Box::new(ArcRunner(runner.clone())),
+                state_file,
+                sudoers_dir,
+            );
+            (dir, runner, mgr)
+        }
+
         #[test]
-        fn grant_revoke_are_not_implemented() {
-            let mgr = LinuxAdminManager::new();
+        fn grant_writes_validated_drop_in_and_persists_handle() {
+            let (_dir, runner, mgr) = fixtures();
+            // visudo -c → success on first call.
+            runner.enqueue_success("visudo");
             let user = UserRef {
                 username: "alice".into(),
                 domain: None,
             };
-            let until = Utc::now();
-            assert!(matches!(
-                mgr.grant_admin(&user, until),
-                Err(AdminError::NotImplemented)
-            ));
-            let handle = GrantHandle {
-                id: "grant-1".into(),
-                user,
-                until,
+            let until = Utc::now() + chrono::Duration::hours(1);
+            let handle = mgr.grant_admin(&user, until).expect("grant");
+            assert_eq!(handle.user.username, "alice");
+            assert_eq!(handle.until, until);
+
+            // Drop-in file present and validated.
+            let drop_in = mgr.sudoers_dir().join("sda-jit-alice");
+            let body = std::fs::read_to_string(&drop_in).unwrap();
+            assert!(
+                body.contains("alice ALL=(ALL) NOPASSWD:ALL"),
+                "unexpected body: {body}"
+            );
+            assert!(
+                body.contains(&format!("# grant_id: {}", handle.id)),
+                "expected grant_id comment in body"
+            );
+
+            // visudo got invoked with -c -f <tmp-path>.
+            let calls = runner.calls();
+            let last = calls.last().expect("at least one call");
+            assert_eq!(last.0, "visudo");
+            assert_eq!(last.1[0], "-c");
+            assert_eq!(last.1[1], "-f");
+
+            // Grant ledger contains exactly one entry.
+            let grants = mgr.observed_grants().unwrap();
+            assert_eq!(grants.len(), 1);
+            assert_eq!(grants[0].id, handle.id);
+        }
+
+        #[test]
+        fn grant_fails_when_visudo_rejects_drop_in() {
+            let (_dir, runner, mgr) = fixtures();
+            runner.enqueue_failure("visudo", 1, "syntax error near `:`");
+            let user = UserRef {
+                username: "alice".into(),
+                domain: None,
             };
-            assert!(matches!(
-                mgr.revoke_admin(&handle),
-                Err(AdminError::NotImplemented)
-            ));
-            assert!(matches!(
-                mgr.observed_grants(),
-                Err(AdminError::NotImplemented)
-            ));
+            let err = mgr
+                .grant_admin(&user, Utc::now())
+                .expect_err("must reject invalid sudoers");
+            assert!(matches!(err, AdminError::Command(_)), "got {err:?}");
+            // No drop-in left behind, no entry in the ledger.
+            assert!(!mgr.sudoers_dir().join("sda-jit-alice").exists());
+            assert!(mgr.observed_grants().unwrap().is_empty());
+        }
+
+        #[test]
+        fn revoke_removes_drop_in_and_clears_ledger_entry() {
+            let (_dir, runner, mgr) = fixtures();
+            runner.enqueue_success("visudo");
+            let user = UserRef {
+                username: "alice".into(),
+                domain: None,
+            };
+            let handle = mgr.grant_admin(&user, Utc::now()).unwrap();
+            assert!(mgr.sudoers_dir().join("sda-jit-alice").exists());
+
+            mgr.revoke_admin(&handle).expect("revoke");
+            assert!(!mgr.sudoers_dir().join("sda-jit-alice").exists());
+            assert!(mgr.observed_grants().unwrap().is_empty());
+
+            // Idempotent: revoking again is a no-op.
+            mgr.revoke_admin(&handle).expect("idempotent revoke");
+        }
+
+        #[test]
+        fn grant_for_same_user_replaces_previous_handle() {
+            let (_dir, runner, mgr) = fixtures();
+            runner.enqueue_success("visudo");
+            runner.enqueue_success("visudo");
+            let user = UserRef {
+                username: "alice".into(),
+                domain: None,
+            };
+            let first = mgr.grant_admin(&user, Utc::now()).unwrap();
+            let second = mgr.grant_admin(&user, Utc::now()).unwrap();
+            assert_ne!(first.id, second.id, "second grant must mint a new id");
+            let grants = mgr.observed_grants().unwrap();
+            assert_eq!(grants.len(), 1, "one user → one active grant");
+            assert_eq!(grants[0].id, second.id);
+        }
+
+        #[test]
+        fn invalid_username_is_rejected_before_any_command_runs() {
+            let (_dir, runner, mgr) = fixtures();
+            let user = UserRef {
+                username: "alice; rm -rf /".into(),
+                domain: None,
+            };
+            let err = mgr.grant_admin(&user, Utc::now()).expect_err("must reject");
+            assert!(matches!(err, AdminError::InvalidInput(_)), "got {err:?}");
+            assert!(runner.calls().is_empty());
+        }
+
+        /// Regression guard for the orphaned-admin-grant bug on the
+        /// PAL grant path (Round 8). Pre-fix flow:
+        /// 1. `visudo -c` validates the candidate drop-in.
+        /// 2. `fs::rename(&tmp, &drop_in)` lands the
+        ///    `NOPASSWD:ALL` sudoers file — the OS-level admin
+        ///    privilege is now live on the device.
+        /// 3. `read_grants(&self.state_file)` fails (e.g. corrupt
+        ///    JSON, permissions, partition unmounted) →
+        ///    `grant_admin` returns `Err` at the early-bail with
+        ///    NO cleanup of the drop-in.
+        ///
+        /// Net effect pre-fix: permanent untracked
+        /// `NOPASSWD:ALL` on the device. The supervisor sees the
+        /// `Err` from `grant_admin` so it never even reaches the
+        /// Round 7 ledger-failure path; no `Granted` record is
+        /// persisted, so the watchdog branches (timer / heartbeat
+        /// / power / boot sweep) cannot revoke the orphan; drift
+        /// detection (Phase 3.5) is not yet implemented.
+        ///
+        /// This test simulates step 3 by pre-populating the state
+        /// file with garbage so `read_grants` returns
+        /// `StateCorrupt`. With the fix in place the supervisor's
+        /// `grant_admin` call still fails (correct behaviour from
+        /// the supervisor's perspective) but the sudoers drop-in
+        /// is removed before returning, so the device stays in a
+        /// safe state.
+        #[test]
+        fn linux_grant_cleans_up_drop_in_when_state_file_read_fails() {
+            let (_dir, runner, mgr) = fixtures();
+            // Pre-populate the state file with non-JSON garbage so
+            // `read_grants` returns `AdminError::StateCorrupt` once
+            // the sudoers drop-in has already been written.
+            std::fs::write(mgr.state_file(), b"not-json").unwrap();
+            runner.enqueue_success("visudo");
+
+            let user = UserRef {
+                username: "alice".into(),
+                domain: None,
+            };
+            let err = mgr
+                .grant_admin(&user, Utc::now())
+                .expect_err("must fail when state file is corrupt");
+            assert!(
+                matches!(err, AdminError::StateCorrupt(_)),
+                "expected StateCorrupt, got {err:?}",
+            );
+
+            // CRITICAL: the drop-in must NOT be left behind — pre-fix
+            // it would be live with `NOPASSWD:ALL` and no record in
+            // the ledger.
+            let drop_in = mgr.sudoers_dir().join("sda-jit-alice");
+            assert!(
+                !drop_in.exists(),
+                "drop-in must be cleaned up after ledger read failure; still present at {drop_in:?}",
+            );
         }
     }
 
@@ -640,6 +1491,93 @@ bin:x:2:2:bin:/bin:/usr/sbin/nologin
             let admins = mgr.list_admins().expect("list_admins");
             // Build host should always have at least the local admin.
             assert!(!admins.is_empty());
+        }
+
+        /// Regression guard for the orphaned-admin-grant bug on the
+        /// PAL grant path (Round 8). Pre-fix flow on macOS:
+        /// 1. `dseditgroup -o edit -a <user> -t user admin` succeeds
+        ///    — the user is now a member of the `admin` group on
+        ///    the device.
+        /// 2. `read_grants(&self.state_file)` fails (e.g. corrupt
+        ///    JSON, permissions, partition unmounted) →
+        ///    `grant_admin` returns `Err` with NO cleanup of the
+        ///    OS-level group membership.
+        ///
+        /// Net effect pre-fix: permanent untracked admin-group
+        /// membership on the device. Same failure class as the
+        /// Linux variant — the supervisor sees `Err` from
+        /// `grant_admin` so it never even reaches the Round 7
+        /// ledger-failure path; no `Granted` record is persisted,
+        /// the watchdog branches cannot revoke the orphan, and
+        /// drift detection (Phase 3.5) is not yet implemented.
+        ///
+        /// This test simulates step 2 by pre-populating the state
+        /// file with garbage so `read_grants` returns
+        /// `StateCorrupt`. With the fix in place the supervisor's
+        /// `grant_admin` call still fails, but the reverse
+        /// `dseditgroup -d` is issued before returning so the
+        /// device stays in a safe state.
+        #[test]
+        fn mac_grant_reverses_membership_when_state_file_read_fails() {
+            let dir = tempfile::tempdir().unwrap();
+            let state_file = dir.path().join("grants.json");
+            // Pre-populate with garbage so read_grants returns
+            // StateCorrupt once the OS-level mutation has landed.
+            std::fs::write(&state_file, b"not-json").unwrap();
+
+            let runner = std::sync::Arc::new(MockCommandRunner::new());
+            // Successful `-a` (the OS-level grant); the cleanup
+            // `-d` falls through to the mock's generic-success
+            // default since we don't enqueue a specific response.
+            runner.enqueue_success("dseditgroup");
+
+            #[derive(Debug)]
+            struct ArcRunner(std::sync::Arc<MockCommandRunner>);
+            impl CommandRunner for ArcRunner {
+                fn run(&self, program: &str, args: &[&str]) -> Result<CommandOutput, AdminError> {
+                    self.0.run(program, args)
+                }
+            }
+            let mgr =
+                MacAdminManager::with_components(Box::new(ArcRunner(runner.clone())), state_file);
+
+            let user = UserRef {
+                username: "alice".into(),
+                domain: None,
+            };
+            let err = mgr
+                .grant_admin(&user, Utc::now())
+                .expect_err("must fail when state file is corrupt");
+            assert!(
+                matches!(err, AdminError::StateCorrupt(_)),
+                "expected StateCorrupt, got {err:?}",
+            );
+
+            // CRITICAL: the reverse `dseditgroup -d` must have
+            // been issued — pre-fix this was zero, leaving alice
+            // a permanent untracked member of the `admin` group.
+            let calls = runner.calls();
+            let dseditgroup_calls: Vec<&(String, Vec<String>)> =
+                calls.iter().filter(|(p, _)| p == "dseditgroup").collect();
+            assert_eq!(
+                dseditgroup_calls.len(),
+                2,
+                "expected exactly two dseditgroup calls (add + cleanup); got {dseditgroup_calls:?}",
+            );
+            let add_args = &dseditgroup_calls[0].1;
+            let cleanup_args = &dseditgroup_calls[1].1;
+            assert!(
+                add_args.iter().any(|a| a == "-a"),
+                "first call must be the -a (add); got {add_args:?}",
+            );
+            assert!(
+                cleanup_args.iter().any(|a| a == "-d"),
+                "second call must be the -d (cleanup); got {cleanup_args:?}",
+            );
+            assert!(
+                cleanup_args.iter().any(|a| a == "alice"),
+                "cleanup must target alice; got {cleanup_args:?}",
+            );
         }
     }
 
@@ -727,6 +1665,98 @@ The command completed successfully.
 ";
             let admins = WindowsAdminManager::parse_net_localgroup(out);
             assert!(admins.is_empty());
+        }
+
+        /// Regression guard for the orphaned-admin-grant bug on the
+        /// PAL grant path (Round 8). Pre-fix flow on Windows:
+        /// 1. `net localgroup Administrators <user> /add` succeeds
+        ///    — the user is now a member of the local
+        ///    `Administrators` group on the device.
+        /// 2. `read_grants(&self.state_file)` fails (e.g. corrupt
+        ///    JSON, ACL denied, partition unmounted) →
+        ///    `grant_admin` returns `Err` with NO cleanup of the
+        ///    OS-level group membership.
+        ///
+        /// Net effect pre-fix: permanent untracked
+        /// `Administrators` membership on the device. Same failure
+        /// class as the Linux + macOS variants — the supervisor
+        /// sees `Err` from `grant_admin` so it never even reaches
+        /// the Round 7 ledger-failure path; no `Granted` record is
+        /// persisted, the watchdog branches cannot revoke the
+        /// orphan, and drift detection (Phase 3.5) is not yet
+        /// implemented.
+        ///
+        /// This test simulates step 2 by pre-populating the state
+        /// file with garbage so `read_grants` returns
+        /// `StateCorrupt`. With the fix in place the supervisor's
+        /// `grant_admin` call still fails, but the reverse
+        /// `net localgroup … /delete` is issued before returning
+        /// so the device stays in a safe state.
+        #[test]
+        fn windows_grant_reverses_membership_when_state_file_read_fails() {
+            let dir = tempfile::tempdir().unwrap();
+            let state_file = dir.path().join("grants.json");
+            // Pre-populate with garbage so read_grants returns
+            // StateCorrupt once the OS-level mutation has landed.
+            std::fs::write(&state_file, b"not-json").unwrap();
+
+            let runner = std::sync::Arc::new(MockCommandRunner::new());
+            // Successful `/add` (the OS-level grant); the cleanup
+            // `/delete` falls through to the mock's
+            // generic-success default since we don't enqueue a
+            // specific response.
+            runner.enqueue_success("net");
+
+            #[derive(Debug)]
+            struct ArcRunner(std::sync::Arc<MockCommandRunner>);
+            impl CommandRunner for ArcRunner {
+                fn run(&self, program: &str, args: &[&str]) -> Result<CommandOutput, AdminError> {
+                    self.0.run(program, args)
+                }
+            }
+            let mgr = WindowsAdminManager::with_components(
+                Box::new(ArcRunner(runner.clone())),
+                state_file,
+            );
+
+            let user = UserRef {
+                username: "alice".into(),
+                domain: None,
+            };
+            let err = mgr
+                .grant_admin(&user, Utc::now())
+                .expect_err("must fail when state file is corrupt");
+            assert!(
+                matches!(err, AdminError::StateCorrupt(_)),
+                "expected StateCorrupt, got {err:?}",
+            );
+
+            // CRITICAL: the reverse `net localgroup … /delete`
+            // must have been issued — pre-fix this was zero,
+            // leaving alice a permanent untracked member of the
+            // local `Administrators` group.
+            let calls = runner.calls();
+            let net_calls: Vec<&(String, Vec<String>)> =
+                calls.iter().filter(|(p, _)| p == "net").collect();
+            assert_eq!(
+                net_calls.len(),
+                2,
+                "expected exactly two `net` calls (add + cleanup); got {net_calls:?}",
+            );
+            let add_args = &net_calls[0].1;
+            let cleanup_args = &net_calls[1].1;
+            assert!(
+                add_args.iter().any(|a| a == "/add"),
+                "first call must be the /add; got {add_args:?}",
+            );
+            assert!(
+                cleanup_args.iter().any(|a| a == "/delete"),
+                "second call must be the /delete (cleanup); got {cleanup_args:?}",
+            );
+            assert!(
+                cleanup_args.iter().any(|a| a == "alice"),
+                "cleanup must target alice; got {cleanup_args:?}",
+            );
         }
     }
 }

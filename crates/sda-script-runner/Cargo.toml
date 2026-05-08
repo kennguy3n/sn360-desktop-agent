@@ -1,6 +1,6 @@
 [package]
-name = "sda-device-control"
-description = "Device Control router and canonical schemas for SDA (Phase 1 scaffold)"
+name = "sda-script-runner"
+description = "Signed-script execution module for SDA Device Control (Phase 2.7)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,7 +9,6 @@ license.workspace = true
 sda-core = { workspace = true }
 sda-event-bus = { workspace = true }
 sda-pal = { workspace = true }
-sda-comms = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -17,9 +16,12 @@ tracing = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
-chrono-tz = { workspace = true }
-uuid = { workspace = true }
+ed25519-dalek = { workspace = true }
 sha2 = { workspace = true }
+hex = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["rt-multi-thread", "test-util"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "test-util", "macros"] }
+ed25519-dalek = { workspace = true, features = ["rand_core"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+tempfile = { workspace = true }

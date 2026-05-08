@@ -21,10 +21,21 @@
 //! clean-room Munki-style local repo on macOS, and apt / dnf / yum /
 //! zypper on Linux.
 
+pub mod approval;
 pub mod catalogue;
+pub mod evidence;
 pub mod manifest;
 pub mod module;
+pub mod rollback;
 
+pub use approval::{
+    build_recommendation_payload, ApprovalAuditor, ApprovalDiff, ApprovalEvaluation, ApprovalState,
+    ApprovalTransition, InstalledPackage, RECOMMENDATION_PLAIN_ENGLISH_MAX,
+};
 pub use catalogue::{Catalogue, CatalogueStore};
+pub use evidence::{output_sha256, SoftwareActionOutcome, SoftwareEvidenceEmitter};
 pub use manifest::{Artefact, Manifest, ManifestError, MANIFEST_SCHEMA_VERSION};
 pub use module::SoftwareModule;
+pub use rollback::{
+    RollbackEntry, RollbackError, RollbackManifest, RollbackOrchestrator, RollbackOutcome,
+};

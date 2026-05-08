@@ -115,6 +115,7 @@ mod tests {
             schema_version: MANIFEST_SCHEMA_VERSION,
             catalogue_id: "sn360-test".into(),
             revision,
+            signed_at: None,
             artefacts: vec![Artefact {
                 id: "Mozilla.Firefox".into(),
                 name: "Mozilla Firefox".into(),
@@ -169,6 +170,7 @@ mod tests {
             schema_version: MANIFEST_SCHEMA_VERSION,
             catalogue_id: "c".into(),
             revision: 0,
+            signed_at: None,
             artefacts: vec![Artefact {
                 id: "bad".into(),
                 name: "B".into(),
@@ -192,6 +194,7 @@ mod tests {
             schema_version: MANIFEST_SCHEMA_VERSION,
             catalogue_id: "c".into(),
             revision: 5,
+            signed_at: None,
             artefacts: vec![
                 Artefact {
                     id: "a".into(),

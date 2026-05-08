@@ -110,6 +110,8 @@ mod tests {
             enabled: true,
             catalogue_url: None,
             pinned_signing_key_hex: None,
+            pinned_signing_keys: Vec::new(),
+            manifest_max_age_secs: 7 * 24 * 3600,
             refresh_interval_secs: 3600,
         };
         let (bus, _server_rx) = EventBus::new(8, 8);
@@ -126,6 +128,8 @@ mod tests {
             enabled: true,
             catalogue_url: Some("https://example.test/catalogue.json".into()),
             pinned_signing_key_hex: None,
+            pinned_signing_keys: Vec::new(),
+            manifest_max_age_secs: 7 * 24 * 3600,
             refresh_interval_secs: 3600,
         };
         let (bus, _server_rx) = EventBus::new(8, 8);
@@ -142,6 +146,8 @@ mod tests {
             enabled: true,
             catalogue_url: Some("https://example.test/catalogue.json".into()),
             pinned_signing_key_hex: Some("00".repeat(32)),
+            pinned_signing_keys: Vec::new(),
+            manifest_max_age_secs: 7 * 24 * 3600,
             refresh_interval_secs: 600,
         };
         let (bus, _server_rx) = EventBus::new(8, 8);

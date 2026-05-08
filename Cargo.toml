@@ -18,6 +18,8 @@ members = [
     "crates/sda-query",
     "crates/sda-posture",
     "crates/sda-software",
+    "crates/sda-script-runner",
+    "crates/sda-jit-admin",
     "crates/sda-agent-vitals",
 ]
 # fuzz/ has its own [workspace] stanza and is not part of the main
@@ -77,6 +79,7 @@ anyhow = "1"
 # Utilities
 bytes = "1"
 chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
 uuid = { version = "1", features = ["v4", "v7", "serde"] }
 sha2 = "0.10"
 md-5 = "0.10"
@@ -114,6 +117,8 @@ sda-device-control = { path = "crates/sda-device-control" }
 sda-query = { path = "crates/sda-query" }
 sda-posture = { path = "crates/sda-posture" }
 sda-software = { path = "crates/sda-software" }
+sda-script-runner = { path = "crates/sda-script-runner" }
+sda-jit-admin = { path = "crates/sda-jit-admin" }
 sda-agent-vitals = { path = "crates/sda-agent-vitals" }
 
 # Self-update (P3.1)

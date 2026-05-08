@@ -1332,7 +1332,14 @@ impl Default for PostureConfig {
 /// the [`SoftwareModule`](../../../sda-software/index.html) refreshes
 /// the signed catalogue manifest at `refresh_interval_secs` cadence
 /// and gates every install / update / uninstall on a verified
-/// Ed25519 signature against [`Self::pinned_signing_key_hex`].
+/// Ed25519 signature against the configured pinned keys.
+///
+/// Phase 2.6 hardens this with key rotation
+/// ([`Self::pinned_signing_keys`]) and manifest expiry
+/// ([`Self::manifest_max_age_secs`]). The legacy
+/// [`Self::pinned_signing_key_hex`] field is retained as a backward
+/// compatible single-key shortcut and is treated as a pinned key
+/// with `key_id = "default"`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SoftwareConfig {
     /// Master enable switch.
@@ -1344,16 +1351,44 @@ pub struct SoftwareConfig {
     /// fetches when `enabled = true` AND `catalogue_url.is_some()`.
     #[serde(default)]
     pub catalogue_url: Option<String>,
-    /// Hex-encoded Ed25519 public key the manifest signature is
-    /// verified against. The control plane rotates this by pushing
-    /// a new config; we never trust a manifest-embedded key.
+    /// Legacy single-key fallback. Hex-encoded Ed25519 public key
+    /// the manifest signature is verified against when no
+    /// [`Self::pinned_signing_keys`] entries are configured. The
+    /// control plane rotates this by pushing a new config; we never
+    /// trust a manifest-embedded key.
     #[serde(default)]
     pub pinned_signing_key_hex: Option<String>,
+    /// Multiple pinned signing keys for key rotation. Each entry
+    /// pairs a stable `key_id` (matching the `key_id` field on the
+    /// signed manifest) with the lowercase-hex Ed25519 public key
+    /// bytes. When non-empty this list takes precedence over the
+    /// legacy [`Self::pinned_signing_key_hex`] field.
+    #[serde(default)]
+    pub pinned_signing_keys: Vec<PinnedSigningKey>,
+    /// Maximum age, in seconds, of a catalogue manifest before it
+    /// is rejected as expired. The age is computed from the
+    /// `signed_at` timestamp on the manifest. Defaults to 7 days.
+    #[serde(default = "default_manifest_max_age_secs")]
+    pub manifest_max_age_secs: u64,
     /// How often the agent re-pulls the manifest (default 1 h).
     /// Catalogue updates between fetches still respect maintenance
     /// windows on the action side.
     #[serde(default = "default_software_refresh_interval_secs")]
     pub refresh_interval_secs: u64,
+}
+
+/// Hex-encoded Ed25519 public key paired with the `key_id` it is
+/// announced under in the catalogue manifest. Used for key rotation
+/// (multiple pinned keys may be active simultaneously while the
+/// control plane completes a rollover).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PinnedSigningKey {
+    /// Stable identifier matched against the manifest's `key_id`
+    /// field. Producers must keep these unique across simultaneously
+    /// pinned keys.
+    pub key_id: String,
+    /// Lowercase-hex Ed25519 public key (64 hex chars / 32 bytes).
+    pub public_key_hex: String,
 }
 
 impl Default for SoftwareConfig {
@@ -1362,25 +1397,88 @@ impl Default for SoftwareConfig {
             enabled: false,
             catalogue_url: None,
             pinned_signing_key_hex: None,
+            pinned_signing_keys: Vec::new(),
+            manifest_max_age_secs: default_manifest_max_age_secs(),
             refresh_interval_secs: default_software_refresh_interval_secs(),
         }
     }
 }
 
-/// JIT-admin module placeholder (Phase 3). Defaults to disabled.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+/// JIT-admin module configuration.
+///
+/// Phase 3.2 introduces the `sda-jit-admin` module which owns the
+/// grant lifecycle state machine and revocation watchdog. Defaults
+/// to disabled so an SDA built without jit-admin work configured
+/// keeps idle CPU at zero.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JitAdminConfig {
     /// Master enable switch.
     #[serde(default)]
     pub enabled: bool,
+    /// Filesystem path where active grants are persisted across
+    /// agent restarts. The directory must be writable by the agent
+    /// service account; the file itself is created on first grant.
+    #[serde(default)]
+    pub state_path: Option<PathBuf>,
+    /// Revoke an active grant when no heartbeat has been observed
+    /// from the control plane for this many seconds. Defaults to
+    /// 120 s per `docs/device-control/PROPOSAL.md` § 9.3.
+    #[serde(default = "default_jit_heartbeat_loss_secs")]
+    pub heartbeat_loss_secs: u64,
 }
 
-/// Script-runner module placeholder (Phase 3). Defaults to disabled.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+impl Default for JitAdminConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            state_path: None,
+            heartbeat_loss_secs: default_jit_heartbeat_loss_secs(),
+        }
+    }
+}
+
+/// Script-runner module configuration.
+///
+/// Phase 2.7 introduces the `sda-script-runner` module which
+/// executes signed scripts against an allow-list of canonical names.
+/// Defaults to disabled so the surface area stays at zero on
+/// builds that do not opt in.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScriptRunnerConfig {
     /// Master enable switch.
     #[serde(default)]
     pub enabled: bool,
+    /// Hex-encoded Ed25519 public key against which every script
+    /// payload's signature is verified. Required when `enabled =
+    /// true`; unset means no scripts may run even if jobs arrive.
+    #[serde(default)]
+    pub pinned_signing_key_hex: Option<String>,
+    /// Glob patterns that a script's canonical name must match
+    /// before it is allowed to run (e.g. `sn360.diagnostics.*`).
+    /// Empty means deny-by-default.
+    #[serde(default)]
+    pub allowlist: Vec<String>,
+    /// Hard wall-clock limit, in seconds, for any single script run.
+    /// Defaults to 90 s. Bounded by `RUN_SCRIPT_MAX_TIMEOUT_SECONDS`
+    /// upstream in `sda-device-control`.
+    #[serde(default = "default_script_max_duration_secs")]
+    pub max_duration_secs: u64,
+    /// Hard cap, in bytes, on combined stdout+stderr captured from
+    /// a script run before truncation. Defaults to 1 MiB.
+    #[serde(default = "default_script_max_output_bytes")]
+    pub max_output_bytes: usize,
+}
+
+impl Default for ScriptRunnerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            pinned_signing_key_hex: None,
+            allowlist: Vec::new(),
+            max_duration_secs: default_script_max_duration_secs(),
+            max_output_bytes: default_script_max_output_bytes(),
+        }
+    }
 }
 
 /// Application-control module placeholder (Phase 4). Defaults to
@@ -1529,6 +1627,31 @@ fn default_posture_interval_secs() -> u64 {
 
 fn default_software_refresh_interval_secs() -> u64 {
     3600
+}
+
+/// Default manifest expiry threshold — 7 days. Matches the
+/// "manifest must be re-signed at least weekly" guidance in
+/// `docs/device-control/PROPOSAL.md` § 14.1.
+fn default_manifest_max_age_secs() -> u64 {
+    7 * 24 * 3600
+}
+
+/// Default JIT-admin heartbeat-loss revoke window. Matches
+/// `docs/device-control/PROPOSAL.md` § 9.3 (120 s).
+fn default_jit_heartbeat_loss_secs() -> u64 {
+    120
+}
+
+/// Default per-script wall-clock cap (90 s) per
+/// `docs/device-control/PROPOSAL.md` § 14.2.
+fn default_script_max_duration_secs() -> u64 {
+    90
+}
+
+/// Default per-script combined stdout+stderr cap (1 MiB) per
+/// `docs/device-control/PROPOSAL.md` § 14.2.
+fn default_script_max_output_bytes() -> usize {
+    1024 * 1024
 }
 
 fn default_agent_vitals_interval_secs() -> u64 {

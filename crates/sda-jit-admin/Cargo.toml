@@ -1,6 +1,6 @@
 [package]
-name = "sda-device-control"
-description = "Device Control router and canonical schemas for SDA (Phase 1 scaffold)"
+name = "sda-jit-admin"
+description = "JIT-admin grant lifecycle + revocation watchdog (Phase 3.2/3.3)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,7 +9,6 @@ license.workspace = true
 sda-core = { workspace = true }
 sda-event-bus = { workspace = true }
 sda-pal = { workspace = true }
-sda-comms = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -17,9 +16,11 @@ tracing = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
-chrono-tz = { workspace = true }
-uuid = { workspace = true }
 sha2 = { workspace = true }
+hex = { workspace = true }
+uuid = { workspace = true }
+tempfile = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["rt-multi-thread", "test-util"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "test-util", "macros"] }
+tempfile = { workspace = true }

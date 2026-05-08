@@ -495,6 +495,59 @@ async fn main() -> Result<()> {
         agent.register_module(sw_handle);
     }
 
+    // 12l-bis. Script runner (Phase 2.7).
+    //          Off by default. Executes signed, allow-listed scripts
+    //          with hard wall-clock and output-byte budgets, then
+    //          emits `ScriptRunResult` + `EvidenceRecord` events.
+    //          The supervisor handles the disabled / mis-configured
+    //          cases internally (parks on shutdown), so we only need
+    //          to spawn it unconditionally.
+    let script_runner_work_dir = std::env::temp_dir().join("sn360-script-runner");
+    let (script_runner_handle, _script_runner_sender) =
+        sda_script_runner::ScriptRunnerModule::start(
+            &config,
+            agent.event_bus(),
+            agent.shutdown_signal(),
+            script_runner_work_dir,
+        );
+    agent.register_module(script_runner_handle);
+
+    // 12l-ter. JIT admin module (Phase 3.2 / 3.3).
+    //          Off by default. Owns the grant lifecycle state
+    //          machine, on-disk grant ledger, and revocation
+    //          watchdog (timer / heartbeat / power / boot-sweep).
+    //          Always spawned: the supervisor itself parks on
+    //          shutdown when `modules.jit_admin.enabled = false`,
+    //          so idle CPU stays at zero and the bus only sees
+    //          `JitAdmin*` events when grants are active.
+    let jit_admin_work_dir = std::env::temp_dir().join("sn360-jit-admin");
+    // The sender MUST stay alive for the lifetime of `main` —
+    // dropping it closes the supervisor's request mpsc, which causes
+    // its `tokio::select!` to break out on `rx.recv() = None` and
+    // takes the watchdog `tick` branch with it. Bind at this outer
+    // scope (not inside the `if let`) so the channel stays open
+    // even before the device-control router that will eventually
+    // consume the sender lands.
+    let _jit_admin_sender: Option<sda_jit_admin::JitAdminSender> =
+        if let Some(admin_box) = sda_pal::admin_manager::default_admin_manager() {
+            let admin_arc: std::sync::Arc<dyn sda_pal::admin_manager::AdminManager> =
+                std::sync::Arc::from(admin_box);
+            let jit_admin_handle = sda_jit_admin::JitAdminModule::start(
+                &config,
+                agent.event_bus(),
+                agent.shutdown_signal(),
+                admin_arc,
+                jit_admin_work_dir,
+            );
+            agent.register_module(jit_admin_handle.module);
+            jit_admin_handle.sender
+        } else {
+            tracing::warn!(
+                "jit_admin module disabled: no platform AdminManager available on this target"
+            );
+            None
+        };
+
     // 12m. Agent-vitals heartbeat (Phase 1.12).
     //      Per ARCHITECTURE.md § 10 step 5 the heartbeat is always-on
     //      when Device Control is enabled. The cadence defaults to
