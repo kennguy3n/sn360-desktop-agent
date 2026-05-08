@@ -404,7 +404,50 @@ impl Supervisor {
                     }
                 };
                 if let Err(err) = self.persist(&granted).await {
-                    warn!(grant_id = id, error = %err, "jit_admin: failed to persist grant");
+                    warn!(
+                        grant_id = id,
+                        error = %err,
+                        "jit_admin: failed to persist grant; revoking orphan OS privilege",
+                    );
+                    // CRITICAL: the OS-level admin privilege is live
+                    // on the device but the on-disk ledger is still
+                    // in `Approved` (the earlier persist), so neither
+                    // timer-revoke nor heartbeat-loss revoke nor
+                    // power revoke will pick the orphan up — they
+                    // all key off `is_active()`, which only fires
+                    // for `Granted`. Best-effort revoke before we
+                    // return so the device state matches the ledger.
+                    // If the revoke also fails there is nothing more
+                    // the supervisor can do here, but the emitted
+                    // evidence record gives operators visibility.
+                    let revoke_err = self
+                        .admin
+                        .revoke_admin(&handle)
+                        .err()
+                        .filter(|e| !is_already_revoked(e));
+                    self.emit_event(EventKind::EvidenceRecord {
+                        payload: serde_json::to_string(&AdminEvidence::failure(
+                            &granted,
+                            "persist_grant",
+                            &AdminError::Command(err.to_string()),
+                        ))
+                        .unwrap_or_default(),
+                    });
+                    if let Some(rerr) = revoke_err {
+                        warn!(
+                            grant_id = id,
+                            error = %rerr,
+                            "jit_admin: orphan revoke also failed; admin privilege may be live until external cleanup",
+                        );
+                        self.emit_event(EventKind::EvidenceRecord {
+                            payload: serde_json::to_string(&AdminEvidence::failure(
+                                &granted,
+                                "revoke_orphan",
+                                &rerr,
+                            ))
+                            .unwrap_or_default(),
+                        });
+                    }
                     return;
                 }
                 self.emit_event(EventKind::JitAdminGranted {
@@ -648,6 +691,15 @@ mod tests {
         revokes: StdMutex<Vec<GrantHandle>>,
         grant_should_fail: StdMutex<Option<AdminError>>,
         revoke_should_fail: StdMutex<Option<AdminError>>,
+        /// Test-only mid-call hook: when set, the directory at the
+        /// given path is recursively removed *during*
+        /// [`grant_admin`], between the supervisor's `Approved`
+        /// persist (which already happened) and the supervisor's
+        /// `Granted` persist (which is about to happen). Used by
+        /// `approve_persist_failure_revokes_orphaned_admin_grant` to
+        /// simulate the disk-side state path disappearing while the
+        /// OS-level privilege is live.
+        grant_should_remove_dir: StdMutex<Option<PathBuf>>,
     }
 
     impl AdminManager for FakeAdmin {
@@ -663,6 +715,12 @@ mod tests {
             self.grants.lock().unwrap().push((user.clone(), until));
             if let Some(err) = self.grant_should_fail.lock().unwrap().take() {
                 return Err(err);
+            }
+            // Mid-call hook (see field docstring). Fired *after* the
+            // recorded grant so a successful grant_admin still
+            // returns a usable handle even if the cleanup runs.
+            if let Some(path) = self.grant_should_remove_dir.lock().unwrap().take() {
+                let _ = std::fs::remove_dir_all(&path);
             }
             self.next_grant_handle
                 .lock()
@@ -957,6 +1015,122 @@ mod tests {
         assert!(
             !r.state.is_terminal(),
             "record must not be terminal after a non-idempotent revoke failure",
+        );
+    }
+
+    /// Regression guard for the orphaned-admin-grant bug in
+    /// `do_approve` (Round 7). Pre-fix flow:
+    /// 1. `Approve` transition → `persist(&approved)` succeeds
+    ///    (ledger now `Approved`).
+    /// 2. `AdminManager::grant_admin` succeeds → OS-level admin
+    ///    privilege is now live on the device.
+    /// 3. `Grant` transition → returns `granted` record.
+    /// 4. `persist(&granted)` fails (e.g. cache dir disappeared,
+    ///    disk unmounted, write quota exhausted) → the function
+    ///    returns at the early-bail with NO revoke.
+    ///
+    /// Net effect pre-fix: the OS-level admin privilege stays live
+    /// but the watchdog cannot pick the orphan up. `is_overdue()`
+    /// requires `is_active()`, which only fires for `Granted` —
+    /// since the persisted ledger is still `Approved`, none of the
+    /// timer / heartbeat / power revocation paths see the record.
+    /// On boot sweep when `until` elapses, the `Approved` record
+    /// routes to `do_expire`, which deliberately does NOT call
+    /// `revoke_admin` (it assumes no OS privilege ever activated
+    /// from `Approved`) — the orphan persists until external
+    /// cleanup. Same orphaning class as Round 5's revoke-path bug.
+    ///
+    /// This test simulates step 4 by removing the parent directory
+    /// of the state file from inside the `FakeAdmin::grant_admin`
+    /// hook (which fires after the `Approved` persist already
+    /// landed). It then asserts the supervisor revokes the orphan
+    /// before returning, emits an `EvidenceRecord` describing the
+    /// persist failure, and never emits a `JitAdminGranted` event
+    /// (because the grant never reached the durable ledger).
+    #[tokio::test(flavor = "current_thread")]
+    async fn approve_persist_failure_revokes_orphaned_admin_grant() {
+        let tmp = TempDir::new().unwrap();
+        // Place the state file inside a subdirectory we can wipe
+        // mid-flow. The first two persists (Requested, Approved)
+        // happen before the wipe, so they succeed.
+        let sub_dir = tmp.path().join("state");
+        std::fs::create_dir(&sub_dir).unwrap();
+        let state_path = sub_dir.join("grants.json");
+        let cfg = cfg(true, Some(state_path));
+        let (bus, mut server_rx) = EventBus::new(16, 16);
+        let (controller, signal) = ShutdownController::new();
+
+        let admin = Arc::new(FakeAdmin::default());
+        let until = Utc::now() + chrono::Duration::hours(1);
+        *admin.next_grant_handle.lock().unwrap() = Some(handle("h-orphan", until));
+        // Mid-flow hook: when the supervisor calls grant_admin (the
+        // OS-level privilege is now live on the device), the hook
+        // wipes the state directory. The supervisor's subsequent
+        // `persist(&granted)` will then fail because the tempfile
+        // rename target's parent no longer exists. With the fix in
+        // place this triggers the orphan revoke + evidence emit.
+        *admin.grant_should_remove_dir.lock().unwrap() = Some(sub_dir.clone());
+
+        let h = JitAdminModule::start(&cfg, bus, signal, admin.clone(), tmp.path().to_path_buf());
+        let sender = h.sender.expect("module should be active");
+
+        sender
+            .send(JitAdminRequest::NewRequest {
+                id: "g-orphan".into(),
+                requested_by: "ops".into(),
+                user: user("alice"),
+                until,
+            })
+            .await
+            .unwrap();
+        sender
+            .send(JitAdminRequest::Approve {
+                id: "g-orphan".into(),
+                reason: None,
+            })
+            .await
+            .unwrap();
+
+        let kinds = drain_server(&mut server_rx).await;
+        controller.shutdown();
+        h.module.task.await.unwrap().unwrap();
+
+        // The OS-level privilege was granted exactly once...
+        assert_eq!(admin.grants.lock().unwrap().len(), 1);
+        // ...and immediately revoked because the Granted persist
+        // failed. Pre-fix this would have been zero — the orphan
+        // would have been left live on the device.
+        let revokes = admin.revokes.lock().unwrap();
+        assert_eq!(
+            revokes.len(),
+            1,
+            "expected an orphan-revoke after persist failure; revokes = {revokes:?}",
+        );
+        assert_eq!(revokes[0].id, "h-orphan");
+        drop(revokes);
+
+        // Wire payload assertions:
+        // - Requested event fired (early in the flow, before wipe).
+        // - At least one EvidenceRecord describing the failure.
+        // - NO JitAdminGranted event — the grant never reached the
+        //   durable ledger and must not be claimed to operators.
+        assert!(
+            kinds
+                .iter()
+                .any(|k| matches!(k, EventKind::JitAdminRequested { .. })),
+            "expected JitAdminRequested in {kinds:?}",
+        );
+        assert!(
+            kinds
+                .iter()
+                .any(|k| matches!(k, EventKind::EvidenceRecord { .. })),
+            "expected EvidenceRecord in {kinds:?}",
+        );
+        assert!(
+            !kinds
+                .iter()
+                .any(|k| matches!(k, EventKind::JitAdminGranted { .. })),
+            "must NOT claim Granted to the server when the ledger never made it past Approved: {kinds:?}",
         );
     }
 
