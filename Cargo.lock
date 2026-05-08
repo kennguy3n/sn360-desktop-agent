@@ -1723,6 +1723,7 @@ dependencies = [
  "rand_core 0.6.4",
  "sda-active-response",
  "sda-agent-vitals",
+ "sda-app-control",
  "sda-comms",
  "sda-core",
  "sda-device-control",
@@ -1736,6 +1737,7 @@ dependencies = [
  "sda-pal",
  "sda-posture",
  "sda-query",
+ "sda-remote-support",
  "sda-rootcheck",
  "sda-sca",
  "sda-script-runner",
@@ -1765,6 +1767,26 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "sda-app-control"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "ed25519-dalek",
+ "hex",
+ "sda-core",
+ "sda-event-bus",
+ "sda-pal",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -1980,7 +2002,9 @@ dependencies = [
  "chrono",
  "core-foundation",
  "core-foundation-sys",
+ "ed25519-dalek",
  "gethostname",
+ "hex",
  "nix",
  "notify",
  "serde",
@@ -2022,6 +2046,27 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "sda-remote-support"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "hex",
+ "ring",
+ "rmp-serde",
+ "sda-core",
+ "sda-event-bus",
+ "sda-pal",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

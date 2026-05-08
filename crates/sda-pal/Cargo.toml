@@ -16,6 +16,12 @@ notify = { workspace = true }
 chrono = { workspace = true }
 gethostname = { workspace = true }
 tempfile = { workspace = true }
+# Used by app_control.rs for Ed25519-signed policy bundle verification
+# (Phase 4 Task 4.4). hex is the canonical encoding for the
+# signed-payload + signature + public-key fields in
+# `SignedAppControlPolicy`.
+ed25519-dalek = { workspace = true }
+hex = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 nix = { workspace = true }

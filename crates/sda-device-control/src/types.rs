@@ -68,9 +68,11 @@ pub struct AgentVersion {
     pub channel: String,
 }
 
-/// Closed enumeration of finding kinds for Phase 1.
+/// Closed enumeration of finding kinds.
 ///
-/// SCHEMAS.md § 3.4.
+/// SCHEMAS.md § 3.4. Phase 1 shipped the first eight variants;
+/// `AdminDrift` was added in Phase 3 to surface JIT-admin drift
+/// findings emitted by `sda-jit-admin::drift::DriftDetector`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FindingKind {
@@ -81,6 +83,11 @@ pub enum FindingKind {
     AdminAccessRequested,
     PostureViolation,
     VulnerabilityMatch,
+    /// JIT-admin drift: an OS-level admin account is not tracked by
+    /// the local grant ledger, OR a tracked grant's user is no
+    /// longer in the OS-level admin group. Emitted by
+    /// `sda-jit-admin::drift::DriftDetector` per PROPOSAL.md § 9.3.
+    AdminDrift,
     Other,
 }
 

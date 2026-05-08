@@ -1,0 +1,25 @@
+[package]
+name = "sda-app-control"
+description = "Application control / binary authorization module: Ed25519-signed policy verification, monitor / enforce modes, dual-control rollback (Phase 4)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sda-core = { workspace = true }
+sda-event-bus = { workspace = true }
+sda-pal = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+hex = { workspace = true }
+ed25519-dalek = { workspace = true }
+sha2 = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "test-util", "macros"] }

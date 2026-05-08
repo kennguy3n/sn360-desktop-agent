@@ -21,7 +21,7 @@ TARGETS := \
 	x86_64-pc-windows-msvc
 
 .PHONY: build release test lint fmt clippy all-targets clean e2e e2e-compat e2e-macos e2e-windows security-e2e \
-        e2e-device-control e2e-software benchmark-ci deb rpm pkg msi
+        e2e-device-control e2e-software e2e-jit-admin benchmark-ci deb rpm pkg msi
 
 build:
 	$(CARGO) build
@@ -85,6 +85,15 @@ e2e-device-control:
 # hermetic — no external server or package manager is required.
 e2e-software:
 	$(CARGO) test --package sda-agent --test e2e_software -- --nocapture
+
+# Phase 3 JIT-admin E2E suite. Exercises every Phase 3 surface
+# (request/approve/revoke chain, deny path, boot-sweep finalisation,
+# drift detection, heartbeat-loss + power-profile revocations, and
+# evidence-chain continuity across the lifecycle) end-to-end. The
+# suite lives in crates/sda-agent/tests/e2e_jit_admin.rs and is
+# hermetic — no external server or admin manager is required.
+e2e-jit-admin:
+	$(CARGO) test --package sda-agent --test e2e_jit_admin -- --nocapture
 
 clean:
 	$(CARGO) clean

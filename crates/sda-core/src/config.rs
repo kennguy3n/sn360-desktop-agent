@@ -1425,6 +1425,13 @@ pub struct JitAdminConfig {
     /// 120 s per `docs/device-control/PROPOSAL.md` § 9.3.
     #[serde(default = "default_jit_heartbeat_loss_secs")]
     pub heartbeat_loss_secs: u64,
+    /// How often the JIT-admin supervisor runs a drift scan
+    /// (`AdminManager::list_admins` vs the active grant ledger). The
+    /// supervisor emits a `FindingKind::AdminDrift` payload + paired
+    /// `EvidenceRecord` for each discrepancy. Defaults to 300 s
+    /// (Phase 3.5 / `docs/device-control/PROPOSAL.md` § 9.3).
+    #[serde(default = "default_jit_drift_check_interval_secs")]
+    pub drift_check_interval_secs: u64,
 }
 
 impl Default for JitAdminConfig {
@@ -1433,6 +1440,7 @@ impl Default for JitAdminConfig {
             enabled: false,
             state_path: None,
             heartbeat_loss_secs: default_jit_heartbeat_loss_secs(),
+            drift_check_interval_secs: default_jit_drift_check_interval_secs(),
         }
     }
 }
@@ -1481,21 +1489,72 @@ impl Default for ScriptRunnerConfig {
     }
 }
 
-/// Application-control module placeholder (Phase 4). Defaults to
-/// disabled.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+/// Application-control module configuration (Phase 4).
+///
+/// Defaults to disabled. The Phase-4 default mode is `Monitor` per
+/// `docs/device-control/PHASES.md` Phase 4 acceptance criteria #2 —
+/// `Enforce` requires explicit tenant opt-in plus dual-control
+/// rollback per PROPOSAL.md § 9.6.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppControlConfig {
     /// Master enable switch.
     #[serde(default)]
     pub enabled: bool,
+    /// Operating mode: `"monitor"`, `"enforce"`, or `"disabled"`.
+    /// Mapped onto `sda_pal::app_control::AppControlMode` at module
+    /// startup. Defaults to `"monitor"` so a Phase-4 enable does
+    /// not accidentally start blocking traffic.
+    #[serde(default = "default_app_control_mode")]
+    pub mode: String,
+    /// Lowercase-hex Ed25519 public key the agent will trust when
+    /// verifying signed policy bundles. `None` disables policy
+    /// application entirely (the agent only reports
+    /// `current_mode`).
+    #[serde(default)]
+    pub trusted_signing_key: Option<String>,
 }
 
-/// Remote-support module placeholder (Phase 4). Defaults to disabled.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+impl Default for AppControlConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            mode: default_app_control_mode(),
+            trusted_signing_key: None,
+        }
+    }
+}
+
+/// Remote-support module configuration (Phase 4).
+///
+/// Defaults to disabled. When `enabled = true` the module shows a
+/// consent prompt on every session per PROPOSAL.md § 9.7 and
+/// enforces `max_session_minutes` as a hard wall-clock cap.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RemoteSupportConfig {
     /// Master enable switch.
     #[serde(default)]
     pub enabled: bool,
+    /// Hard wall-clock cap on a remote-support session, in minutes
+    /// (default 30). Must be > 0; a zero value would let a
+    /// malformed config short-circuit the consent flow.
+    #[serde(default = "default_remote_support_max_session_minutes")]
+    pub max_session_minutes: u32,
+    /// Whether the agent must present a consent banner before
+    /// transitioning a session into `Active`. Always `true` in
+    /// production per PROPOSAL.md § 9.7; the field exists so unit
+    /// tests can construct sessions without a UI fixture.
+    #[serde(default = "default_true")]
+    pub require_consent: bool,
+}
+
+impl Default for RemoteSupportConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_session_minutes: default_remote_support_max_session_minutes(),
+            require_consent: true,
+        }
+    }
 }
 
 /// Agent-vitals heartbeat configuration (Phase 1, Task 1.12).
@@ -1642,6 +1701,14 @@ fn default_jit_heartbeat_loss_secs() -> u64 {
     120
 }
 
+/// Default JIT-admin drift-scan cadence. Matches `default_posture_interval_secs`
+/// (300 s) so the drift detector runs on the same cadence as posture
+/// snapshots without piling up on top of the watchdog tick. See
+/// `docs/device-control/PROPOSAL.md` § 9.3.
+fn default_jit_drift_check_interval_secs() -> u64 {
+    300
+}
+
 /// Default per-script wall-clock cap (90 s) per
 /// `docs/device-control/PROPOSAL.md` § 14.2.
 fn default_script_max_duration_secs() -> u64 {
@@ -1656,6 +1723,20 @@ fn default_script_max_output_bytes() -> usize {
 
 fn default_agent_vitals_interval_secs() -> u64 {
     60
+}
+
+/// Default Phase-4 application-control mode. PROPOSAL.md § 9.6 and
+/// PHASES.md Phase-4 acceptance criteria #2 mandate `Monitor` so an
+/// accidental `enabled = true` does not start blocking traffic.
+fn default_app_control_mode() -> String {
+    "monitor".to_string()
+}
+
+/// Default Phase-4 remote-support session cap (30 minutes).
+/// PROPOSAL.md § 9.7 specifies "≤30 min" as the typical bound; the
+/// supervisor truncates anything longer.
+fn default_remote_support_max_session_minutes() -> u32 {
+    30
 }
 
 impl AgentConfig {
