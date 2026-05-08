@@ -548,6 +548,70 @@ async fn main() -> Result<()> {
             None
         };
 
+    // 12l-quater. Remote-support module (Phase 4.2).
+    //              Off by default. PROPOSAL.md § 9.7 mandates a
+    //              consent banner on every session — the Phase-4
+    //              default consent prompt is `StubConsentPrompt`,
+    //              which denies every request. The agent therefore
+    //              fails closed unless the operator wires a real
+    //              prompt later. The module's `start()` parks on
+    //              the request channel; dropping the sender ends
+    //              the loop, so we keep it alive for the lifetime
+    //              of `main`.
+    let _remote_support_sender: Option<
+        tokio::sync::mpsc::UnboundedSender<sda_remote_support::module::RemoteSupportRequest>,
+    > = if config.modules.remote_support.enabled {
+        match sda_remote_support::module::RemoteSupportModule::with_defaults(
+            config.modules.remote_support.clone(),
+            std::sync::Arc::new(agent.event_bus()),
+        ) {
+            Some(module) => {
+                info!("starting remote-support module");
+                let (tx, _handle) = module.start();
+                Some(tx)
+            }
+            None => {
+                tracing::warn!(
+                    "remote_support module disabled: no platform RemoteSupportProvider available on this target"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // 12l-quinquies. App-control module (Phase 4.5).
+    //                Off by default. PHASES.md Phase-4 acceptance
+    //                criteria #2 mandates `Monitor` mode by
+    //                default; `Enforce` requires explicit tenant
+    //                opt-in plus a trusted signing key configured
+    //                via `modules.app_control.trusted_signing_key`.
+    //                The supervisor short-circuits gracefully when
+    //                the key is missing.
+    let _app_control_sender: Option<
+        tokio::sync::mpsc::UnboundedSender<sda_app_control::module::AppControlCommand>,
+    > = if config.modules.app_control.enabled {
+        match sda_app_control::module::AppControlModule::with_defaults(
+            config.modules.app_control.clone(),
+            std::sync::Arc::new(agent.event_bus()),
+        ) {
+            Some(module) => {
+                info!("starting app-control module");
+                let (tx, _handle) = module.start();
+                Some(tx)
+            }
+            None => {
+                tracing::warn!(
+                    "app_control module disabled: no platform AppControlProvider available on this target"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // 12m. Agent-vitals heartbeat (Phase 1.12).
     //      Per ARCHITECTURE.md § 10 step 5 the heartbeat is always-on
     //      when Device Control is enabled. The cadence defaults to

@@ -185,6 +185,12 @@ pub enum EventKind {
     /// A remote-support session ended (reason + duration). Payload:
     /// canonical JSON.
     RemoteSupportSessionEnded { payload: String },
+    /// An app-control policy was applied (mode, rule count, signing
+    /// key). Payload: canonical JSON.
+    AppControlPolicyApplied { payload: String },
+    /// An app-control enforcement decision (allow/deny + subject).
+    /// Payload: canonical JSON.
+    AppControlDecision { payload: String },
     /// Periodic agent vitals heartbeat — queue depth, watchdog faults,
     /// module health. Payload: canonical JSON of the AgentVitals wire
     /// schema.
@@ -281,6 +287,12 @@ mod tests {
             EventKind::RemoteSupportSessionEnded {
                 payload: payload.clone(),
             },
+            EventKind::AppControlPolicyApplied {
+                payload: payload.clone(),
+            },
+            EventKind::AppControlDecision {
+                payload: payload.clone(),
+            },
             EventKind::AgentVitals {
                 payload: payload.clone(),
             },
@@ -316,8 +328,9 @@ mod tests {
     #[test]
     fn device_control_event_count_matches_phase0_signoff() {
         // Phase 0 task 0.12 froze the EventKind sign-off list at 15
-        // Device Control variants. Any change to this count requires a
-        // new ADR + a major schema-version bump (SCHEMAS.md § 11).
-        assert_eq!(dc_event_kinds().len(), 15);
+        // Device Control variants. Phase 4 added 2 app-control
+        // variants → 17. Any change requires a new ADR + a major
+        // schema-version bump (SCHEMAS.md § 11).
+        assert_eq!(dc_event_kinds().len(), 17);
     }
 }

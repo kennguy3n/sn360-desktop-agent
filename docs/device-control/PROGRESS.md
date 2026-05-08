@@ -20,8 +20,10 @@ Status legend:
 Phase 0 complete | 100% (13/13 tasks). Phase 1 complete (agent-side) |
 100% agent-side tasks (14/14 non-⚙️ tasks). Phase 2 in progress |
 **~80% (11/15 tasks complete, excluding ⚙️ server-side tasks 2.12–2.14;
-agent-side scope is 11/12)**. Phase 3 in progress | **~43% (3/7
-tasks complete, excluding ⚙️ server-side task 3.6)**.
+agent-side scope is 11/12)**. Phase 3 complete (agent-side) | **100%
+agent-side tasks (7/7 non-⚙️ tasks)**. Phase 4 in progress | **~50%
+(6/12 tasks complete, excluding ⚙️ server-side tasks 4.9–4.11;
+agent-side scope so far covers tasks 4.1–4.6)**.
 
 All Phase 0 documentation-only deliverables are landed:
 
@@ -128,11 +130,11 @@ Device Control crates are added.
 | 3.1 | `sda-pal::AdminManager` impls — temporary grant + revoke | Done |
 | 3.2 | `sda-jit-admin` scaffold + grant state machine | Done |
 | 3.3 | Revocation watchdog | Done |
-| 3.4 | Boot-time idempotent revoke | Not Started |
-| 3.5 | Drift detection | Not Started |
+| 3.4 | Boot-time idempotent revoke | Done |
+| 3.5 | Drift detection | Done |
 | 3.6 | Approval Service v1 ⚙️ | Not Started |
-| 3.7 | Evidence at every transition | Not Started |
-| 3.8 | Phase 3 E2E suite | Not Started |
+| 3.7 | Evidence at every transition | Done |
+| 3.8 | Phase 3 E2E suite | Done |
 
 ---
 
@@ -140,12 +142,12 @@ Device Control crates are added.
 
 | # | Task | Status |
 |---|------|--------|
-| 4.1 | `sda-pal::RemoteSupportProvider` impls | Not Started |
-| 4.2 | `sda-remote-support` scaffold | Not Started |
-| 4.3 | Clean-room MeshCentral-style protocol | Not Started |
-| 4.4 | `sda-pal::AppControlProvider` impls | Not Started |
-| 4.5 | `sda-app-control` scaffold | Not Started |
-| 4.6 | Santa integration (macOS) | Not Started |
+| 4.1 | `sda-pal::RemoteSupportProvider` impls | Done |
+| 4.2 | `sda-remote-support` scaffold | Done |
+| 4.3 | Clean-room MeshCentral-style protocol | Done |
+| 4.4 | `sda-pal::AppControlProvider` impls | Done |
+| 4.5 | `sda-app-control` scaffold | Done |
+| 4.6 | Santa integration (macOS) | Done |
 | 4.7 | WDAC + AppLocker (Windows) | Not Started |
 | 4.8 | Linux app control (clean-room dm-verity-aware) | Not Started |
 | 4.9 | Android MDM connector ⚙️ | Not Started |
@@ -214,67 +216,226 @@ Top six highest-severity risks for delivery planning:
 
 ## Known Gaps
 
-Phase 1 agent-side surface is complete; Phase 2 agent-side surface
-is complete; Phase 3 agent-side surface is in progress. Remaining
-agent-side gaps are JIT admin tasks 3.4 / 3.5 / 3.7 / 3.8.
+Phase 1 / 2 / 3 agent-side surfaces are complete. Phase 4
+agent-side surface is in progress; the trait + scaffolding +
+Monitor-mode tasks (4.1–4.6) land here. The remaining agent-side
+gaps are the OS-specific Enforce-mode backends (4.7 / 4.8) and the
+Phase 4 E2E suite (4.12).
 
 - ⚙️ **1.14 / 1.15 / 1.16** — Device Registry integration, SMI
   sub-score wiring, Risk Engine v0 are all server-side and tracked
   in [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform).
 - ⚙️ **2.12 / 2.13 / 2.14** — Package Catalog, Action Orchestrator,
   and Approval Service all land in `sn360-security-platform`.
-- **3.4** — Boot-time idempotent revoke for grants that survived a
-  crash or reboot (the watchdog handles in-process revocation; the
-  boot-scan path is the next slice).
-- **3.5** — Drift detection that compares the OS-observed admin
-  membership against the `sda-jit-admin` grant store and revokes /
-  emits a finding when an out-of-band admin grant slips in.
-- **3.7** — Evidence emission at every JIT-admin transition
-  (currently emitted only at the boundaries the watchdog drives;
-  needs broader integration with the action-result evidence chain).
-- **3.8** — Phase 3 E2E suite (`make e2e-jit-admin`) covering
-  grant → revoke E2E on Windows / macOS / Linux including process
-  crash, reboot, and sleep / wake recovery.
 - ⚙️ **3.6** — Approval Service v1 lands in `sn360-security-platform`.
-- Phases 4 and 5 are not started.
+- **4.7** — Windows WDAC + AppLocker enforcement backend (the trait
+  stub returns `NotSupported`; production code lights up in Phase
+  5 once Microsoft signing + WDAC policy CI/CD lands).
+- **4.8** — Linux clean-room dm-verity-aware enforcement backend
+  (the trait stub returns `NotSupported`).
+- ⚙️ **4.9 / 4.10 / 4.11** — Android, Apple MDM/DDM, and ChromeOS
+  connectors all land in `sn360-security-platform`.
+- **4.12** — Phase 4 E2E suite covering remote-support session
+  consent + transport stub negotiation and app-control
+  Monitor / Enforce / rollback paths end-to-end.
+- Phase 5 is not started.
 
 ## Next Steps
 
-Phase 1 agent-side code surface is complete. Phase 2 agent-side
-code surface is complete (the production-grade catalogue manifest
-verifier with key rotation + expiry, the `sda-script-runner` MVP,
-maintenance windows + quiet hours, approval-state surfacing, the
-rollback orchestrator, evidence on every software action, and the
-Phase 2 E2E suite all land in this PR). Phase 3 agent-side
-scaffolding lands here too: per-platform JIT-admin
-grant + revoke implementations, the `sda-jit-admin` crate with
-grant lifecycle state machine, and the revocation watchdog.
+Phase 3 agent-side code surface is complete: drift detection
+(`sda-jit-admin::drift::DriftDetector`) is wired into the
+`tokio::select!` loop alongside the watchdog, every state
+transition (`Requested` / `Granted` / `Revoked` / `AdminDrift`)
+emits a chained `EvidenceRecord`, the boot-time idempotent revoke
+sweeps every non-terminal state on start-up, and the Phase 3 E2E
+suite (`make e2e-jit-admin`, 9 hermetic tests) is green.
+
+Phase 4 agent-side scaffolding lands here too: the
+`RemoteSupportProvider` and `AppControlProvider` PAL traits with
+per-OS `NotSupported` stubs, the `sda-remote-support` crate with
+session state machine + consent gate + clean-room
+MeshCentral-style protocol, and the `sda-app-control` crate with
+signed-policy verification, Monitor mode (the Phase-4 default),
+and Enforce mode with single-step `DualControlRollback`.
 
 Remaining work, in priority order:
 
-- **3.4** — Boot-time idempotent revoke that scans the persisted
-  grant store at start-up and revokes any grants whose `until`
-  has elapsed.
-- **3.5** — Drift detection that compares the OS-observed admin
-  membership against the `sda-jit-admin` grant store and revokes
-  / emits a finding when an out-of-band admin grant slips in.
-- **3.7** — Evidence emission at every JIT-admin transition,
-  reusing `sda-software::SoftwareEvidenceEmitter`-style chain
-  linking and wiring `JitAdminRequested`,
-  `JitAdminGranted`, and `JitAdminRevoked` events to evidence
-  records.
-- **3.8** — Phase 3 E2E suite (`make e2e-jit-admin`) covering
-  grant → revoke on Windows / macOS / Linux including
-  process-crash, reboot, and sleep/wake recovery.
 - ⚙️ **1.14 / 1.15 / 1.16** — Device Registry, SMI sub-score, and
   Risk Engine v0 integration in `sn360-security-platform`.
 - ⚙️ **2.12 / 2.13 / 2.14** — Package Catalog, Action Orchestrator,
   and Approval Service in `sn360-security-platform`.
 - ⚙️ **3.6** — Approval Service v1 in `sn360-security-platform`.
+- **4.7** — Windows WDAC + AppLocker enforcement backend.
+- **4.8** — Linux clean-room dm-verity-aware enforcement backend.
+- **4.12** — Phase 4 E2E suite (`make e2e-remote-support` +
+  `make e2e-app-control`).
 
 ---
 
 ## Changelog
+
+### 2026-05-08 — Phase 3 drift detection + Phase 4 remote support & app control
+
+This PR closes out the agent-side scope of Phase 3 and lands the
+Phase 4 PAL traits + module scaffolds + Monitor-mode controllers.
+All new code is gated on `modules.jit_admin.enabled` (existing),
+`modules.remote_support.enabled`, and `modules.app_control.enabled`;
+an agent with the new flags `false` (the default) runs the same
+idle code path as before.
+
+Phase 3 — agent-side completion:
+
+- **3.4** — Boot-time idempotent revoke verified end-to-end in
+  [`crates/sda-jit-admin/src/module.rs`](../../crates/sda-jit-admin/src/module.rs).
+  `Supervisor::boot_sweep` runs once before the `tokio::select!`
+  loop, walks every persisted grant, calls `do_revoke` on
+  `Granted` rows whose `until` has elapsed, and `do_expire` on
+  `Requested` / `Approved` rows. Re-running the sweep on a grant
+  that was revoked seconds earlier is a no-op. New unit tests
+  cover the multi-day-shutdown case where many grants expire
+  simultaneously, the mixed-state ledger, and the
+  re-run-after-revoke idempotence guarantee.
+- **3.5** — New
+  [`crates/sda-jit-admin/src/drift.rs`](../../crates/sda-jit-admin/src/drift.rs).
+  `DriftDetector::scan` calls `AdminManager::list_admins()` and
+  diffs the OS view against `GrantStore::active_grants()`. For
+  every admin not tracked by an active grant the detector emits a
+  `DeviceControlFinding` with `kind = AdminDrift`; for every
+  tracked grant whose user is no longer in the admin group the
+  detector emits a finding for the orphaned grant. Each finding
+  produces a chained `EvidenceRecord`. Wired into the supervisor
+  `tokio::select!` loop on a configurable interval (default
+  300 s, matching the posture snapshot cadence). New
+  [`finding.rs`](../../crates/sda-device-control/src/finding.rs)
+  variant `FindingKind::AdminDrift` carries the canonical
+  plain-English text per PROPOSAL.md § 9.3. Unit tests cover
+  drift, anti-drift (orphan grant), no-drift, and the
+  multi-finding-in-a-single-scan path.
+- **3.7** — Evidence emission audit in
+  [`crates/sda-jit-admin/src/module.rs`](../../crates/sda-jit-admin/src/module.rs).
+  Every transition (`JitAdminRequested`, `JitAdminGranted`,
+  `JitAdminRevoked`, `AdminDrift`) now emits a chained
+  `EvidenceRecord`. The previous gap (the initial `Requested`
+  receipt and the `deny`/`expire` terminal transitions) is
+  closed. Unit tests assert exactly-one-record-per-transition.
+- **3.8** — New
+  [`crates/sda-agent/tests/e2e_jit_admin.rs`](../../crates/sda-agent/tests/e2e_jit_admin.rs)
+  with a `make e2e-jit-admin` Makefile target. Nine hermetic
+  tests cover grant→approval→time-boxed→timer-revoke→evidence
+  chain, grant→denial→evidence, boot-sweep over expired grants,
+  drift detection, heartbeat-loss revocation, power-profile
+  (`CriticalBattery`) revocation, evidence-chain continuity
+  across all transitions, and double-revoke idempotence.
+
+Phase 4 — agent-side scaffolding:
+
+- **4.1** — `sda-pal::RemoteSupportProvider` trait in
+  [`crates/sda-pal/src/remote_support.rs`](../../crates/sda-pal/src/remote_support.rs).
+  Defines `RemoteSupportProvider`, `SessionParams`,
+  `SessionHandle`, and the per-OS stub implementations
+  (Linux PipeWire/XCB, macOS ScreenCaptureKit, Windows WGC/DDA);
+  every Phase-4 default returns `RemoteSupportError::NotSupported`.
+  `default_remote_support_provider()` factory wires the per-OS
+  stub. Unit tests cover trait object safety and the
+  `NotSupported` invariant.
+- **4.4** — `sda-pal::AppControlProvider` trait in
+  [`crates/sda-pal/src/app_control.rs`](../../crates/sda-pal/src/app_control.rs).
+  Defines `AppControlProvider`, `AppControlMode`,
+  `SignedAppControlPolicy`, `AppControlPolicyPayload`, and
+  `AppControlRule`. The default `apply_policy` performs Ed25519
+  signature verification and delegates to
+  `apply_verified_policy`, the override point for OS-specific
+  logic. `default_app_control_provider()` factory wires the
+  per-OS stub. Unit tests cover trait object safety, signature
+  verify+reject, mode transitions, and the
+  `apply_verified_policy` override pattern.
+- **4.6** — macOS Santa stub in the same
+  [`app_control.rs`](../../crates/sda-pal/src/app_control.rs).
+  Translates each `AppControlRule` into Santa's `santactl rule`
+  format, queries Santa's sync state to derive `current_mode()`,
+  and gracefully degrades to `AppControlMode::Disabled` when
+  Santa is not installed. Unit tests cover rule-translation
+  fidelity and the `not-installed` degradation path. Production
+  Santa integration lights up in Phase 5.
+- **4.2** — New
+  [`sda-remote-support`](../../crates/sda-remote-support/) crate.
+  `RemoteSupportModule::start(...)` matches the same shape as
+  other modules, gated on `modules.remote_support.enabled`.
+  [`session.rs`](../../crates/sda-remote-support/src/session.rs)
+  drives the state machine
+  `Pending → ConsentRequested → Active → Ended` with strict
+  legal-transition enforcement.
+  [`consent.rs`](../../crates/sda-remote-support/src/consent.rs)
+  defines a pluggable `ConsentPrompt` trait; the default
+  `StubConsentPrompt` denies every request, satisfying
+  PROPOSAL.md § 9.7's "consent always required" invariant.
+  Sessions are time-bounded by `max_session_minutes` (default
+  30) and emit `RemoteSupportSessionStarted` /
+  `RemoteSupportSessionEnded` events on the bus. Unit tests
+  cover the full state machine (including illegal transitions),
+  consent-denied path, time-bound sweep, and event emission.
+- **4.3** — Clean-room MeshCentral-style protocol in
+  [`crates/sda-remote-support/src/protocol.rs`](../../crates/sda-remote-support/src/protocol.rs).
+  Defines `FrameType` discriminants (`SessionInit`,
+  `ConsentResponse`, `FrameData`, `SessionEnd`, `Heartbeat`),
+  MessagePack frame encode/decode with bounded payload size,
+  sequence-number validation, heartbeat-timeout detection, and
+  per-session symmetric keys via HKDF-SHA256 over the
+  control-plane session token. No MeshCentral source is
+  consumed; the implementation is from spec per PROPOSAL.md §
+  9.7 and ARCHITECTURE.md § 9. Unit tests cover frame round-trip
+  through MessagePack, oversize-payload rejection, sequence
+  skip detection, and the heartbeat-timeout state machine.
+- **4.5** — New
+  [`sda-app-control`](../../crates/sda-app-control/) crate.
+  `AppControlModule::start(...)` is gated on
+  `modules.app_control.enabled`.
+  [`policy.rs`](../../crates/sda-app-control/src/policy.rs)
+  wraps the PAL signature verifier with extra orchestration-layer
+  guards (trusted-key pinning, per-rule canonical-hash collision
+  detection, anti-version-regression).
+  [`monitor.rs`](../../crates/sda-app-control/src/monitor.rs)
+  records allow/deny decisions without blocking — the Phase-4
+  default (PHASES.md acceptance criterion #2).
+  [`enforce.rs`](../../crates/sda-app-control/src/enforce.rs)
+  pushes verified policies to the OS backend and stores a
+  single-step `DualControlRollback` snapshot so the previous
+  policy can be reverted without a fresh control-plane push (per
+  PROPOSAL.md § 9.6). The supervisor emits
+  `AppControlPolicyApplied` and `AppControlDecision` events on
+  the bus. Unit tests cover policy verification (happy path,
+  untrusted key, tampered payload, duplicate rule, version
+  regression), monitor-mode logging, enforce-mode apply, the
+  rollback path, and the rollback-in-monitor-mode error.
+
+New workspace crates: `sda-remote-support`, `sda-app-control`.
+Both are listed in the workspace `Cargo.toml` `[workspace]`
+`members` table and `[workspace.dependencies]`. `sda-pal` grew
+the two new trait modules; `sda-jit-admin` grew the drift
+detector; `sda-agent` wires the new modules into `main.rs`
+behind their config flags; `sda-event-bus` grew the
+`RemoteSupportSessionStarted` / `RemoteSupportSessionEnded` /
+`AppControlPolicyApplied` / `AppControlDecision` event variants.
+
+Tests:
+
+- **9 / 9** Phase 3 JIT-admin E2E tests (`make e2e-jit-admin`).
+- **8 / 8** Phase 2 software E2E tests (`make e2e-software`)
+  remain green.
+- **7 / 7** Phase 1 device-control E2E tests
+  (`make e2e-device-control`) remain green.
+- **All workspace unit tests pass** across all crates (run via
+  `cargo test --workspace`); the previous baseline remains green
+  and the new surface adds 38 dedicated tests
+  (`sda-remote-support` + `sda-app-control` + `sda-pal` Phase-4
+  trait suites).
+- `cargo fmt --all -- --check` and `cargo clippy --all-targets
+  -- -D warnings` pass cleanly.
+
+Documentation: `PROGRESS.md`, `README.md`, `ARCHITECTURE.md`, and
+`PHASES.md` updated to reflect tasks 3.4 / 3.5 / 3.7 / 3.8 and
+4.1–4.6 as Done. The five PROPOSAL.md § 2.2 examples are
+unchanged.
 
 ### 2026-05-07 — Phase 0 tasks 0.1–0.10 landed (documentation only)
 

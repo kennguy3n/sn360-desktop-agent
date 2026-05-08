@@ -147,6 +147,7 @@ pub(crate) fn validate_evidence_shape(
         FindingKind::AdminAccessRequested => &["requested_by", "duration_minutes"],
         FindingKind::PostureViolation => &["control", "expected", "actual"],
         FindingKind::VulnerabilityMatch => &["cve", "package", "version"],
+        FindingKind::AdminDrift => &["drift_kind", "user"],
         FindingKind::Other => &[],
     };
     for &key in required {
@@ -219,6 +220,19 @@ pub fn render_plain_english(kind: FindingKind, evidence: &serde_json::Value) -> 
             let pkg = s(evidence, "package").unwrap_or("(unknown package)");
             let ver = s(evidence, "version").unwrap_or("?");
             format!("{cve} affects {pkg} {ver}.")
+        }
+        FindingKind::AdminDrift => {
+            let dk = s(evidence, "drift_kind").unwrap_or("unknown");
+            let user = s(evidence, "user").unwrap_or("(unknown)");
+            match dk {
+                "untracked_admin" => {
+                    format!("{user} has admin rights but no tracked JIT grant — possible drift.")
+                }
+                "missing_privilege" => {
+                    format!("{user} has a tracked grant but admin rights were externally removed.")
+                }
+                _ => format!("Admin drift detected for {user} (kind: {dk})."),
+            }
         }
         FindingKind::Other => "Engine-specific finding — see evidence for detail.".to_string(),
     }
@@ -364,6 +378,11 @@ mod tests {
         )
         .unwrap();
         validate_evidence_shape(FindingKind::Other, &json!("string-is-fine-for-other")).unwrap();
+        validate_evidence_shape(
+            FindingKind::AdminDrift,
+            &json!({"drift_kind": "untracked_admin", "user": "alice"}),
+        )
+        .unwrap();
     }
 
     #[test]
@@ -421,6 +440,11 @@ mod tests {
                 FindingKind::VulnerabilityMatch,
                 json!({"cve": "CVE-2026-1", "package": "P", "version": "1"}),
                 "CVE-2026-1 affects P 1",
+            ),
+            (
+                FindingKind::AdminDrift,
+                json!({"drift_kind": "untracked_admin", "user": "alice"}),
+                "alice has admin rights but no tracked JIT grant",
             ),
             (FindingKind::Other, json!({}), "Engine-specific"),
         ];

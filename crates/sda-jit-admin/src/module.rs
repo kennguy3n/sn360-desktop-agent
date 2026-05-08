@@ -34,6 +34,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, Mutex};
 use tracing::{debug, info, warn};
 
+use crate::drift::{Drift, DriftDetector, DriftKind};
 use crate::grant::{GrantRecord, GrantState};
 use crate::state_machine::{StateMachine, StateTransition};
 use crate::store::GrantStore;
@@ -165,10 +166,16 @@ impl JitAdminModule {
         };
 
         let watchdog_cfg = WatchdogConfig::from_secs(cfg.heartbeat_loss_secs);
+        // Drift-scan cadence is independent of the watchdog tick: it
+        // runs on its own `tokio::time::interval` so a long
+        // `AdminManager::list_admins` call cannot delay the watchdog
+        // (which is the load-bearing path for time-boxed revocation).
+        let drift_check_interval_secs = cfg.drift_check_interval_secs.max(1);
         info!(
             state_path = %state_path.display(),
             heartbeat_loss_secs = watchdog_cfg.heartbeat_loss_secs,
             heartbeat_poll_secs = watchdog_cfg.heartbeat_poll_secs,
+            drift_check_interval_secs = drift_check_interval_secs,
             "jit_admin module ready",
         );
 
@@ -185,6 +192,8 @@ impl JitAdminModule {
             admin: admin_manager,
             bus,
             last_heartbeat: Mutex::new(None),
+            drift_detector: DriftDetector::new(),
+            drift_check_interval_secs,
         };
         let supervisor = Arc::new(supervisor);
 
@@ -201,6 +210,12 @@ impl JitAdminModule {
                 // straight away by default).
                 let _ = tick.tick().await;
 
+                let mut drift_tick = tokio::time::interval(Duration::from_secs(
+                    supervisor.drift_check_interval_secs,
+                ));
+                drift_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                let _ = drift_tick.tick().await;
+
                 loop {
                     tokio::select! {
                         _ = shutdown.wait() => {
@@ -213,6 +228,9 @@ impl JitAdminModule {
                         }
                         _ = tick.tick() => {
                             supervisor.watchdog_tick(Utc::now()).await;
+                        }
+                        _ = drift_tick.tick() => {
+                            supervisor.do_drift_scan(Utc::now()).await;
                         }
                     }
                 }
@@ -237,6 +255,14 @@ struct Supervisor {
     admin: Arc<dyn AdminManager>,
     bus: EventBus,
     last_heartbeat: Mutex<Option<DateTime<Utc>>>,
+    /// Phase 3.5 drift detector. Compares
+    /// [`AdminManager::list_admins`] against the active grant ledger
+    /// on `drift_check_interval_secs` cadence and emits a paired
+    /// `DeviceControlFinding` + `EvidenceRecord` per discrepancy.
+    drift_detector: DriftDetector,
+    /// How often the drift scan runs, in seconds. Mirrors
+    /// `JitAdminConfig::drift_check_interval_secs`.
+    drift_check_interval_secs: u64,
 }
 
 impl Supervisor {
@@ -339,7 +365,14 @@ impl Supervisor {
         until: DateTime<Utc>,
         now: DateTime<Utc>,
     ) {
-        let record = GrantRecord::new_requested(id.clone(), requested_by, user, until, now);
+        let mut record = GrantRecord::new_requested(id.clone(), requested_by, user, until, now);
+        // Phase 3.7 — build the transition evidence BEFORE the
+        // persist so its id is appended to `record.evidence_ids`
+        // and survives in the on-disk ledger. `request_received`
+        // covers the entry into the grant lifecycle so the audit
+        // chain has a record even if the control plane never
+        // approves/denies the request.
+        let evidence = Self::append_transition_evidence(&mut record, "request_received", None);
         let mut store = self.store.lock().await;
         if let Err(err) = store.upsert(record.clone()) {
             warn!(grant_id = %id, error = %err, "jit_admin: failed to persist new request");
@@ -349,6 +382,7 @@ impl Supervisor {
         self.emit_event(EventKind::JitAdminRequested {
             payload: serde_json::to_string(&record).unwrap_or_default(),
         });
+        self.emit_evidence(&evidence);
     }
 
     async fn do_approve(&self, id: &str, reason: Option<String>, now: DateTime<Utc>) {
@@ -382,7 +416,7 @@ impl Supervisor {
         // Immediately try to grant the OS-level privilege.
         match self.admin.grant_admin(&approved.user, approved.until) {
             Ok(handle) => {
-                let granted = match self.sm.apply(
+                let mut granted = match self.sm.apply(
                     &approved,
                     StateTransition::Grant {
                         handle: handle.clone(),
@@ -403,6 +437,15 @@ impl Supervisor {
                         return;
                     }
                 };
+                // Phase 3.7 — build evidence BEFORE the persist so
+                // its id lands in `granted.evidence_ids` and the
+                // on-disk ledger reflects the audit chain.
+                let granted_reason = granted.last_reason.clone();
+                let evidence = Self::append_transition_evidence(
+                    &mut granted,
+                    "granted",
+                    granted_reason.as_deref(),
+                );
                 if let Err(err) = self.persist(&granted).await {
                     warn!(
                         grant_id = id,
@@ -453,6 +496,7 @@ impl Supervisor {
                 self.emit_event(EventKind::JitAdminGranted {
                     payload: serde_json::to_string(&granted).unwrap_or_default(),
                 });
+                self.emit_evidence(&evidence);
             }
             Err(err) => {
                 warn!(
@@ -481,7 +525,7 @@ impl Supervisor {
             warn!(grant_id = id, "jit_admin: deny for unknown grant");
             return;
         };
-        let denied = match self
+        let mut denied = match self
             .sm
             .apply(&record, StateTransition::Deny { reason }, now)
         {
@@ -491,6 +535,11 @@ impl Supervisor {
                 return;
             }
         };
+        // Phase 3.7 — build evidence BEFORE the persist so its id
+        // lands in `denied.evidence_ids`.
+        let denied_reason = denied.last_reason.clone();
+        let evidence =
+            Self::append_transition_evidence(&mut denied, "denied", denied_reason.as_deref());
         if let Err(err) = self.persist(&denied).await {
             warn!(grant_id = id, error = %err, "jit_admin: failed to persist deny");
             return;
@@ -501,6 +550,7 @@ impl Supervisor {
         self.emit_event(EventKind::JitAdminRevoked {
             payload: serde_json::to_string(&denied).unwrap_or_default(),
         });
+        self.emit_evidence(&evidence);
     }
 
     async fn do_revoke(&self, id: &str, reason: RevocationReason, now: DateTime<Utc>) {
@@ -556,7 +606,7 @@ impl Supervisor {
             }
         }
 
-        let revoked = match self
+        let mut revoked = match self
             .sm
             .apply(&record, StateTransition::Revoke { reason }, now)
         {
@@ -566,6 +616,15 @@ impl Supervisor {
                 return;
             }
         };
+        // Phase 3.7 — build evidence BEFORE the persist so its id
+        // lands in `revoked.evidence_ids` (operator / timer /
+        // heartbeat-loss / power / boot-sweep all funnel here).
+        let revoked_reason = format!("{reason:?}");
+        let evidence = Self::append_transition_evidence(
+            &mut revoked,
+            "revoked",
+            Some(revoked_reason.as_str()),
+        );
         if let Err(err) = self.persist(&revoked).await {
             warn!(grant_id = id, error = %err, "jit_admin: failed to persist revoke");
             return;
@@ -573,6 +632,7 @@ impl Supervisor {
         self.emit_event(EventKind::JitAdminRevoked {
             payload: serde_json::to_string(&revoked).unwrap_or_default(),
         });
+        self.emit_evidence(&evidence);
     }
 
     /// Boot-sweep finaliser for records that were never grant-
@@ -602,19 +662,87 @@ impl Supervisor {
             );
             return;
         }
-        let expired = match self.sm.apply(&record, StateTransition::Expire, now) {
+        let mut expired = match self.sm.apply(&record, StateTransition::Expire, now) {
             Ok(r) => r,
             Err(err) => {
                 warn!(grant_id = id, error = %err, "jit_admin: expire transition rejected");
                 return;
             }
         };
+        // Phase 3.7 — build evidence BEFORE the persist so its id
+        // lands in `expired.evidence_ids` (boot-sweep finalisation
+        // of stale Requested/Approved records).
+        let evidence = Self::append_transition_evidence(&mut expired, "expired", None);
         if let Err(err) = self.persist(&expired).await {
             warn!(grant_id = id, error = %err, "jit_admin: failed to persist expire");
             return;
         }
         self.emit_event(EventKind::JitAdminRevoked {
             payload: serde_json::to_string(&expired).unwrap_or_default(),
+        });
+        self.emit_evidence(&evidence);
+    }
+
+    /// Phase 3.5 drift scan. Calls
+    /// [`AdminManager::list_admins`] and feeds the result into the
+    /// pure-logic [`DriftDetector`]. For each [`Drift`] entry the
+    /// supervisor publishes:
+    ///
+    /// 1. `EventKind::DeviceControlFinding` — canonical
+    ///    [`Finding`](sda_device_control::finding::Finding) JSON
+    ///    with [`FindingKind::AdminDrift`](sda_device_control::FindingKind::AdminDrift).
+    /// 2. `EventKind::EvidenceRecord` — paired evidence so the audit
+    ///    chain reflects the drift observation alongside the live
+    ///    grant ledger.
+    ///
+    /// Failures from `list_admins()` are logged at WARN and skip the
+    /// emit step; the next tick retries.
+    async fn do_drift_scan(&self, now: DateTime<Utc>) {
+        let records: Vec<GrantRecord> = {
+            let store = self.store.lock().await;
+            store.records().to_vec()
+        };
+        let drifts = match self.drift_detector.scan(self.admin.as_ref(), &records) {
+            Ok(d) => d,
+            Err(err) => {
+                warn!(error = %err, "jit_admin: drift scan failed");
+                return;
+            }
+        };
+        for drift in drifts {
+            self.emit_event(EventKind::DeviceControlFinding {
+                payload: build_drift_finding_payload(&drift, now),
+            });
+            self.emit_event(EventKind::EvidenceRecord {
+                payload: serde_json::to_string(&AdminEvidence::drift(&drift, now))
+                    .unwrap_or_default(),
+            });
+        }
+    }
+
+    /// Phase 3.7 — build a transition evidence record AND wire
+    /// its id into the grant's [`GrantRecord::evidence_ids`] audit
+    /// chain. Callers MUST persist `record` after calling this so
+    /// the appended id survives in the ledger; they then call
+    /// [`Supervisor::emit_evidence`] once the persist returns OK so
+    /// the wire and ledger views stay aligned.
+    fn append_transition_evidence(
+        record: &mut GrantRecord,
+        operation: &str,
+        reason: Option<&str>,
+    ) -> AdminEvidence {
+        let evidence = AdminEvidence::transition(record, operation, reason);
+        record.evidence_ids.push(evidence.evidence_id.clone());
+        evidence
+    }
+
+    /// Emit a pre-built [`AdminEvidence`] on the bus as an
+    /// `EvidenceRecord`. Pairs with
+    /// [`Supervisor::append_transition_evidence`] on the success
+    /// paths and is invoked directly for failure / drift evidence.
+    fn emit_evidence(&self, evidence: &AdminEvidence) {
+        self.emit_event(EventKind::EvidenceRecord {
+            payload: serde_json::to_string(evidence).unwrap_or_default(),
         });
     }
 
@@ -642,35 +770,150 @@ fn is_already_revoked(err: &AdminError) -> bool {
     msg.contains("not a member") || msg.contains("not found")
 }
 
-/// Compact evidence payload for the cases where the AdminManager
-/// fails. The supervisor emits these as
-/// `EventKind::EvidenceRecord` so the audit chain reflects the
-/// failure even when the state-machine record stays put.
+/// Compact evidence payload for JIT-admin state transitions.
+///
+/// The supervisor emits these as `EventKind::EvidenceRecord` for
+/// every transition (success or failure) so the audit chain mirrors
+/// the lifecycle of every grant.
+///
+/// Three constructors cover the three classes of transition:
+///
+/// 1. [`AdminEvidence::transition`] — successful happy-path
+///    transitions (request_received / granted / denied / revoked /
+///    expired). `success = true`, `error = None`.
+/// 2. [`AdminEvidence::failure`] — `AdminManager` (or persist) call
+///    failed during a transition. `success = false`, `error =
+///    Some(...)`.
+/// 3. [`AdminEvidence::drift`] — drift detector observed a
+///    discrepancy between the OS-level admin list and the active
+///    grant ledger. Encoded as `operation = "drift_detected"`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct AdminEvidence {
+    /// Unique id for this evidence record. Generated fresh per
+    /// emission so the audit chain (`GrantRecord::evidence_ids`)
+    /// can reference each transition individually.
+    evidence_id: String,
     schema_version: u16,
     grant_id: String,
     user: UserRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     handle_id: Option<String>,
     state: GrantState,
     operation: String,
-    error: String,
+    /// `true` on successful transitions; `false` when an OS-level
+    /// or ledger persist failed.
+    success: bool,
+    /// Free-form reason text (deny reason, revoke reason, …) when
+    /// the supervisor has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+    /// Set only on failure transitions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+    /// Drift kind label for `operation = "drift_detected"` records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    drift_kind: Option<String>,
     occurred_at: DateTime<Utc>,
 }
 
 impl AdminEvidence {
-    fn failure(record: &GrantRecord, operation: &str, error: &AdminError) -> Self {
+    fn transition(record: &GrantRecord, operation: &str, reason: Option<&str>) -> Self {
         Self {
+            evidence_id: uuid::Uuid::new_v4().to_string(),
             schema_version: 1,
             grant_id: record.id.clone(),
             user: record.user.clone(),
             handle_id: record.handle.as_ref().map(|h: &GrantHandle| h.id.clone()),
             state: record.state,
             operation: operation.into(),
-            error: error.to_string(),
+            success: true,
+            reason: reason.map(|s| s.to_string()),
+            error: None,
+            drift_kind: None,
             occurred_at: Utc::now(),
         }
     }
+
+    fn failure(record: &GrantRecord, operation: &str, error: &AdminError) -> Self {
+        Self {
+            evidence_id: uuid::Uuid::new_v4().to_string(),
+            schema_version: 1,
+            grant_id: record.id.clone(),
+            user: record.user.clone(),
+            handle_id: record.handle.as_ref().map(|h: &GrantHandle| h.id.clone()),
+            state: record.state,
+            operation: operation.into(),
+            success: false,
+            reason: None,
+            error: Some(error.to_string()),
+            drift_kind: None,
+            occurred_at: Utc::now(),
+        }
+    }
+
+    fn drift(drift: &Drift, now: DateTime<Utc>) -> Self {
+        Self {
+            evidence_id: uuid::Uuid::new_v4().to_string(),
+            schema_version: 1,
+            grant_id: drift.grant_id.clone().unwrap_or_default(),
+            user: UserRef {
+                username: drift.user.clone(),
+                domain: None,
+            },
+            handle_id: None,
+            // Drift records describe an OS-level state, not a
+            // ledger transition — encode the drift kind as the
+            // pseudo-state label so consumers can distinguish them
+            // from regular grant evidence.
+            state: GrantState::DriftDetected,
+            operation: "drift_detected".into(),
+            success: false,
+            reason: drift.source.clone(),
+            error: None,
+            drift_kind: Some(drift.kind.as_str().to_string()),
+            occurred_at: now,
+        }
+    }
+}
+
+/// Build the canonical [`sda_device_control::finding::Finding`] JSON
+/// payload for a single drift observation. The agent does not yet
+/// own its tenant_id / device_id at this layer — those are wired in
+/// by the agent supervisor when it forwards the
+/// `DeviceControlFinding` event onto the server queue. Until then we
+/// emit the nil UUID and rely on the agent envelope to populate the
+/// outer identity (matching the `build_recommendation_payload`
+/// pattern in `sda-software::approval`).
+fn build_drift_finding_payload(drift: &Drift, now: DateTime<Utc>) -> String {
+    let evidence = serde_json::json!({
+        "drift_kind": drift.kind.as_str(),
+        "user": drift.user,
+        "group": drift.group,
+        "source": drift.source,
+        "grant_id": drift.grant_id,
+    });
+    let plain_english = match drift.kind {
+        DriftKind::UntrackedAdmin => format!(
+            "{} has admin rights but no tracked JIT grant — possible drift.",
+            drift.user
+        ),
+        DriftKind::MissingPrivilege => format!(
+            "{} has a tracked grant but admin rights were externally removed.",
+            drift.user
+        ),
+    };
+    let value = serde_json::json!({
+        "finding_id":     uuid::Uuid::new_v4(),
+        "device_id":      uuid::Uuid::nil(),
+        "tenant_id":      uuid::Uuid::nil(),
+        "schema_version": 1u16,
+        "kind":           "admin_drift",
+        "severity":       "high",
+        "plain_english":  plain_english,
+        "evidence":       evidence,
+        "observed_at":    now,
+    });
+    serde_json::to_string(&value).expect("serde_json::to_string of a Value is infallible")
 }
 
 #[cfg(test)]
@@ -691,6 +934,11 @@ mod tests {
         revokes: StdMutex<Vec<GrantHandle>>,
         grant_should_fail: StdMutex<Option<AdminError>>,
         revoke_should_fail: StdMutex<Option<AdminError>>,
+        /// Canned `list_admins` payload. When `None`, returns an
+        /// empty list (the historical default that pre-3.5 tests
+        /// expect). Drift tests overwrite this to inject untracked
+        /// admins.
+        admins: StdMutex<Option<Vec<AdminAccount>>>,
         /// Test-only mid-call hook: when set, the directory at the
         /// given path is recursively removed *during*
         /// [`grant_admin`], between the supervisor's `Approved`
@@ -704,7 +952,7 @@ mod tests {
 
     impl AdminManager for FakeAdmin {
         fn list_admins(&self) -> Result<Vec<AdminAccount>, AdminError> {
-            Ok(Vec::new())
+            Ok(self.admins.lock().unwrap().clone().unwrap_or_default())
         }
 
         fn grant_admin(
@@ -748,7 +996,24 @@ mod tests {
             enabled,
             state_path,
             heartbeat_loss_secs: 4,
+            // Long enough that the drift_tick never fires inside the
+            // 200 ms `drain_server` window of the existing tests.
+            // Drift-specific tests override this via `cfg_with_drift`.
+            drift_check_interval_secs: 3600,
         };
+        c
+    }
+
+    /// Like [`cfg`], but with a short drift-scan cadence so the
+    /// supervisor's `drift_tick` fires inside the test's 200 ms
+    /// `drain_server` window. The watchdog tick is unaffected.
+    fn cfg_with_drift(
+        enabled: bool,
+        state_path: Option<PathBuf>,
+        drift_check_interval_secs: u64,
+    ) -> AgentConfig {
+        let mut c = cfg(enabled, state_path);
+        c.modules.jit_admin.drift_check_interval_secs = drift_check_interval_secs;
         c
     }
 
@@ -1279,6 +1544,246 @@ mod tests {
         assert!(req.state.is_terminal());
         assert!(app.state.is_terminal());
         assert!(grn.state.is_terminal());
+    }
+
+    /// Phase 3.5 — drift detector finds an externally-added admin
+    /// (mock `AdminManager` returns a user not tracked by any
+    /// grant). The supervisor must emit a `DeviceControlFinding`
+    /// + paired `EvidenceRecord` on the next `drift_tick`.
+    #[tokio::test(flavor = "current_thread")]
+    async fn drift_scan_finds_externally_added_admin() {
+        let tmp = TempDir::new().unwrap();
+        // 1 second cadence is well below the 3 s drain window so
+        // we are guaranteed at least one `drift_tick` firing.
+        let cfg = cfg_with_drift(true, Some(tmp.path().join("grants.json")), 1);
+        let (bus, mut server_rx) = EventBus::new(16, 16);
+        let (controller, signal) = ShutdownController::new();
+
+        let admin = Arc::new(FakeAdmin::default());
+        // Inject a single untracked admin ("mallory") with no
+        // matching grant in the ledger.
+        *admin.admins.lock().unwrap() = Some(vec![AdminAccount {
+            username: "mallory".into(),
+            source: "local".into(),
+            since: None,
+            group: Some("sudo".into()),
+        }]);
+
+        let h = JitAdminModule::start(&cfg, bus, signal, admin.clone(), tmp.path().to_path_buf());
+        // Supervisor parks if disabled; here it must be active.
+        assert!(h.sender.is_some(), "supervisor must be active");
+        // Wait long enough for the `drift_tick` to fire at least
+        // once. The first tick arrives `drift_check_interval_secs`
+        // after the immediate-tick consume in `start`.
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+
+        let mut kinds = Vec::new();
+        while let Ok(Some(ev)) =
+            tokio::time::timeout(Duration::from_millis(200), server_rx.recv()).await
+        {
+            kinds.push(ev.kind);
+        }
+        controller.shutdown();
+        h.module.task.await.unwrap().unwrap();
+
+        // Expect at least one DeviceControlFinding + one
+        // EvidenceRecord. The supervisor may have run multiple
+        // ticks within the 1.5 s window so we accept >= 1.
+        let finding_count = kinds
+            .iter()
+            .filter(|k| matches!(k, EventKind::DeviceControlFinding { .. }))
+            .count();
+        let evidence_count = kinds
+            .iter()
+            .filter(|k| matches!(k, EventKind::EvidenceRecord { .. }))
+            .count();
+        assert!(
+            finding_count >= 1,
+            "expected >=1 DeviceControlFinding, saw {finding_count} in {kinds:?}",
+        );
+        assert!(
+            evidence_count >= 1,
+            "expected >=1 EvidenceRecord, saw {evidence_count} in {kinds:?}",
+        );
+
+        // Validate the Finding payload shape: kind=admin_drift +
+        // expected evidence keys.
+        let finding_payload = kinds
+            .iter()
+            .find_map(|k| match k {
+                EventKind::DeviceControlFinding { payload } => Some(payload.clone()),
+                _ => None,
+            })
+            .expect("already asserted >=1 finding");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&finding_payload).expect("Finding JSON must parse");
+        assert_eq!(parsed["kind"], "admin_drift");
+        assert_eq!(parsed["evidence"]["user"], "mallory");
+        assert_eq!(parsed["evidence"]["drift_kind"], "untracked_admin");
+    }
+
+    /// Phase 3.5 — when `list_admins` returns only allow-listed
+    /// users (root etc.), the drift scan must produce no findings.
+    #[tokio::test(flavor = "current_thread")]
+    async fn drift_scan_emits_nothing_when_ledger_matches_os() {
+        let tmp = TempDir::new().unwrap();
+        let cfg = cfg_with_drift(true, Some(tmp.path().join("grants.json")), 1);
+        let (bus, mut server_rx) = EventBus::new(16, 16);
+        let (controller, signal) = ShutdownController::new();
+
+        let admin = Arc::new(FakeAdmin::default());
+        *admin.admins.lock().unwrap() = Some(vec![AdminAccount {
+            username: "root".into(),
+            source: "local".into(),
+            since: None,
+            group: Some("wheel".into()),
+        }]);
+
+        let h = JitAdminModule::start(&cfg, bus, signal, admin.clone(), tmp.path().to_path_buf());
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        let mut kinds = Vec::new();
+        while let Ok(Some(ev)) =
+            tokio::time::timeout(Duration::from_millis(200), server_rx.recv()).await
+        {
+            kinds.push(ev.kind);
+        }
+        controller.shutdown();
+        h.module.task.await.unwrap().unwrap();
+
+        let drift_findings: Vec<_> = kinds
+            .iter()
+            .filter(|k| matches!(k, EventKind::DeviceControlFinding { .. }))
+            .collect();
+        assert!(
+            drift_findings.is_empty(),
+            "baseline allow-list must produce no drift findings; saw {drift_findings:?}",
+        );
+    }
+
+    /// Phase 3.7 — every state transition must emit exactly one
+    /// `EvidenceRecord`. Walks a grant through
+    /// Requested → Granted → Revoked and verifies three transition
+    /// records appear on the bus (one per transition).
+    #[tokio::test(flavor = "current_thread")]
+    async fn every_transition_emits_evidence_record() {
+        let tmp = TempDir::new().unwrap();
+        let cfg = cfg(true, Some(tmp.path().join("grants.json")));
+        let (bus, mut server_rx) = EventBus::new(32, 32);
+        let (controller, signal) = ShutdownController::new();
+
+        let admin = Arc::new(FakeAdmin::default());
+        let until = Utc::now() + chrono::Duration::hours(1);
+        *admin.next_grant_handle.lock().unwrap() = Some(handle("h-3", until));
+
+        let h = JitAdminModule::start(&cfg, bus, signal, admin.clone(), tmp.path().to_path_buf());
+        let sender = h.sender.expect("module should be active");
+
+        sender
+            .send(JitAdminRequest::NewRequest {
+                id: "g-3".into(),
+                requested_by: "ops".into(),
+                user: user("alice"),
+                until,
+            })
+            .await
+            .unwrap();
+        sender
+            .send(JitAdminRequest::Approve {
+                id: "g-3".into(),
+                reason: Some("policy ok".into()),
+            })
+            .await
+            .unwrap();
+        sender
+            .send(JitAdminRequest::Revoke {
+                id: "g-3".into(),
+                reason: Some(RevocationReason::Operator),
+            })
+            .await
+            .unwrap();
+
+        let kinds = drain_server(&mut server_rx).await;
+        controller.shutdown();
+        h.module.task.await.unwrap().unwrap();
+
+        // Decode every EvidenceRecord and bucket by `operation`.
+        let mut ops: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+        for kind in &kinds {
+            if let EventKind::EvidenceRecord { payload } = kind {
+                let v: serde_json::Value =
+                    serde_json::from_str(payload).expect("evidence payload must be JSON");
+                let op = v["operation"]
+                    .as_str()
+                    .expect("operation field must be a string")
+                    .to_string();
+                let entry = ops.entry(op).or_insert(0);
+                *entry += 1;
+            }
+        }
+        assert_eq!(
+            ops.get("request_received").copied().unwrap_or(0),
+            1,
+            "expected exactly one request_received evidence; ops = {ops:?}",
+        );
+        assert_eq!(
+            ops.get("granted").copied().unwrap_or(0),
+            1,
+            "expected exactly one granted evidence; ops = {ops:?}",
+        );
+        assert_eq!(
+            ops.get("revoked").copied().unwrap_or(0),
+            1,
+            "expected exactly one revoked evidence; ops = {ops:?}",
+        );
+    }
+
+    /// Phase 3.7 — the deny path produces exactly one transition
+    /// evidence record (`operation = "denied"`).
+    #[tokio::test(flavor = "current_thread")]
+    async fn deny_path_emits_evidence_record() {
+        let tmp = TempDir::new().unwrap();
+        let cfg = cfg(true, Some(tmp.path().join("grants.json")));
+        let (bus, mut server_rx) = EventBus::new(16, 16);
+        let (controller, signal) = ShutdownController::new();
+        let admin = Arc::new(FakeAdmin::default());
+        let until = Utc::now() + chrono::Duration::hours(1);
+
+        let h = JitAdminModule::start(&cfg, bus, signal, admin.clone(), tmp.path().to_path_buf());
+        let sender = h.sender.expect("module should be active");
+        sender
+            .send(JitAdminRequest::NewRequest {
+                id: "g-4".into(),
+                requested_by: "ops".into(),
+                user: user("alice"),
+                until,
+            })
+            .await
+            .unwrap();
+        sender
+            .send(JitAdminRequest::Deny {
+                id: "g-4".into(),
+                reason: Some("after-hours".into()),
+            })
+            .await
+            .unwrap();
+
+        let kinds = drain_server(&mut server_rx).await;
+        controller.shutdown();
+        h.module.task.await.unwrap().unwrap();
+
+        let denied_count = kinds
+            .iter()
+            .filter_map(|k| match k {
+                EventKind::EvidenceRecord { payload } => Some(payload),
+                _ => None,
+            })
+            .filter_map(|p| serde_json::from_str::<serde_json::Value>(p).ok())
+            .filter(|v| v["operation"] == "denied")
+            .count();
+        assert_eq!(
+            denied_count, 1,
+            "expected exactly one `denied` evidence record in {kinds:?}",
+        );
     }
 
     #[test]

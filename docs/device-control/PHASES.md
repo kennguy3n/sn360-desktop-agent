@@ -255,11 +255,11 @@ auto-revocation, evidence, and SMI feedback.
 | 3.1 | `sda-pal::AdminManager` impls — temporary | Time-boxed grant + revoke on each OS. | Done |
 | 3.2 | `sda-jit-admin` scaffold | Crate skeleton + grant state machine. | Done |
 | 3.3 | Revocation watchdog | Tokio task scheduling + multi-trigger revoke. | Done |
-| 3.4 | Boot-time idempotent revoke | On startup, revoke any expired grants. | Not Started |
-| 3.5 | Drift detection | Compare observed grants vs. tracked grants; emit Finding. | Not Started |
+| 3.4 | Boot-time idempotent revoke | On startup, revoke any expired grants. | Done |
+| 3.5 | Drift detection | Compare observed grants vs. tracked grants; emit Finding. | Done |
 | 3.6 | Approval Service v1 ⚙️ | Auto + human + per-tenant policy. Implemented in `sn360-security-platform`. | Not Started |
-| 3.7 | Evidence at every transition | Requested / Granted / Revoked / Drift each emit `EvidenceRecord`. | Not Started |
-| 3.8 | Phase 3 E2E suite | Covers PROPOSAL.md § 2.2 example 5 end to end. | Not Started |
+| 3.7 | Evidence at every transition | Requested / Granted / Revoked / Drift each emit `EvidenceRecord`. | Done |
+| 3.8 | Phase 3 E2E suite | Covers PROPOSAL.md § 2.2 example 5 end to end. | Done |
 
 ### Acceptance criteria
 
@@ -296,12 +296,12 @@ PROPOSAL.md § 2.3.
 
 | # | Task | Description | Status |
 |---|------|-------------|--------|
-| 4.1 | `sda-pal::RemoteSupportProvider` impls | Per-OS capture + transport. | Not Started |
-| 4.2 | `sda-remote-support` scaffold | Consent banner, time-bound, protocol shim. | Not Started |
-| 4.3 | Clean-room MeshCentral-style protocol | Specification + reference implementation. | Not Started |
-| 4.4 | `sda-pal::AppControlProvider` impls | Per-OS app control providers. | Not Started |
-| 4.5 | `sda-app-control` scaffold | Monitor mode default + signed policy push. | Not Started |
-| 4.6 | Santa integration (macOS) | Wrap Santa's binauthorize / file-modification rules. | Not Started |
+| 4.1 | `sda-pal::RemoteSupportProvider` impls | Per-OS capture + transport. | Done |
+| 4.2 | `sda-remote-support` scaffold | Consent banner, time-bound, protocol shim. | Done |
+| 4.3 | Clean-room MeshCentral-style protocol | Specification + reference implementation. | Done |
+| 4.4 | `sda-pal::AppControlProvider` impls | Per-OS app control providers. | Done |
+| 4.5 | `sda-app-control` scaffold | Monitor mode default + signed policy push. | Done |
+| 4.6 | Santa integration (macOS) | Wrap Santa's binauthorize / file-modification rules. | Done |
 | 4.7 | WDAC + AppLocker (Windows) | Signed-policy push via PowerShell. | Not Started |
 | 4.8 | Linux app control | Clean-room dm-verity-aware enforcement. | Not Started |
 | 4.9 | Android MDM connector ⚙️ | Implemented in `sn360-security-platform`. | Not Started |
