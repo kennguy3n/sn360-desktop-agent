@@ -243,6 +243,14 @@ The remaining work is server-side and tracked in
 
 ## Changelog
 
+### 2026-05-09 — CI tiered test targets
+
+Added tiered Makefile test targets (`test-unit`, `test-e2e-all`,
+`test-full`, `test-pr`) and a GitHub Actions CI workflow
+(`.github/workflows/ci.yml`) with two jobs: `pr-gate` (lint + unit
+tests on every PR) and `full-suite` (all tests on push to main and
+manual dispatch). PRs no longer need to run the full E2E suite.
+
 ### 2026-05-08 — Phase 4 completion (4.7/4.8/4.12) + Phase 5 agent-side (5.6/5.7)
 
 This PR completes the agent-side scope of Phase 4 and lands the

@@ -22,7 +22,8 @@ TARGETS := \
 
 .PHONY: build release test lint fmt clippy all-targets clean e2e e2e-compat e2e-macos e2e-windows security-e2e \
         e2e-device-control e2e-software e2e-jit-admin e2e-app-control e2e-remote-support \
-        e2e-management-compat benchmark-ci deb rpm pkg msi
+        e2e-management-compat benchmark-ci deb rpm pkg msi \
+        test-unit test-integration test-e2e-all test-full test-pr
 
 build:
 	$(CARGO) build
@@ -32,6 +33,38 @@ release:
 
 test:
 	$(CARGO) test --all
+
+# --- Test tiers ---------------------------------------------------------------
+
+# Fast: unit tests only (lib tests in every crate). This is what PRs run.
+test-unit:
+	$(CARGO) test --all --lib
+
+# Medium: unit + per-crate integration tests (no E2E).
+# sda-agent's `tests/` directory holds the 6 hermetic Device Control
+# E2E suites — those are owned by `test-e2e-all`, so we run sda-agent
+# with `--bins` only (it has no library target; this exercises the
+# inline unit tests in `src/main.rs`, `src/privilege.rs`, etc.) and
+# let every other workspace crate run its full unit + integration
+# suite.
+test-integration:
+	$(CARGO) test --workspace --exclude sda-agent
+	$(CARGO) test --package sda-agent --bins
+
+# All 6 hermetic Device Control E2E suites in one shot.
+test-e2e-all:
+	$(CARGO) test --package sda-agent --test e2e_device_control -- --nocapture
+	$(CARGO) test --package sda-agent --test e2e_software -- --nocapture
+	$(CARGO) test --package sda-agent --test e2e_jit_admin -- --nocapture
+	$(CARGO) test --package sda-agent --test e2e_app_control -- --nocapture
+	$(CARGO) test --package sda-agent --test e2e_remote_support -- --nocapture
+	$(CARGO) test --package sda-agent --test e2e_management_compat -- --nocapture
+
+# Full: everything — unit + integration + all E2E + shell E2E + benchmarks.
+test-full: test-integration test-e2e-all e2e e2e-compat security-e2e benchmark-ci
+
+# PR gate: lint + unit tests only (fast).
+test-pr: lint test-unit
 
 lint: fmt clippy
 
