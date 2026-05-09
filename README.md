@@ -57,7 +57,10 @@ make test-pr
 # Unit tests only
 make test-unit
 
-# Unit + integration tests (no E2E)
+# Unit + per-crate integration tests (no Device Control E2E)
+make test-integration
+
+# All workspace tests including sda-agent E2E (legacy / backward compat)
 make test
 
 # All 6 hermetic Device Control E2E suites

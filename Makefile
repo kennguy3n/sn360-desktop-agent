@@ -41,8 +41,15 @@ test-unit:
 	$(CARGO) test --all --lib
 
 # Medium: unit + per-crate integration tests (no E2E).
+# sda-agent's `tests/` directory holds the 6 hermetic Device Control
+# E2E suites — those are owned by `test-e2e-all`, so we run sda-agent
+# with `--bins` only (it has no library target; this exercises the
+# inline unit tests in `src/main.rs`, `src/privilege.rs`, etc.) and
+# let every other workspace crate run its full unit + integration
+# suite.
 test-integration:
-	$(CARGO) test --all
+	$(CARGO) test --workspace --exclude sda-agent
+	$(CARGO) test --package sda-agent --bins
 
 # All 6 hermetic Device Control E2E suites in one shot.
 test-e2e-all:

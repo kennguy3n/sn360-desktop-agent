@@ -40,6 +40,6 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: make lint
-      - run: make test-unit
+      - run: make test-integration
       - run: make test-e2e-all
       - run: make benchmark-ci
