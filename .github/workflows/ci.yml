@@ -60,7 +60,8 @@ jobs:
   full-suite:
     name: Full Test Suite
     if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'push' &&
+       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')) ||
       (github.event_name == 'workflow_dispatch' && inputs.run_full_suite) ||
       (github.event_name == 'pull_request' &&
        contains(github.event.pull_request.labels.*.name, 'ci:full'))
@@ -82,6 +83,8 @@ jobs:
   benchmark:
     name: Performance Benchmark
     if: >-
+      (github.event_name == 'push' &&
+       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')) ||
       (github.event_name == 'workflow_dispatch' && inputs.run_benchmark) ||
       (github.event_name == 'pull_request' &&
        contains(github.event.pull_request.labels.*.name, 'ci:full'))
