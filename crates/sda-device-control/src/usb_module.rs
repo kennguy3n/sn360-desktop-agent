@@ -98,16 +98,24 @@ impl UsbPolicyModule {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn default_ipc_path() -> String {
-    if cfg!(target_os = "linux") {
-        crate::usb_linux::DEFAULT_LINUX_SOCKET_PATH.to_string()
-    } else if cfg!(target_os = "macos") {
-        "/var/run/sn360-desktop-agent/usb-policy.sock".to_string()
-    } else if cfg!(target_os = "windows") {
-        r"\\.\pipe\sn360-usb-policy".to_string()
-    } else {
-        crate::usb_linux::DEFAULT_LINUX_SOCKET_PATH.to_string()
-    }
+    crate::usb_linux::DEFAULT_LINUX_SOCKET_PATH.to_string()
+}
+
+#[cfg(target_os = "macos")]
+fn default_ipc_path() -> String {
+    "/var/run/sn360-desktop-agent/usb-policy.sock".to_string()
+}
+
+#[cfg(target_os = "windows")]
+fn default_ipc_path() -> String {
+    r"\\.\pipe\sn360-usb-policy".to_string()
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+fn default_ipc_path() -> String {
+    "/run/sn360-desktop-agent/usb-policy.sock".to_string()
 }
 
 /// Build a supervisor from the agent's [`UsbPolicyConfig`].
