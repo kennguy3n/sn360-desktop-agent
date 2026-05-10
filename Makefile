@@ -22,6 +22,7 @@ TARGETS := \
 
 .PHONY: build release test lint fmt clippy all-targets clean e2e e2e-compat e2e-macos e2e-windows security-e2e \
         e2e-device-control e2e-software e2e-jit-admin e2e-app-control e2e-remote-support \
+        e2e-device-policy \
         e2e-management-compat benchmark-ci deb rpm pkg msi \
         test-unit test-integration test-e2e-all test-full test-pr
 
@@ -51,7 +52,7 @@ test-integration:
 	$(CARGO) test --workspace --exclude sda-agent
 	$(CARGO) test --package sda-agent --bins
 
-# All 6 hermetic Device Control E2E suites in one shot.
+# All 7 hermetic Device Control E2E suites in one shot.
 test-e2e-all:
 	$(CARGO) test --package sda-agent --test e2e_device_control -- --nocapture
 	$(CARGO) test --package sda-agent --test e2e_software -- --nocapture
@@ -59,6 +60,7 @@ test-e2e-all:
 	$(CARGO) test --package sda-agent --test e2e_app_control -- --nocapture
 	$(CARGO) test --package sda-agent --test e2e_remote_support -- --nocapture
 	$(CARGO) test --package sda-agent --test e2e_management_compat -- --nocapture
+	$(CARGO) test --package sda-agent --test e2e_device_policy -- --nocapture
 
 # Full: everything — unit + integration + all E2E + shell E2E + benchmarks.
 test-full: test-integration test-e2e-all e2e e2e-compat security-e2e benchmark-ci
@@ -157,6 +159,15 @@ e2e-remote-support:
 # required.
 e2e-management-compat:
 	$(CARGO) test --package sda-agent --test e2e_management_compat -- --nocapture
+
+# Phase D2.6 USB / removable-media policy E2E suite. Hermetic — no
+# real hardware. Walks block / allow / audit decisions, priority
+# ordering, closed-by-default boot sentinel, last-known-good
+# preservation across a tampered bundle, and a live UDS round-trip
+# through the udev-helper IPC contract. Lives in
+# crates/sda-agent/tests/e2e_device_policy.rs.
+e2e-device-policy:
+	$(CARGO) test --package sda-agent --test e2e_device_policy -- --nocapture
 
 clean:
 	$(CARGO) clean

@@ -199,6 +199,14 @@ pub enum EventKind {
     /// projection of an `ActionResult`. Payload: canonical JSON of
     /// `EvidenceRecord`.
     EvidenceRecord { payload: String },
+
+    /// A USB / removable-media policy decision (Phase D2). Emitted
+    /// once per OS attach event the supervisor evaluates. Payload:
+    /// RFC 8785 canonical JSON `{ "connector_type": "device-control",
+    /// "tenant_id": ..., "decision": "block"|"allow"|"audit",
+    /// "device": { ... }, "matched_policy": { ... } }` envelope
+    /// produced by `sda_device_control::usb_policy::Decision::to_event_payload`.
+    UsbDevicePolicyDecision { payload: String },
 }
 
 /// An event that flows through the event bus.

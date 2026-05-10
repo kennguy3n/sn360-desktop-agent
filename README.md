@@ -63,7 +63,7 @@ make test-integration
 # All workspace tests including sda-agent E2E (legacy / backward compat)
 make test
 
-# All 6 hermetic Device Control E2E suites
+# All 7 hermetic Device Control E2E suites
 make test-e2e-all
 
 # Full suite — unit + integration + all E2E + shell E2E + benchmarks
@@ -76,6 +76,7 @@ make e2e-jit-admin
 make e2e-app-control
 make e2e-remote-support
 make e2e-management-compat
+make e2e-device-policy
 
 # Shell-based E2E (requires Docker)
 make e2e              # Linux E2E against local SIEM manager
@@ -148,7 +149,7 @@ workflow page (toggle `run_full_suite` and/or `run_benchmark`).
 | `sda-local-detection` | Local Detection Engine (Aho-Corasick + IOC bloom + YARA + offline queue) |
 | `sda-enhanced-inventory` | Running software, browser extensions, CycloneDX SBOM |
 | `sda-updater` | Self-update module — periodic signed-manifest poll, Ed25519 + pinned SHA-256 verification, atomic binary swap with `.bak` rollback on smoke-test failure (Phase 3.1; default off) |
-| `sda-device-control` | ShieldNet Device Control router — `SignedActionJob` validation, `Finding` / `Recommendation` / `ActionResult` / `EvidenceRecord` schemas, plus the maintenance-window + quiet-hours policy from Phase 2 (Phase 1 + 2; default off) |
+| `sda-device-control` | ShieldNet Device Control router — `SignedActionJob` validation, `Finding` / `Recommendation` / `ActionResult` / `EvidenceRecord` schemas, the maintenance-window + quiet-hours policy from Phase 2, **plus the Phase D2 USB / removable-media policy enforcement supervisor (`usb_policy.rs`, `usb_supervisor.rs`, `usb_module.rs`) and per-OS adapters (`usb_linux.rs` udev + UDS, `usb_windows.rs` SetupDi + named-pipe, `usb_macos.rs` IOKit + UDS)** (Phase 1 + 2 + D2; default off) |
 | `sda-query` | osquery sidecar wrapper — scheduled host queries with bounded resource budget (Phase 1; default off) |
 | `sda-posture` | Cross-platform device-posture snapshots (disk encryption, firewall, screen-lock, OS patch level) with delta + power-aware scheduling (Phase 1; default off) |
 | `sda-agent-vitals` | Agent vitals — heartbeat, queue depth, watchdog faults emitted as `AgentVitals` events (Phase 1; default off) |

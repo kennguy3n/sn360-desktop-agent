@@ -1,0 +1,41 @@
+# SN360 Desktop Agent — USB / removable-media device-control rule.
+#
+# Phase D2.2: every `add` event on a hot-plugged USB or removable
+# device is shipped to `sn360-device-control-helper`, which queries
+# the running `sda-agent` over its Unix-domain socket and either
+# allows the device (exit 0) or blocks it (exit 1). When the helper
+# returns exit 1 we mark the device with `ENV{SN360_DC_BLOCK}=1`
+# which downstream rules (filesystem mount via `systemd-mount`,
+# `udisks2`, ModemManager, etc.) honour as a do-not-bind hint.
+#
+# Operators that want closed-by-default behaviour at the OS layer
+# can additionally drop a one-liner under
+# /etc/udev/rules.d/99-sn360-device-control-block.rules to
+# `RUN+="/bin/false"` whenever `SN360_DC_BLOCK` is set.
+#
+# This rule file ships under
+# /usr/lib/udev/rules.d/99-sn360-device-control.rules and is
+# installed by both the Debian and the RPM packaging scripts.
+
+ACTION!="add", GOTO="sn360_dc_end"
+SUBSYSTEM!="usb|block|bluetooth|net|sound", GOTO="sn360_dc_end"
+
+# Skip USB hubs — we evaluate the leaf interfaces, not the bus
+# infrastructure. Without this guard every device shows up twice.
+ENV{DEVTYPE}=="usb_device", GOTO="sn360_dc_end"
+
+IMPORT{program}="/usr/lib/sn360-desktop-agent/sn360-device-control-helper"
+
+# When the helper exits 1 systemd-udevd surfaces the failure as a
+# non-zero `RESULT` attribute. We translate that to an env var so
+# downstream tools (udisks2 in particular) can refuse to mount the
+# device. The agent has already logged the decision to the audit
+# pipeline at this point.
+RESULT=="*", ENV{SN360_DC_BLOCK}="0"
+PROGRAM!="/usr/lib/sn360-desktop-agent/sn360-device-control-helper", ENV{SN360_DC_BLOCK}="1"
+
+# Optional `udisks2` integration: prevent auto-mount when blocked.
+ENV{SN360_DC_BLOCK}=="1", ENV{UDISKS_IGNORE}="1"
+ENV{SN360_DC_BLOCK}=="1", ENV{UDISKS_AUTO}="0"
+
+LABEL="sn360_dc_end"
