@@ -122,9 +122,13 @@ fn finding_json_shape_matches_platform_projection() {
     assert_eq!(v["severity"], json!("high"));
 
     // observed_at must be RFC3339 (Go's time.Time JSON default).
+    // For a negative-offset RFC3339 timestamp without fractional
+    // seconds (e.g. "2026-05-10T12:00:00-05:00") the offset '-'
+    // sits at byte 19 (right after the seconds field). Anything
+    // earlier is a date separator that must be ignored.
     let observed = v["observed_at"].as_str().expect("observed_at is a string");
     assert!(
-        observed.ends_with('Z') || observed.contains('+') || observed[20..].contains('-'),
+        observed.ends_with('Z') || observed.contains('+') || observed[19..].contains('-'),
         "observed_at must be RFC3339 with timezone: got {observed:?}"
     );
 
