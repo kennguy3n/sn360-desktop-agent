@@ -407,8 +407,8 @@ The full spec (data model, NATS subjects, SDK contracts) lives in
 | D2.5 | Decision audit envelope | RFC 8785 canonical-JSON `connector_type:"device-control"` payload via `Decision::to_event_payload`; emitted onto the bus as `EventKind::UsbDevicePolicyDecision` and forwarded with `publish_to_server`. | Done |
 | D2.6 | Per-platform E2E smoke | Hermetic suite in `crates/sda-agent/tests/e2e_device_policy.rs` covering Block, Allow, Audit, priority ordering, closed-by-default boot sentinel, last-known-good preservation, and a live UDS round-trip. `make e2e-device-policy`. | Done |
 | D2.7 | Bundle apply hardening | Tampered / unverified bundles MUST NOT downgrade the in-memory policy set; a `FindingKind::DeviceControlBundleVerificationFailure` of severity `High` is emitted; fresh boot honours `fallback_action` (closed-by-default). | Done |
-| D2.3-driver | Windows kernel filter driver | Inf-style USB / class filter driver productisation under WDF; signed via WHCP. Deferred — requires WDK. | Not Started |
-| D2.4-sysext | macOS signed SystemExtension | IOUSBHostInterface matcher + companion NetworkExtension productisation; signed with Apple Developer ID. Deferred — requires Xcode + signing certs. | Not Started |
+| D2.3-driver | Windows kernel filter driver | Inf-style USB / class filter driver productisation under WDF; signed via WHCP. Deferred — requires WDK. Roadmap: [`PRODUCTISATION-WINDOWS.md`](./PRODUCTISATION-WINDOWS.md). | Not Started |
+| D2.4-sysext | macOS signed SystemExtension | IOUSBHostInterface matcher + companion NetworkExtension productisation; signed with Apple Developer ID. Deferred — requires Xcode + signing certs. Roadmap: [`PRODUCTISATION-MACOS.md`](./PRODUCTISATION-MACOS.md). | Not Started |
 
 ### Acceptance criteria
 

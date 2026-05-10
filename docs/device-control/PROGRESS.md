@@ -29,6 +29,15 @@ complete (agent-side) | 100% agent-side tasks (D2.1, D2.2, D2.3,
 D2.4, D2.6, D2.7 Done; D2.5 / D2.8 platform-side, already Done in
 `sn360-security-platform`).**
 
+**All ⚙️ server-side device-control tasks have now landed.** PRs
+[#85](https://github.com/kennguy3n/sn360-security-platform/pull/85)
+and [#86](https://github.com/kennguy3n/sn360-security-platform/pull/86)
+shipped Device Registry / SMI / Risk Engine (1.14–1.16), Package
+Catalog / Action Orchestrator / Approval Service (2.12–2.14, 3.6),
+the MDM connector triplet (4.9 Android, 4.10 Apple DDM, 4.11
+ChromeOS), and the full Phase 5 MSP / GA-prep slate (5.1–5.5 + 5.6
+prep scaffolding).
+
 All Phase 0 documentation-only deliverables are landed:
 
 - ADR formalised in [`PROPOSAL.md` § 3.2](./PROPOSAL.md#32-architectural-correction--adr)
@@ -94,9 +103,9 @@ Device Control crates are added.
 | 1.11 | Plain-English findings for the five PROPOSAL.md § 2.2 examples | Done |
 | 1.12 | `sda-agent-vitals` MVP | Done |
 | 1.13 | Evidence record emission for every ActionResult | Done |
-| 1.14 | Device Registry integration ⚙️ | Not Started |
-| 1.15 | SMI sub-score wiring ⚙️ | Not Started |
-| 1.16 | Risk Engine v0 ⚙️ | Not Started |
+| 1.14 | Device Registry integration ⚙️ | Done — `services/device-registry` shipped under `sn360-security-platform` PR #85; agent vitals/heartbeat extension (PROPOSAL §7) shipped under PR #86. |
+| 1.15 | SMI sub-score wiring ⚙️ | Done — `services/smi-engine` shipped under `sn360-security-platform` PR #85. |
+| 1.16 | Risk Engine v0 ⚙️ | Done — `services/risk-engine` shipped under `sn360-security-platform` PR #85. |
 | 1.17 | Phase 1 E2E suite (`make e2e-device-control`) | Done |
 
 ---
@@ -116,9 +125,9 @@ Device Control crates are added.
 | 2.9 | Approval-state surfacing (Approved / Pending / Denied / Recalled) | Done |
 | 2.10 | Rollback path | Done |
 | 2.11 | Evidence on install / update / uninstall + rollback | Done |
-| 2.12 | Package Catalog service ⚙️ | Not Started |
-| 2.13 | Action Orchestrator ⚙️ | Not Started |
-| 2.14 | Approval Service ⚙️ | Not Started |
+| 2.12 | Package Catalog service ⚙️ | Done — `services/package-catalog` shipped under `sn360-security-platform` PR #85; tenant-scoped catalogues + cross-tenant shared templates (5.1, 5.5) under PR #86. |
+| 2.13 | Action Orchestrator ⚙️ | Done — `services/action-orchestrator` shipped under `sn360-security-platform` PR #85. |
+| 2.14 | Approval Service ⚙️ | Done — `services/approval-service` shipped under `sn360-security-platform` PR #85; MSP-tier approval chains (5.2) under PR #86. |
 | 2.15 | Phase 2 E2E suite (`make e2e-software`) | Done |
 
 ---
@@ -132,7 +141,7 @@ Device Control crates are added.
 | 3.3 | Revocation watchdog | Done |
 | 3.4 | Boot-time idempotent revoke | Done |
 | 3.5 | Drift detection | Done |
-| 3.6 | Approval Service v1 ⚙️ | Not Started |
+| 3.6 | Approval Service v1 ⚙️ | Done — `services/approval-service` per-tenant policies + MFA hint shipped under `sn360-security-platform` PR #85. |
 | 3.7 | Evidence at every transition | Done |
 | 3.8 | Phase 3 E2E suite | Done |
 
@@ -150,9 +159,9 @@ Device Control crates are added.
 | 4.6 | Santa integration (macOS) | Done |
 | 4.7 | WDAC + AppLocker (Windows) | Done |
 | 4.8 | Linux app control (clean-room dm-verity-aware) | Done |
-| 4.9 | Android MDM connector ⚙️ | Not Started |
-| 4.10 | Apple MDM/DDM connector ⚙️ | Not Started |
-| 4.11 | ChromeOS connector ⚙️ | Not Started |
+| 4.9 | Android MDM connector ⚙️ | Done — `services/android-mdm` shipped under `sn360-security-platform` PR #85. |
+| 4.10 | Apple MDM/DDM connector ⚙️ | Done — `services/apple-mdm` shipped under `sn360-security-platform` PR #86. |
+| 4.11 | ChromeOS connector ⚙️ | Done — `services/chromeos-mdm` shipped under `sn360-security-platform` PR #86. |
 | 4.12 | Phase 4 E2E suite (`make e2e-app-control` + `make e2e-remote-support`) | Done |
 
 ---
@@ -161,11 +170,11 @@ Device Control crates are added.
 
 | # | Task | Status |
 |---|------|--------|
-| 5.1 | Tenant catalogues ⚙️ | Not Started |
-| 5.2 | Approval routing ⚙️ | Not Started |
-| 5.3 | White-label exports ⚙️ | Not Started |
-| 5.4 | MSP dashboard ⚙️ | Not Started |
-| 5.5 | Cross-tenant templates ⚙️ | Not Started |
+| 5.1 | Tenant catalogues ⚙️ | Done — `services/package-catalog` `template_bases` + `tenant_template_overrides` (deep-merge resolver) under `sn360-security-platform` PR #86. |
+| 5.2 | Approval routing ⚙️ | Done — `services/approval-service` MSP-tier `approval_chains` step evaluator under `sn360-security-platform` PR #86. |
+| 5.3 | White-label exports ⚙️ | Done — `services/evidence-vault` (append-only Ed25519 chain + JSON / CSV / branded-PDF exports) under `sn360-security-platform` PR #86. |
+| 5.4 | MSP dashboard ⚙️ | Done — `sn360-dashboard-plugin/public/pages/MSPDashboard/` + tenant-controller `/internal/msp/{mspTid}/aggregate` under `sn360-security-platform` PR #86. |
+| 5.5 | Cross-tenant templates ⚙️ | Done — `services/package-catalog` shared templates + per-tenant overrides shipped together with 5.1 under `sn360-security-platform` PR #86. |
 | 5.6 | `sda-management-compat` shim | Done |
 | 5.7 | Phase 5 E2E suite (`make e2e-management-compat`) | Done |
 
@@ -235,39 +244,83 @@ Top six highest-severity risks for delivery planning:
 
 ## Known Gaps
 
-All agent-side tasks across Phases 0–5 and D2 are complete. The remaining
-gaps are server-side (⚙️) and tracked in
-[`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform):
-
-- ⚙️ **1.14 / 1.15 / 1.16** — Device Registry integration, SMI
-  sub-score wiring, Risk Engine v0.
-- ⚙️ **2.12 / 2.13 / 2.14** — Package Catalog, Action Orchestrator,
-  and Approval Service.
-- ⚙️ **3.6** — Approval Service v1.
-- ⚙️ **4.9 / 4.10 / 4.11** — Android, Apple MDM/DDM, and ChromeOS
-  connectors.
-- ⚙️ **5.1 / 5.2 / 5.3 / 5.4 / 5.5** — Tenant catalogues, approval
-  routing, white-label exports, MSP dashboard, cross-tenant templates.
+All agent-side tasks across Phases 0–5 and D2 are complete. All
+⚙️ server-side device-control tasks (1.14–1.16, 2.12–2.14, 3.6,
+4.9–4.11, 5.1–5.5) have shipped under
+[`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform)
+PRs #85 and #86. The remaining open items are platform productisation
+for Windows / macOS device-control (tracked under PHASES.md §
+Productisation), the GA-prep slate behind ⚙️ **5.6** (billing /
+self-serve onboarding / pricing-tier enforcement scaffold landed
+under PR #86 — promotion to GA tracked separately), and SRE on-call
+sign-off for D4.6.
 
 ## Next Steps
 
 All agent-side Device Control code is complete across Phases 0–5 and D2.
-The remaining work is server-side and tracked in
-[`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform):
+All ⚙️ server-side device-control control-plane tasks (1.14–1.16,
+2.12–2.14, 3.6, 4.9–4.11, 5.1–5.5) have shipped under
+[`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform)
+PRs #85 and #86.
 
-- ⚙️ **1.14 / 1.15 / 1.16** — Device Registry, SMI sub-score, and
-  Risk Engine v0 integration.
-- ⚙️ **2.12 / 2.13 / 2.14** — Package Catalog, Action Orchestrator,
-  and Approval Service.
-- ⚙️ **3.6** — Approval Service v1.
-- ⚙️ **4.9 / 4.10 / 4.11** — Android, Apple MDM/DDM, and ChromeOS
-  connectors.
-- ⚙️ **5.1–5.5** — Tenant catalogues, approval routing, white-label
-  exports, MSP dashboard, cross-tenant templates.
+Upcoming workstreams:
+
+- **Windows WDK driver productisation** — lift the user-mode SetupDi +
+  named-pipe policy service to a WHQL-signed kernel filter driver. See
+  [`docs/device-control/PRODUCTISATION-WINDOWS.md`](./PRODUCTISATION-WINDOWS.md)
+  for the deferred-path roadmap.
+- **macOS SystemExtension productisation** — lift the IOKit + UDS
+  policy service to a signed `IOUSBHostInterface` SystemExtension.
+  See [`docs/device-control/PRODUCTISATION-MACOS.md`](./PRODUCTISATION-MACOS.md).
+- **D4.6 SRE on-call sign-off** for the SLO + alerts shipped under
+  D4.1–D4.5.
 
 ---
 
 ## Changelog
+
+### 2026-05-10 — Cross-repo audit: ⚙️ task closure + productisation deferred-path docs
+
+This PR is documentation + hardening only on the agent side. It
+synchronises the agent docs with the platform PRs that just landed,
+and pins the deferred Windows WDK / macOS SystemExtension paths in
+their own dedicated docs.
+
+Doc updates:
+
+- **PROGRESS.md** — every ⚙️ task in Phases 1, 2, 3, 4, and 5 flips
+  from `Not Started` to `Done` with a link to the platform PR
+  (#85 or #86). "Current Status", "Known Gaps", and "Next Steps"
+  sections rewritten to reflect that the entire device-control
+  control-plane has shipped.
+- **PHASES.md** — exit criteria audit: D1, D2, D3, D4, plus the
+  Phase 1–5 ⚙️ split now all show consistent status with the
+  platform's `docs/device-control/PROGRESS.md`. Productisation tasks
+  added explicitly for the Windows kernel filter driver and the
+  macOS signed SystemExtension.
+- **ARCHITECTURE.md** — D2 USB policy enforcement architecture
+  added (UsbPolicySupervisor, DevicePolicyStore, atomic CAS apply,
+  per-OS enforcement diagram, IPC wire format, closed-by-default
+  fallback).
+- **README.md** — workspace-layout, test-counts, features, and
+  project-status sections updated for D2.
+- **PRODUCTISATION-WINDOWS.md** (new) — full deferred-path roadmap
+  for the WHQL-signed kernel filter driver (WDK prerequisites,
+  build/sign pipeline, INF/CAT layout, install / upgrade / uninstall,
+  test plan, Windows Update Compatibility Lab).
+- **PRODUCTISATION-MACOS.md** (new) — full deferred-path roadmap
+  for the signed SystemExtension (DriverKit + IOUSBHostInterface,
+  Apple Developer ID + entitlements, notarisation, install /
+  upgrade / uninstall, MDM payload).
+
+Hardening:
+
+- **`crates/sda-device-control/src/wire_format_compat.rs`** (new) —
+  wire-format compatibility tests that pin every device-control
+  schema (`Finding`, `Recommendation`, `SignedActionJob`,
+  `ActionResult`, `EvidenceRecord`, `AgentVitals`) against the
+  canonical SCHEMAS.md fixtures. Round-trips ensure the agent's
+  Rust types and the platform's Go types stay byte-stable.
 
 ### 2026-05-10 — Phase D2 (USB / removable-media policy enforcement) agent-side completion
 

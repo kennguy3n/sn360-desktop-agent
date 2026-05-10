@@ -608,6 +608,134 @@ following order. Each step is independently observable via
 
 ---
 
+## 10b. Phase D2 — USB / Removable-Media Policy Enforcement
+
+The D2 enforcement surface lives inside `sda-device-control` and is
+gated behind the `modules.device_control.usb_policy.enabled` config
+flag. The architecture has four moving parts:
+
+```
++--------------------------------------------------------------------+
+|                            sda-agent (bin)                         |
++--------------------------------------------------------------------+
+   |                                |
+   | (1) bundle slice apply         | (2) attach event
+   v                                v
++----------------+        +--------------------+
+| TRDS bundle    |        | Per-OS adapter     |
+| pull pipeline  |        | (linux/windows/mac)|
++--------+-------+        +---------+----------+
+         |                          | DeviceCandidate (vendor_id,
+         | DevicePolicySet          | product_id, class, serial,
+         v                          | bus, removable, ...)
++-----------------------+           |
+| UsbPolicySupervisor   |           |
+|   - DevicePolicyStore | <---------+
+|   - atomic CAS apply  |
+|   - filesystem watcher|
++-----------+-----------+
+            | Decision (Allow / Block / Audit + matched policy id)
+            v
++----------------------+
+| Decision dispatcher  |
+|   - publish_to_server (EventKind::UsbDevicePolicyDecision)
+|   - emit Finding on bundle verification failure
++----------------------+
+```
+
+### 10b.1 `UsbPolicySupervisor` + `DevicePolicyStore`
+
+`UsbPolicySupervisor` (in `usb_supervisor.rs`) owns a single
+`DevicePolicyStore`. The store wraps an `ArcSwap<DevicePolicySet>` so
+reads from the per-OS adapter are wait-free and writes (bundle apply)
+are a single pointer swap.
+
+The supervisor exposes one public mutator, `apply_bundle_slice`,
+which performs an **atomic compare-and-swap**:
+
+1. Verify the bundle slice cryptographically (Ed25519 over canonical
+   JSON; this happens upstream in `shared/sn360-bundle`).
+2. Decode the slice into a `DevicePolicySet` (priority-ordered).
+3. `ArcSwap::store` the new set in a single shot. There is no window
+   in which the per-OS adapter sees a partially-applied set.
+4. On boot, the supervisor checks for a verified bundle on disk; if
+   none is present, the configured `fallback_action` (closed-by-default)
+   is applied to every device class. (D2.7)
+
+A filesystem watcher on
+`/var/lib/sn360-desktop-agent/bundle/policy/device-control/policies.json`
+re-applies the bundle whenever the TRDS pull pipeline rewrites it.
+
+### 10b.2 Per-OS adapters
+
+Each adapter exposes the same shape — receive a raw OS event, build a
+`DeviceCandidate`, ask the store for a decision, and act on it:
+
+- **Linux** (`usb_linux.rs`): a udev rule
+  (`packaging/linux/udev/99-sn360-device-control.rules`) invokes
+  `sn360-device-control-helper` (under the `linux-helper` Cargo
+  feature). The helper reads the udev environment block, writes a
+  line-delimited JSON `DeviceCandidate` over the UDS at
+  `/run/sn360-desktop-agent/usb-policy.sock`, reads the JSON
+  `Decision`, and exits with code 1 (Block) or 0 (Allow / Audit).
+  udisks2 honours `UDISKS_IGNORE=1` on Block and refuses to mount.
+- **Windows** (`usb_windows.rs`): a user-mode policy service backed
+  by `tokio::net::windows::named_pipe`. The hardware-id parser uses
+  SetupDi `DEVPKEY_*` properties pulled from
+  `CM_Register_Notification`. Block is enforced by setting the device
+  to an error state via SetupDi. The WHQL-signed kernel filter driver
+  is the productisation step (Task 19 → `D2.3-driver`).
+- **macOS** (`usb_macos.rs`): a `tokio::net::UnixListener` policy
+  service over `/var/run/sn360-desktop-agent/usb-policy.sock`. The
+  IOKit property parser builds the `DeviceCandidate` from
+  `IOServiceMatching(kIOUSBDeviceClassName)` notifications. Block is
+  enforced by `IOServiceClose` + class-level eject. The signed
+  `IOUSBHostInterface` SystemExtension is the productisation step
+  (Task 20 → `D2.4-sysext`).
+
+### 10b.3 IPC wire format
+
+The IPC between the per-OS adapter and the user-mode policy service
+is **line-delimited JSON** (`crates/sda-device-control/src/usb_ipc.rs`)
+with two shapes:
+
+- **Request:** one canonical JSON `DeviceCandidate` followed by `\n`.
+- **Response:** one canonical JSON `Decision` (`{"action": "Allow"|"Block"|"Audit", "matched_policy_id": "<uuid|null>", "reason": "<string>"}`)
+  followed by `\n`.
+
+This format is intentionally not protobuf or MessagePack so the helper
+binaries (e.g. `sn360-device-control-helper`) stay statically linked
+and small (no protobuf runtime dependency).
+
+### 10b.4 Closed-by-default fallback
+
+Per [PROPOSAL.md § 7.4](./PROPOSAL.md#74-closed-by-default), when
+- no verified bundle is present on disk, **or**
+- the most recently delivered bundle slice fails verification
+
+the supervisor **does not downgrade** the in-memory policy set. On a
+fresh boot the configured `fallback_action` is applied to every
+device class. On a tampered re-apply, the last-known-good set is
+preserved and a `FindingKind::DeviceControlBundleVerificationFailure`
+of severity `High` is emitted.
+
+### 10b.5 Crate-map additions
+
+Updated entries for the crate map in § 1:
+
+- `sda-device-control` — additionally owns `usb_policy.rs`,
+  `usb_supervisor.rs`, `usb_module.rs`, `usb_ipc.rs`, and the per-OS
+  adapters (`usb_linux.rs`, `usb_windows.rs`, `usb_macos.rs`).
+
+Updated entries for the data-model section in § 3:
+
+- `EventKind::UsbDevicePolicyDecision` (D2.5): RFC 8785 canonical-JSON
+  payload via `Decision::to_event_payload`. Carries `connector_type:
+  "device-control"`, `device_class`, `vendor_id`, `product_id`,
+  `serial`, `decision`, `matched_policy_id`, `reason`.
+
+---
+
 ## 11. Further reading
 
 - [PROPOSAL.md](./PROPOSAL.md) — full technical proposal.

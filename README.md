@@ -11,6 +11,7 @@ See [`device-agent-proposal.md`](./device-agent-proposal.md) for the full archit
 
 ## Features
 
+- **USB / Removable-Media Device Policy Enforcement** — atomic CAS-applied `DevicePolicySet` evaluator with priority-ordered matching, per-OS adapters (Linux udev + UDS, Windows SetupDi + named pipe, macOS IOKit + UDS), closed-by-default fallback (Phase D2)
 - **File Integrity Monitoring (FIM)** — real-time filesystem watching via inotify / FSEvents / ReadDirectoryChangesW
 - **Log Collection** — file tailing, systemd journal, Windows Event Log, macOS unified logging
 - **System Inventory** — packages, network interfaces, hardware, OS info (syscollector-compatible)
@@ -191,7 +192,7 @@ For the full configuration reference, see the [Configuration section in `device-
 
 **Phases 1–6 complete.** Phase 5 platform hardening (self-update, privilege separation, tamper protection, installers), Phase 5.6 enhanced protocol (opt-in TLS 1.3 / MessagePack / HTTP/2), and Phase 6 testing & release infrastructure — expanded CI matrix, benchmark regression gate, `cargo audit` gate, nightly `cargo-fuzz` matrix, tag-triggered multi-OS release workflow, and the [`docs/release-process.md`](./docs/release-process.md) runbook — have all landed.
 
-**ShieldNet Device Control** — all agent-side Device Control work (Phases 0–5) is complete. The remaining work (tenant catalogues, approval routing, white-label exports, the MSP dashboard, cross-tenant templates, MDM connectors, and the control-plane Risk Engine / Approval / Action Orchestrator services) is server-side and tracked in [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform). See [`docs/device-control/PROGRESS.md`](./docs/device-control/PROGRESS.md) for the per-phase task ledger, test counts, and changelog.
+**ShieldNet Device Control** — all agent-side Device Control work (Phases 0–5 + D2) is complete. **All control-plane ⚙️ tasks have also landed** (`sn360-security-platform` PRs [#85](https://github.com/kennguy3n/sn360-security-platform/pull/85) and [#86](https://github.com/kennguy3n/sn360-security-platform/pull/86)) including the Risk Engine / Approval / Action Orchestrator services, the Android / Apple DDM / ChromeOS MDM connector triplet, and the full Phase 5 MSP / GA-prep slate (tenant catalogues, MSP-tier approval routing, white-label evidence exports, MSP cross-tenant dashboard, cross-tenant templates, billing / onboarding / pricing-tier scaffold). See [`docs/device-control/PROGRESS.md`](./docs/device-control/PROGRESS.md) for the per-phase task ledger, test counts, and changelog.
 
 The beta tag push (`v0.9.0-beta.1`) and signed-binary publication are gated on release credentials and signing keys outside automation; see [`PROGRESS.md`](./PROGRESS.md) for the detailed status, test results (433 passing / 0 failed, 14/14 base E2E, 10/10 security E2E), and benchmarks. This repository contains only the agent-side (on-device) code. Server-side Control Plane components (Agent Gateway, TRDS, IOCFS, SIS) are implemented in [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform).
 
