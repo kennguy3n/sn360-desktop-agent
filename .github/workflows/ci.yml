@@ -33,7 +33,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            pkg-config libssl-dev build-essential
+            pkg-config libssl-dev libsystemd-dev build-essential
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -53,7 +53,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            pkg-config libssl-dev build-essential
+            pkg-config libssl-dev libsystemd-dev build-essential
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -75,7 +75,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            pkg-config libssl-dev build-essential sysstat
+            pkg-config libssl-dev libsystemd-dev build-essential sysstat
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: make benchmark-ci
