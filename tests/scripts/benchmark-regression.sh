@@ -43,7 +43,13 @@ FIM_FILE_COUNT="${FIM_FILE_COUNT:-1000}"
 # /tmp/sda-e2e-fim.
 FIM_DIR="${FIM_DIR:-/tmp/sda-e2e-fim}"
 OUTPUT_DIR="${REGRESSION_OUTPUT_DIR:-$REPO_ROOT/target/benchmark-regression}"
-SDA_BIN="${SDA_BIN:-$REPO_ROOT/target/release/sda-agent}"
+# Cargo profile to build/measure. Defaults to `release` for the
+# canonical regression run; CI may set `SDA_PROFILE=ci` to use the
+# `[profile.ci]` profile (release + thin LTO + 4 codegen units) for a
+# dramatically faster compile while keeping the size/CPU budgets
+# meaningful enough for a smoke gate.
+SDA_PROFILE="${SDA_PROFILE:-release}"
+SDA_BIN="${SDA_BIN:-$REPO_ROOT/target/$SDA_PROFILE/sda-agent}"
 SDA_CONFIG="${SDA_CONFIG:-$REPO_ROOT/tests/sda-test-config.yaml}"
 
 mkdir -p "$OUTPUT_DIR"
@@ -95,8 +101,8 @@ cleanup() {
 trap cleanup EXIT
 
 # ── 1. Build release binary ───────────────────────────────────────────
-info "Building release binary..."
-cargo build --release -p sda-agent
+info "Building $SDA_PROFILE binary..."
+cargo build --profile "$SDA_PROFILE" -p sda-agent
 
 # ── 2. Binary size ────────────────────────────────────────────────────
 if [ ! -x "$SDA_BIN" ]; then

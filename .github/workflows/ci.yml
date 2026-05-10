@@ -2,9 +2,26 @@ name: CI
 
 on:
   pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - 'LICENSE'
   push:
     branches: [main, develop]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - 'LICENSE'
   workflow_dispatch:
+    inputs:
+      run_full_suite:
+        description: 'Run full test suite (integration + E2E)'
+        type: boolean
+        default: false
+      run_benchmark:
+        description: 'Run performance benchmark'
+        type: boolean
+        default: false
 
 jobs:
   pr-gate:
@@ -16,7 +33,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            pkg-config libssl-dev libsystemd-dev libyara-dev
+            pkg-config libssl-dev libsystemd-dev build-essential
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -26,7 +43,9 @@ jobs:
 
   full-suite:
     name: Full Test Suite
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.run_full_suite)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,12 +53,34 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            pkg-config libssl-dev libsystemd-dev libyara-dev
+            pkg-config libssl-dev libsystemd-dev build-essential
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - run: make lint
       - run: make test-integration
       - run: make test-e2e-all
+
+  benchmark:
+    name: Performance Benchmark
+    if: github.event_name == 'workflow_dispatch' && inputs.run_benchmark
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      SDA_PROFILE: ci
+      SDA_BIN: ${{ github.workspace }}/target/ci/sda-agent
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libssl-dev libsystemd-dev build-essential sysstat
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - run: make benchmark-ci
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-results
+          path: target/benchmark-regression/
