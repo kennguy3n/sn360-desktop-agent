@@ -188,6 +188,9 @@ mod tests {
             EventKind::EvidenceRecord {
                 payload: r#"{"record_id":"er1","prev_hash":""}"#.into(),
             },
+            EventKind::UsbDevicePolicyDecision {
+                payload: r#"{"connector_type":"device-control","decision":"block"}"#.into(),
+            },
         ];
 
         for kind in &kinds {

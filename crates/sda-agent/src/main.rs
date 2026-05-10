@@ -800,6 +800,9 @@ fn map_event_to_message(agent_id: &str, kind: &EventKind) -> Option<WazuhMessage
         }
         EventKind::AgentVitals { payload } => (MessageType::AgentVitals, payload.clone()),
         EventKind::EvidenceRecord { payload } => (MessageType::EvidenceRecord, payload.clone()),
+        EventKind::UsbDevicePolicyDecision { payload } => {
+            (MessageType::UsbDevicePolicyDecision, payload.clone())
+        }
 
         // Lifecycle / internal events are not forwarded.
         _ => return None,

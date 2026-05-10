@@ -41,14 +41,46 @@ use crate::usb_supervisor::{UsbPolicySupervisor, UsbPolicySupervisorConfig};
 use crate::version::FINDING_SCHEMA_VERSION;
 
 /// Default bundle slice path. The TRDS pull pipeline writes the
-/// verified `policy/device-control/policies.json` slice here.
+/// verified `policy/device-control/policies.json` slice here. The
+/// path is gated by `#[cfg(target_os = …)]` so a Windows or macOS
+/// build does not silently boot in closed-by-default sentinel mode
+/// because it cannot find the Linux FHS path. Same compile-time
+/// pattern as [`default_ipc_path`] below — `cfg!()` would not
+/// suffice because the underlying directory layout differs per OS
+/// at the package-installer level.
+#[cfg(target_os = "linux")]
+pub const DEFAULT_BUNDLE_SLICE_PATH: &str =
+    "/var/lib/sn360-desktop-agent/bundle/policy/device-control/policies.json";
+
+#[cfg(target_os = "macos")]
+pub const DEFAULT_BUNDLE_SLICE_PATH: &str =
+    "/Library/Application Support/sn360-desktop-agent/bundle/policy/device-control/policies.json";
+
+#[cfg(target_os = "windows")]
+pub const DEFAULT_BUNDLE_SLICE_PATH: &str =
+    r"C:\ProgramData\sn360-desktop-agent\bundle\policy\device-control\policies.json";
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 pub const DEFAULT_BUNDLE_SLICE_PATH: &str =
     "/var/lib/sn360-desktop-agent/bundle/policy/device-control/policies.json";
 
 /// Default bundle metadata path. Carries the
 /// `device_control_status` sentinel introduced in D2.7 so a
 /// tampered bundle that surgically removes the slice cannot
-/// silently downgrade the agent to permissive.
+/// silently downgrade the agent to permissive. Mirrors the
+/// per-OS layout of [`DEFAULT_BUNDLE_SLICE_PATH`].
+#[cfg(target_os = "linux")]
+pub const DEFAULT_BUNDLE_METADATA_PATH: &str = "/var/lib/sn360-desktop-agent/bundle/metadata.json";
+
+#[cfg(target_os = "macos")]
+pub const DEFAULT_BUNDLE_METADATA_PATH: &str =
+    "/Library/Application Support/sn360-desktop-agent/bundle/metadata.json";
+
+#[cfg(target_os = "windows")]
+pub const DEFAULT_BUNDLE_METADATA_PATH: &str =
+    r"C:\ProgramData\sn360-desktop-agent\bundle\metadata.json";
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 pub const DEFAULT_BUNDLE_METADATA_PATH: &str = "/var/lib/sn360-desktop-agent/bundle/metadata.json";
 
 /// How often the watcher rechecks the slice on disk. The TRDS
