@@ -243,6 +243,16 @@ The remaining work is server-side and tracked in
 
 ## Changelog
 
+### 2026-05-10 — CI audit: fix failures and add conditional tiers
+
+Fixed CI workflow failures caused by `benchmark-ci` requiring sudo +
+sysstat on GitHub runners. Removed unnecessary `libyara-dev` (vendored)
+and `libsystemd-dev` system dependencies. Restructured CI into three
+tiers: `pr-gate` (lint + unit on every PR, skips docs-only changes),
+`full-suite` (integration + E2E on push to main or manual dispatch),
+and `benchmark` (manual dispatch only, continue-on-error). Lint no
+longer runs twice on push events.
+
 ### 2026-05-09 — CI tiered test targets
 
 Added tiered Makefile test targets (`test-unit`, `test-e2e-all`,
