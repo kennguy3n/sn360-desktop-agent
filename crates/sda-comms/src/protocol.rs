@@ -78,6 +78,9 @@ pub enum MessageType {
     AgentVitals,
     /// Signed Device Control evidence record.
     EvidenceRecord,
+    /// USB / removable-media policy decision (Phase D2). One per
+    /// OS attach event the supervisor evaluates.
+    UsbDevicePolicyDecision,
 
     /// Generic message.
     Generic,
@@ -118,6 +121,7 @@ impl MessageType {
             MessageType::RemoteSupportSessionEnded => "remote-support-session-ended",
             MessageType::AgentVitals => "agent-vitals",
             MessageType::EvidenceRecord => "evidence-record",
+            MessageType::UsbDevicePolicyDecision => "usb-device-policy-decision",
             MessageType::Generic => "message",
         }
     }
@@ -152,6 +156,7 @@ impl MessageType {
             "remote-support-session-ended" => MessageType::RemoteSupportSessionEnded,
             "agent-vitals" => MessageType::AgentVitals,
             "evidence-record" => MessageType::EvidenceRecord,
+            "usb-device-policy-decision" => MessageType::UsbDevicePolicyDecision,
             _ => MessageType::Generic,
         }
     }
@@ -286,6 +291,9 @@ impl WazuhMessage {
             }
             MessageType::AgentVitals => format!("1:agent-vitals:{}", self.payload),
             MessageType::EvidenceRecord => format!("1:evidence-record:{}", self.payload),
+            MessageType::UsbDevicePolicyDecision => {
+                format!("1:device-control:usb-policy-decision:{}", self.payload)
+            }
             // Control messages already carry the correct prefix.
             MessageType::Keepalive | MessageType::Startup | MessageType::Shutdown => {
                 self.payload.clone()
@@ -639,6 +647,7 @@ mod tests {
             MessageType::RemoteSupportSessionEnded,
             MessageType::AgentVitals,
             MessageType::EvidenceRecord,
+            MessageType::UsbDevicePolicyDecision,
             MessageType::Generic,
         ];
 
@@ -688,6 +697,10 @@ mod tests {
             ),
             (MessageType::AgentVitals, "1:agent-vitals:"),
             (MessageType::EvidenceRecord, "1:evidence-record:"),
+            (
+                MessageType::UsbDevicePolicyDecision,
+                "1:device-control:usb-policy-decision:",
+            ),
         ];
         for (mt, prefix) in cases {
             let msg = WazuhMessage::new("001", mt.clone(), "{\"k\":\"v\"}");

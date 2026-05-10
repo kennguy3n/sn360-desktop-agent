@@ -119,6 +119,11 @@ pub enum EventKind {
     RemoteSupportSessionEnded(RemoteSupportSessionEnded),
     AgentVitals(AgentVitals),
     EvidenceRecord(EvidenceRecord),
+    /// Phase D2: USB / removable-media policy decision (Block /
+    /// Allow / Audit). Payload is the RFC 8785 canonical-JSON
+    /// `connector_type:"device-control"` envelope produced by
+    /// `usb_policy::Decision::to_event_payload`.
+    UsbDevicePolicyDecision { payload: String },
 }
 ```
 

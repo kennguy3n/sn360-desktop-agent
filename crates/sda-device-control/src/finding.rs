@@ -148,6 +148,7 @@ pub(crate) fn validate_evidence_shape(
         FindingKind::PostureViolation => &["control", "expected", "actual"],
         FindingKind::VulnerabilityMatch => &["cve", "package", "version"],
         FindingKind::AdminDrift => &["drift_kind", "user"],
+        FindingKind::DeviceControlBundleVerificationFailure => &["reason"],
         FindingKind::Other => &[],
     };
     for &key in required {
@@ -233,6 +234,10 @@ pub fn render_plain_english(kind: FindingKind, evidence: &serde_json::Value) -> 
                 }
                 _ => format!("Admin drift detected for {user} (kind: {dk})."),
             }
+        }
+        FindingKind::DeviceControlBundleVerificationFailure => {
+            let reason = s(evidence, "reason").unwrap_or("unknown reason");
+            format!("USB-policy bundle verification failed: {reason}.")
         }
         FindingKind::Other => "Engine-specific finding — see evidence for detail.".to_string(),
     }

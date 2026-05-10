@@ -5,6 +5,31 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lib]
+name = "sda_device_control"
+path = "src/lib.rs"
+
+# Linux udev helper binary (D2.2). The udev rule installed under
+# `packaging/linux/sn360-device-control.rules` invokes this binary
+# with the udev environment block; the helper translates the env
+# into a `DeviceCandidate`, queries the running agent over a Unix
+# domain socket, and exits 1 to block / 0 to allow.
+#
+# The binary is intentionally tiny (no async runtime, no logging
+# framework) so it can run inside the udev event loop without
+# being killed by the worker timeout.
+[[bin]]
+name = "sn360-device-control-helper"
+path = "src/bin/sn360_device_control_helper.rs"
+required-features = ["linux-helper"]
+
+[features]
+default = []
+# Build the Linux udev helper binary. Off by default; the
+# `packaging/linux` Makefile target enables it when assembling the
+# Debian / RPM payload.
+linux-helper = []
+
 [dependencies]
 sda-core = { workspace = true }
 sda-event-bus = { workspace = true }

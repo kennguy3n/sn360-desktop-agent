@@ -88,6 +88,13 @@ pub enum FindingKind {
     /// longer in the OS-level admin group. Emitted by
     /// `sda-jit-admin::drift::DriftDetector` per PROPOSAL.md § 9.3.
     AdminDrift,
+    /// USB / removable-media policy bundle verification failure
+    /// (Phase D2.7). Emitted when a freshly-pulled bundle slice
+    /// cannot be parsed or its metadata sentinel is missing —
+    /// the agent keeps the previously-applied policy set in
+    /// effect (closed-by-default) and surfaces the failure as a
+    /// high-severity finding so the dashboard can alert.
+    DeviceControlBundleVerificationFailure,
     Other,
 }
 

@@ -357,3 +357,72 @@ PROPOSAL.md § 2.3.
    validation).
 3. White-label exports never include another tenant's `tenant_id` or
    evidence.
+
+---
+
+## Phase D2 — USB / Removable-Media Policy Enforcement (agent-side)
+
+**Goal:** translate the platform-side device-control policy slice into
+hard, agent-side enforcement of USB / removable-media / peripheral
+attach events on every supported OS, with a closed-by-default posture
+on bundle verification failure.
+
+The full spec (data model, NATS subjects, SDK contracts) lives in
+[`sn360-security-platform/docs/device-control/`](https://github.com/kennguy3n/sn360-security-platform/tree/main/docs/device-control).
+
+### Deliverables
+
+- `DevicePolicySet` + `DevicePolicySupervisor` in
+  [`crates/sda-device-control/src/usb_policy.rs`](../../crates/sda-device-control/src/usb_policy.rs)
+  / [`usb_supervisor.rs`](../../crates/sda-device-control/src/usb_supervisor.rs)
+  evaluating `DeviceCandidate`s against the priority-ordered policy
+  set with atomic CAS apply on bundle pull.
+- Linux udev rule
+  [`packaging/linux/udev/99-sn360-device-control.rules`](../../packaging/linux/udev/99-sn360-device-control.rules)
+  + helper binary
+  [`crates/sda-device-control/src/bin/sn360_device_control_helper.rs`](../../crates/sda-device-control/src/bin/sn360_device_control_helper.rs)
+  with line-delimited JSON IPC over a Unix domain socket.
+- Windows user-mode policy service +
+  named-pipe IPC scaffold + SetupDi hardware-id parser
+  ([`usb_windows.rs`](../../crates/sda-device-control/src/usb_windows.rs)).
+- macOS user-mode policy service +
+  UDS IPC scaffold + IOKit property parser
+  ([`usb_macos.rs`](../../crates/sda-device-control/src/usb_macos.rs)).
+- Closed-by-default hardening: tampered bundles never downgrade the
+  in-memory policy set; fresh starts honour the configured
+  `fallback_action`; a `Finding` of severity `High` is emitted via
+  `publish_to_server` on every verification failure.
+- Hermetic E2E coverage in
+  [`crates/sda-agent/tests/e2e_device_policy.rs`](../../crates/sda-agent/tests/e2e_device_policy.rs)
+  (`make e2e-device-policy`).
+
+### Tasks
+
+| # | Task | Description | Status |
+|---|------|-------------|--------|
+| D2.1 | Policy set + atomic CAS apply | `DeviceCandidate`, `DevicePolicySet`, `Decision`, priority-ordered `evaluate()`, `UsbPolicySupervisor::apply_bundle_slice` (atomic CAS). Wired into `sda-agent/src/main.rs` via `UsbPolicyModule::start`; config under `modules.device_control.usb_policy`. | Done |
+| D2.2 | Linux udev enforcement | udev rule + `sn360-device-control-helper` binary + UDS IPC server in `usb_linux.rs`. Helper exits 1 to block, 0 to allow; emits an audit envelope (`connector_type:"device-control"`) per decision. | Done |
+| D2.3 | Windows enforcement (user-mode) | User-mode policy service + named-pipe IPC scaffold + SetupDi hardware-id parser. The kernel filter-driver / WDF productisation is out of scope on this VM (no WDK toolchain) and is tracked as Phase D2.3-driver. | Done (user-mode) |
+| D2.4 | macOS enforcement (user-mode) | User-mode policy service + UDS IPC scaffold + IOKit property parser. The signed SystemExtension productisation is out of scope on this VM (no Xcode signing certs) and is tracked as Phase D2.4-sysext. | Done (user-mode) |
+| D2.5 | Decision audit envelope | RFC 8785 canonical-JSON `connector_type:"device-control"` payload via `Decision::to_event_payload`; emitted onto the bus as `EventKind::UsbDevicePolicyDecision` and forwarded with `publish_to_server`. | Done |
+| D2.6 | Per-platform E2E smoke | Hermetic suite in `crates/sda-agent/tests/e2e_device_policy.rs` covering Block, Allow, Audit, priority ordering, closed-by-default boot sentinel, last-known-good preservation, and a live UDS round-trip. `make e2e-device-policy`. | Done |
+| D2.7 | Bundle apply hardening | Tampered / unverified bundles MUST NOT downgrade the in-memory policy set; a `FindingKind::DeviceControlBundleVerificationFailure` of severity `High` is emitted; fresh boot honours `fallback_action` (closed-by-default). | Done |
+| D2.3-driver | Windows kernel filter driver | Inf-style USB / class filter driver productisation under WDF; signed via WHCP. Deferred — requires WDK. | Not Started |
+| D2.4-sysext | macOS signed SystemExtension | IOUSBHostInterface matcher + companion NetworkExtension productisation; signed with Apple Developer ID. Deferred — requires Xcode + signing certs. | Not Started |
+
+### Acceptance criteria
+
+1. A `block` policy for the `usb` device class causes every
+   subsequent attach event (matching the policy's match predicate) to
+   resolve to `Decision::Block` with the matched policy id, and to
+   emit a `device-control` audit envelope onto the event bus.
+2. A bundle that fails verification never replaces the live policy
+   set; the agent keeps enforcing the last-known-good set and emits a
+   `Finding` of severity `High` describing the failure.
+3. A fresh agent boot with no verified bundle on disk applies the
+   configured `fallback_action` (closed-by-default per
+   [PROPOSAL.md § 7.4](./PROPOSAL.md#74-closed-by-default)).
+4. Every decision (Block / Allow / Audit) is forwarded via
+   `EventBus::publish_to_server` and never via plain `publish()`,
+   matching the `vma-self-update` / `sda-fim` / `sda-rootcheck`
+   convention.

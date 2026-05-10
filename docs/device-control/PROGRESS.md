@@ -24,7 +24,10 @@ Phase 3 complete (agent-side) | **100% agent-side tasks (7/7 non-⚙️
 tasks)**. Phase 4 complete (agent-side) | **100% agent-side tasks
 (9/9 non-⚙️ tasks; 4.1–4.8 + 4.12 Done)**. Phase 5 complete
 (agent-side) | **100% agent-side tasks (2/2 non-⚙️ tasks; 5.6 + 5.7
-Done)**.
+Done)**. **Phase D2 (USB / removable-media policy enforcement)
+complete (agent-side) | 100% agent-side tasks (D2.1, D2.2, D2.3,
+D2.4, D2.6, D2.7 Done; D2.5 / D2.8 platform-side, already Done in
+`sn360-security-platform`).**
 
 All Phase 0 documentation-only deliverables are landed:
 
@@ -168,6 +171,28 @@ Device Control crates are added.
 
 ---
 
+## Phase D2 — USB / Removable-Media Policy Enforcement
+
+Cross-repo workstream tracked alongside
+[`sn360-security-platform/docs/device-control/PHASES.md` § Phase D2](https://github.com/kennguy3n/sn360-security-platform/blob/main/docs/device-control/PHASES.md#phase-d2--agent-side-enforcement).
+The control-plane already ships the bundle wire format (D2.1
+platform side), the `sn360-device-control` decoder + ISM/template
+wiring (D2.5 / D2.8), and the closed-by-default sentinel (D2.7
+platform side). This release closes the agent-side scope.
+
+| # | Task | Status |
+|---|------|--------|
+| D2.1 | `DeviceCandidate` / `DevicePolicySet` / atomic CAS apply, config plumbing, supervisor module wiring | Done — `crates/sda-device-control/src/usb_policy.rs`, `usb_supervisor.rs`, `usb_module.rs`; config in `sda-core/src/config.rs::UsbPolicyConfig`; module spawned from `sda-agent/src/main.rs` when `modules.device_control.usb_policy.enabled = true`. |
+| D2.2 | Linux: udev rule + `sn360-device-control-helper` + UDS IPC | Done — `crates/sda-device-control/src/usb_linux.rs` (udev attribute parser + `tokio::net::UnixListener` server) + `src/bin/sn360_device_control_helper.rs` (gated behind the `linux-helper` Cargo feature) + `packaging/linux/udev/99-sn360-device-control.rules`. |
+| D2.3 | Windows: user-mode policy service + named-pipe IPC + property parsers | Done (user-mode service) — `crates/sda-device-control/src/usb_windows.rs` (SetupDi / hardware-id parser + `tokio::net::windows::named_pipe` server). The kernel-mode USB + class filter driver scaffold is tracked separately under productisation (requires WHQL signing). |
+| D2.4 | macOS: user-mode policy service + IOKit property parsers + UDS IPC | Done (user-mode service) — `crates/sda-device-control/src/usb_macos.rs` (IOKit property parser + `tokio::net::UnixListener` server). The IOUSBHostInterface SystemExtension scaffold is tracked separately under productisation (requires Apple Developer ID + DriverKit entitlement). |
+| D2.5 | Agent event emit: `connector_type:"device-control"` envelope | Done — `EventKind::UsbDevicePolicyDecision` (RFC 8785 canonical-JSON envelope) emitted by `usb_module::run_loop` for every helper-driven decision; matching tenant-controller decoder XML lives in `sn360-security-platform`. |
+| D2.6 | Per-platform e2e smoke tests (`make e2e-device-policy`) | Done — `crates/sda-agent/tests/e2e_device_policy.rs` (7 tests; block / allow / audit decisions, priority order, closed-by-default boot sentinel, last-known-good preservation across a tampered bundle, and a live UDS round-trip through the helper IPC contract). |
+| D2.7 | Bundle apply hardening (closed-by-default; LKG retention) | Done — `usb_supervisor::record_bundle_unverified` keeps last-known-good, `usb_module::try_apply_from_disk` verifies the `metadata.device_control_status` sentinel before each CAS swap and emits a high-severity `DeviceControlBundleVerificationFailure` `Finding` on failure. |
+| D2.8 | Regression REG-265..269 ⚙️ | Done (platform side) — see `sn360-security-platform`. |
+
+---
+
 ## Tests & Benchmarks
 
 Device Control test surface:
@@ -178,6 +203,7 @@ Device Control test surface:
 - **10 / 10** Phase 4 app-control E2E tests (`make e2e-app-control`).
 - **9 / 9** Phase 4 remote-support E2E tests (`make e2e-remote-support`).
 - **9 / 9** Phase 5 management-compat E2E tests (`make e2e-management-compat`).
+- **7 / 7** Phase D2 USB-policy E2E tests (`make e2e-device-policy`).
 - All workspace unit tests pass (`cargo test --workspace`).
 
 Existing SDA test surface (433 unit, 14/14 E2E, 10/10 security E2E)
@@ -209,7 +235,7 @@ Top six highest-severity risks for delivery planning:
 
 ## Known Gaps
 
-All agent-side tasks across Phases 0–5 are complete. The remaining
+All agent-side tasks across Phases 0–5 and D2 are complete. The remaining
 gaps are server-side (⚙️) and tracked in
 [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform):
 
@@ -225,7 +251,7 @@ gaps are server-side (⚙️) and tracked in
 
 ## Next Steps
 
-All agent-side Device Control code is complete across Phases 0–5.
+All agent-side Device Control code is complete across Phases 0–5 and D2.
 The remaining work is server-side and tracked in
 [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform):
 
@@ -242,6 +268,79 @@ The remaining work is server-side and tracked in
 ---
 
 ## Changelog
+
+### 2026-05-10 — Phase D2 (USB / removable-media policy enforcement) agent-side completion
+
+This PR closes the agent-side scope of Phase D2 against the matching
+control-plane work already on `main` of `sn360-security-platform`.
+
+D2 — agent-side completion:
+
+- **D2.1** — `DeviceCandidate` / `DeviceClass` taxonomy +
+  `DevicePolicySet` evaluator with priority-ordered matching;
+  atomic CAS `apply_bundle_slice` (`usb_supervisor.rs`) drops the
+  new policy set in place under a single store swap so the next
+  attach event sees the updated set immediately. Config plumbing
+  via `sda-core::config::UsbPolicyConfig`
+  (`modules.device_control.usb_policy.{enabled,default_action,fallback_action,ipc_path}`);
+  the supervisor lazy-spawns the per-OS IPC server and a
+  filesystem watcher that reapplies whenever the TRDS pull
+  pipeline rewrites
+  `/var/lib/sn360-desktop-agent/bundle/policy/device-control/policies.json`.
+- **D2.2** — Linux udev integration via
+  `packaging/linux/udev/99-sn360-device-control.rules` +
+  `sn360-device-control-helper` binary (under the `linux-helper`
+  Cargo feature). The helper reads the udev environment block,
+  builds a `DeviceCandidate`, talks to the agent over
+  `/run/sn360-desktop-agent/usb-policy.sock`, and exits 1 on a
+  Block decision so udisks2 honours `UDISKS_IGNORE=1` and
+  refuses to auto-mount.
+- **D2.3** — Windows hardware-id / SetupDi property parser and
+  `tokio::net::windows::named_pipe`-based user-mode policy
+  service (`usb_windows.rs`). The user-mode path covers everything
+  the OS surfaces through `CM_Register_Notification`; the
+  WHQL-signed kernel filter-driver scaffold is tracked under
+  productisation.
+- **D2.4** — macOS IOKit property parser and `tokio::net::UnixListener`
+  policy service over `/var/run/sn360-desktop-agent/usb-policy.sock`
+  (`usb_macos.rs`). The full `IOUSBHostInterface` SystemExtension
+  scaffold is tracked under productisation (requires Apple
+  Developer ID + DriverKit entitlement).
+- **D2.5** — `EventKind::UsbDevicePolicyDecision` carries the RFC
+  8785 canonical-JSON envelope (`connector_type: "device-control"`,
+  `tenant_id`, `decision`, `device`, `matched_policy`,
+  `default_action_used`) onto the event bus for every helper-driven
+  decision. The supervisor's `evaluate_with_payload` produces the
+  envelope; the IPC server dispatches the audit callback.
+- **D2.6** — Hermetic E2E suite in
+  `crates/sda-agent/tests/e2e_device_policy.rs` (7 tests) +
+  `make e2e-device-policy` Makefile target. Walks block / allow /
+  audit decisions, priority ordering, closed-by-default boot
+  sentinel, last-known-good preservation across a tampered
+  bundle, and a live UDS round-trip through the udev-helper IPC
+  contract.
+- **D2.7** — Bundle-apply hardening: `record_bundle_unverified`
+  keeps the previous policy set in place; `usb_module::try_apply_from_disk`
+  refuses to apply a slice unless the bundle metadata sentinel
+  (`metadata.device_control_status == "ok"`) is present, and
+  emits a `DeviceControlBundleVerificationFailure` Finding (severity
+  `High`) so the dashboard can alert. A fresh agent boot defaults
+  to the operator-configured `fallback_action` until the first
+  successful apply.
+
+Test coverage:
+
+- 176 unit tests pass in `sda-device-control` (95 of them new for
+  D2; the rest are the existing Phase 1 router/schema tests).
+- 7 / 7 hermetic E2E tests pass under `make e2e-device-policy`.
+- `cargo fmt --all`, `cargo clippy --all-targets --features
+  sda-device-control/linux-helper -- -D warnings` clean.
+
+The new `EventKind::UsbDevicePolicyDecision` variant is a backward-
+compatible additive change; older agents stop at the existing
+`EvidenceRecord` variant and ignore the new one. The platform-side
+decoder XML / ISM template wiring (D2.5 / D2.8) was already shipped
+on `main` of `sn360-security-platform`.
 
 ### 2026-05-10 — CI audit: fix failures and add conditional tiers
 

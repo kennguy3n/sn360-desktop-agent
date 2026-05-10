@@ -1160,6 +1160,66 @@ pub struct DeviceControlConfig {
     /// emitted.
     #[serde(default)]
     pub job_budget: JobBudget,
+
+    /// USB / removable-media policy enforcement (Phase D2).
+    /// Off by default; flipping `usb_policy.enabled` to `true` lights
+    /// up the per-OS enforcement helper IPC server and wires the
+    /// supervisor into the bundle apply path.
+    #[serde(default)]
+    pub usb_policy: UsbPolicyConfig,
+}
+
+/// USB / removable-media / peripheral device policy enforcement.
+///
+/// Maps directly onto
+/// [`sda_device_control::usb_supervisor::UsbPolicySupervisorConfig`]
+/// at module-startup time.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsbPolicyConfig {
+    /// Master enable switch. Off by default.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Action used when no policy matches a candidate AND a
+    /// verified policy set is loaded. Wire-format kebab-case:
+    /// `block` / `allow` / `audit`. Defaults to `audit`.
+    #[serde(default = "default_usb_policy_default_action")]
+    pub default_action: String,
+
+    /// Action used when no verified policy set is loaded yet
+    /// (fresh boot, or last bundle was tampered). Operators that
+    /// want closed-by-default flip this to `block`. Defaults to
+    /// `audit` so a fresh agent records every attach event without
+    /// changing OS behaviour.
+    #[serde(default = "default_usb_policy_fallback_action")]
+    pub fallback_action: String,
+
+    /// Path to the IPC socket / named pipe used by the per-OS
+    /// helper to query the supervisor. Defaults to the
+    /// platform-native location (`/run/sn360-desktop-agent/usb-policy.sock`
+    /// on Linux, `\\.\pipe\sn360-usb-policy` on Windows,
+    /// `/var/run/sn360-desktop-agent/usb-policy.sock` on macOS).
+    #[serde(default)]
+    pub ipc_path: String,
+}
+
+fn default_usb_policy_default_action() -> String {
+    "audit".to_string()
+}
+
+fn default_usb_policy_fallback_action() -> String {
+    "audit".to_string()
+}
+
+impl Default for UsbPolicyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            default_action: default_usb_policy_default_action(),
+            fallback_action: default_usb_policy_fallback_action(),
+            ipc_path: String::new(),
+        }
+    }
 }
 
 /// Maintenance window for batched Device Control work.

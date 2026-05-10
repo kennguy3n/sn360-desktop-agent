@@ -1,0 +1,42 @@
+# SN360 Desktop Agent — USB / removable-media device-control rule.
+#
+# Phase D2.2: every `add` event on a hot-plugged USB or removable
+# device is shipped to `sn360-device-control-helper`, which queries
+# the running `sda-agent` over its Unix-domain socket and either
+# allows the device (exit 0) or blocks it (exit 1). When the helper
+# returns exit 1 we mark the device with `ENV{SN360_DC_BLOCK}=1`
+# which downstream rules (filesystem mount via `systemd-mount`,
+# `udisks2`, ModemManager, etc.) honour as a do-not-bind hint.
+#
+# Operators that want closed-by-default behaviour at the OS layer
+# can additionally drop a one-liner under
+# /etc/udev/rules.d/99-sn360-device-control-block.rules to
+# `RUN+="/bin/false"` whenever `SN360_DC_BLOCK` is set.
+#
+# This rule file ships under
+# /usr/lib/udev/rules.d/99-sn360-device-control.rules and is
+# installed by both the Debian and the RPM packaging scripts.
+
+ACTION!="add", GOTO="sn360_dc_end"
+SUBSYSTEM!="usb|block|bluetooth|net|sound", GOTO="sn360_dc_end"
+
+# Skip USB hubs — we evaluate the leaf interfaces, not the bus
+# infrastructure. Without this guard every device shows up twice.
+ENV{DEVTYPE}=="usb_device", GOTO="sn360_dc_end"
+
+# Single invocation of the helper per attach event. We pre-seed
+# the env var to "allow" so that an unreachable agent (helper
+# exits 0 on connection failure — see `sn360_device_control_helper.rs`)
+# leaves the device usable, then flip it to "block" if and only
+# if the helper exits non-zero. Using a single `PROGRAM!=` here
+# is intentional: an earlier draft used `IMPORT{program}` followed
+# by `PROGRAM!=` which invoked the helper twice and doubled audit
+# events on every attach.
+ENV{SN360_DC_BLOCK}="0"
+PROGRAM!="/usr/lib/sn360-desktop-agent/sn360-device-control-helper", ENV{SN360_DC_BLOCK}="1"
+
+# Optional `udisks2` integration: prevent auto-mount when blocked.
+ENV{SN360_DC_BLOCK}=="1", ENV{UDISKS_IGNORE}="1"
+ENV{SN360_DC_BLOCK}=="1", ENV{UDISKS_AUTO}="0"
+
+LABEL="sn360_dc_end"

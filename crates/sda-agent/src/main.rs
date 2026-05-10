@@ -455,6 +455,20 @@ async fn main() -> Result<()> {
             agent.shutdown_signal(),
         );
         agent.register_module(dc_handle);
+
+        // Phase D2: USB / removable-media policy enforcement is a
+        // sub-module of Device Control gated by its own enable
+        // flag so a tenant can flip it on independently of the
+        // existing Phase 1 schemas.
+        if config.modules.device_control.usb_policy.enabled {
+            info!("starting USB-policy enforcement module");
+            let usb_handle = sda_device_control::UsbPolicyModule::start(
+                &config,
+                agent.event_bus(),
+                agent.shutdown_signal(),
+            );
+            agent.register_module(usb_handle);
+        }
     }
 
     // 12j. Query (osquery sidecar) module — Phase 1 MVP.
@@ -786,6 +800,9 @@ fn map_event_to_message(agent_id: &str, kind: &EventKind) -> Option<WazuhMessage
         }
         EventKind::AgentVitals { payload } => (MessageType::AgentVitals, payload.clone()),
         EventKind::EvidenceRecord { payload } => (MessageType::EvidenceRecord, payload.clone()),
+        EventKind::UsbDevicePolicyDecision { payload } => {
+            (MessageType::UsbDevicePolicyDecision, payload.clone())
+        }
 
         // Lifecycle / internal events are not forwarded.
         _ => return None,

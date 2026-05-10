@@ -199,6 +199,14 @@ pub enum EventKind {
     /// projection of an `ActionResult`. Payload: canonical JSON of
     /// `EvidenceRecord`.
     EvidenceRecord { payload: String },
+
+    /// A USB / removable-media policy decision (Phase D2). Emitted
+    /// once per OS attach event the supervisor evaluates. Payload:
+    /// RFC 8785 canonical JSON `{ "connector_type": "device-control",
+    /// "tenant_id": ..., "decision": "block"|"allow"|"audit",
+    /// "device": { ... }, "matched_policy": { ... } }` envelope
+    /// produced by `sda_device_control::usb_policy::Decision::to_event_payload`.
+    UsbDevicePolicyDecision { payload: String },
 }
 
 /// An event that flows through the event bus.
@@ -296,7 +304,10 @@ mod tests {
             EventKind::AgentVitals {
                 payload: payload.clone(),
             },
-            EventKind::EvidenceRecord { payload },
+            EventKind::EvidenceRecord {
+                payload: payload.clone(),
+            },
+            EventKind::UsbDevicePolicyDecision { payload },
         ]
     }
 
@@ -329,8 +340,10 @@ mod tests {
     fn device_control_event_count_matches_phase0_signoff() {
         // Phase 0 task 0.12 froze the EventKind sign-off list at 15
         // Device Control variants. Phase 4 added 2 app-control
-        // variants → 17. Any change requires a new ADR + a major
-        // schema-version bump (SCHEMAS.md § 11).
-        assert_eq!(dc_event_kinds().len(), 17);
+        // variants → 17. Phase D2 added the
+        // `UsbDevicePolicyDecision` audit envelope → 18. Any change
+        // requires a new ADR + a major schema-version bump
+        // (SCHEMAS.md § 11).
+        assert_eq!(dc_event_kinds().len(), 18);
     }
 }

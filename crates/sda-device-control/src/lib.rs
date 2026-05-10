@@ -29,8 +29,25 @@ pub mod recommendation;
 pub mod router;
 pub mod signed_job;
 pub mod types;
+pub mod usb_policy;
 pub mod version;
 pub mod windows;
+
+// Per-OS USB-policy enforcement modules. Each one builds the
+// `DeviceCandidate` from the OS event source (Linux udev, Windows
+// SetupDi, macOS IOKit) and dispatches to
+// [`usb_policy::DevicePolicyStore::evaluate`] for the decision.
+// They share a hermetic IPC contract under [`usb_ipc`] so the
+// per-OS helpers can be exercised from a synthetic harness.
+pub mod usb_ipc;
+#[cfg(any(target_os = "linux", test))]
+pub mod usb_linux;
+#[cfg(any(target_os = "macos", test))]
+pub mod usb_macos;
+pub mod usb_module;
+pub mod usb_supervisor;
+#[cfg(any(target_os = "windows", test))]
+pub mod usb_windows;
 
 pub use action_result::{
     ActionResult, ActionResultError, ACTION_RESULT_OUTPUT_MAX_BYTES, TRUNCATION_MARKER,
@@ -56,6 +73,24 @@ pub use signed_job::{
 pub use types::{
     ActionKind, ActionStatus, AgentVersion, FindingKind, JobRefused, Platform, PlatformArch,
     PlatformOs, Severity,
+};
+pub use usb_ipc::{
+    decode_query_request, decode_query_response, encode_query_request, encode_query_response,
+    UsbIpcError, UsbIpcQueryRequest, UsbIpcQueryResponse,
+};
+pub use usb_module::{
+    supervisor_from_config as usb_supervisor_from_config,
+    try_apply_from_disk as try_apply_usb_bundle_slice_from_disk, UsbPolicyModule,
+    DEFAULT_BUNDLE_METADATA_PATH as USB_DEFAULT_BUNDLE_METADATA_PATH,
+    DEFAULT_BUNDLE_SLICE_PATH as USB_DEFAULT_BUNDLE_SLICE_PATH,
+};
+pub use usb_policy::{
+    Action as UsbPolicyAction, Decision as UsbPolicyDecision, DeviceCandidate, DeviceClass,
+    DevicePolicy, DevicePolicySet, DevicePolicyStore, PolicyMatch, PolicySetError,
+    POLICY_SLICE_MAX_BYTES,
+};
+pub use usb_supervisor::{
+    UsbPolicyApplyError, UsbPolicyApplyOutcome, UsbPolicySupervisor, UsbPolicySupervisorConfig,
 };
 pub use version::{
     ACTION_RESULT_SCHEMA_VERSION, EVIDENCE_RECORD_SCHEMA_VERSION, FINDING_SCHEMA_VERSION,
