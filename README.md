@@ -36,8 +36,8 @@ YARA is a **required** runtime dependency of the Local Detection Engine (it is n
 
 ```bash
 # Clone the repository
-git clone https://github.com/kennguy3n/sn360-agent-device.git
-cd sn360-agent-device
+git clone https://github.com/kennguy3n/sn360-desktop-agent.git
+cd sn360-desktop-agent
 
 # Debug build
 make build
@@ -225,7 +225,7 @@ The beta tag push (`v0.9.0-beta.1`) and signed-binary publication are gated on r
 | Repo | Purpose |
 |---|---|
 | [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform) | Multi-tenant control plane (Gateway, TRDS, IOCFS, SIS, alert-forwarder) |
-| [`sn360-agent-device`](https://github.com/kennguy3n/sn360-agent-device) | Endpoint agent (Windows / Linux / macOS) — this repo |
+| [`sn360-desktop-agent`](https://github.com/kennguy3n/sn360-desktop-agent) | Endpoint agent (Windows / Linux / macOS) — this repo |
 | [`sn360-agent-vm`](https://github.com/kennguy3n/sn360-agent-vm) | Server / VM agent |
 | [`sn360-agent-k8s`](https://github.com/kennguy3n/sn360-agent-k8s) | Kubernetes agent |
 

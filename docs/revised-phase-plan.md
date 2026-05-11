@@ -20,7 +20,7 @@ required for the proprietary release:
 Phases 1–6 remain as described in `PROGRESS.md` and
 `device-agent-proposal.md`; this document picks up at Phase 7.
 
-> **Scope:** This repository (`sn360-agent-device`) contains only the
+> **Scope:** This repository (`sn360-desktop-agent`) contains only the
 > agent-side (on-device) code. All server-side Control Plane components
 > — Agent Gateway, TRDS, IOCFS, SIS — are implemented in
 > [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform).
@@ -128,7 +128,7 @@ back in, but the shipped artefact is native-only.
   Phases 7.3 – 7.4 (MVP) and Phase 8 (production hardening). All
   server-side work is implemented in the
   [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform)
-  repository and is **out of scope** for `sn360-agent-device`.
+  repository and is **out of scope** for `sn360-desktop-agent`.
 
 ## Tracking
 

@@ -23,7 +23,7 @@ Appendix A.
 | Rust | rustc 1.95.0 (59807616e 2026-04-14) |
 | Docker | 27.4.1 / Compose v2 |
 | Wazuh Manager | `wazuh/wazuh-manager:4.9.2` |
-| `sn360-agent-device` | `bb44993ad24dc85ce26af85c5eb83571a7e0b35f` (`main`) |
+| `sn360-desktop-agent` | `bb44993ad24dc85ce26af85c5eb83571a7e0b35f` (`main`) |
 | `sn360-security-platform` | `38edce20d13713754f90b2fe7d329c909d55104c` (`main`) |
 
 ### Unit Tests — `cargo test --all`
