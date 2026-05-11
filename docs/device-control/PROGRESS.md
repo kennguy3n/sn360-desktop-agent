@@ -279,6 +279,33 @@ Upcoming workstreams:
 
 ## Changelog
 
+### 2026-05-11 — Cross-repo doc audit after `sn360-security-platform` PR #86
+
+Documentation-only follow-up to the
+[`sn360-security-platform` PR #86](https://github.com/kennguy3n/sn360-security-platform/pull/86)
+landing. PR #86 closed the remaining ⚙️ control-plane tasks: the
+MDM connector triplet (**4.10** Apple Declarative Device Management
+in `services/apple-mdm`, **4.11** ChromeOS in `services/chromeos-mdm`)
+and the full Phase 5 MSP / GA-prep slate (**5.1** tenant catalogues,
+**5.2** MSP-tier approval chains, **5.3** white-label evidence
+vault, **5.4** MSP cross-tenant dashboard, **5.5** cross-tenant
+shared templates, **5.6** GA-prep scaffolding). Updates here:
+
+- [PHASES.md](./PHASES.md) — every ⚙️ row (1.14–1.16, 2.12–2.14,
+  3.6, 4.9–4.11, 5.1–5.5) flipped from “Not Started” to “Done”
+  with a cross-link to `sn360-security-platform` PR #85 / PR #86.
+  Scope-note callout at the top now states that as of 2026-05-11
+  all Phase 0–5 agent-side tasks and all listed ⚙️ tasks are Done,
+  pointing the reader at [PROGRESS.md](./PROGRESS.md) as the
+  canonical live tracker.
+- [PROGRESS.md](./PROGRESS.md) — this changelog entry; the
+  pre-existing per-phase tables and the “Current Status” / “Known
+  Gaps” / “Next Steps” blocks already reflected PR #86.
+
+No agent-side code or test changes — every Phase 0–5 + D2 task on
+the agent side was already Done after the 2026-05-10 audit; the
+contractual changes were on the platform side.
+
 ### 2026-05-10 — Cross-repo audit: ⚙️ task closure + productisation deferred-path docs
 
 This PR is documentation + hardening only on the agent side. It

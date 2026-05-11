@@ -220,25 +220,28 @@ All Priority 3 tasks have landed. Phase 5 is complete.
 | # | Task | Status |
 |---|------|--------|
 | P4.1 | Phase 0: ADR, license review, schema design | Done |
-| P4.2 | Phase 1: Visibility + admin/root review | In Progress |
+| P4.2 | Phase 1: Visibility + admin/root review | Done |
+| P4.3 | Phase 2: Push software + approved catalogue | Done |
+| P4.4 | Phase 3: Just-in-time admin/root | Done |
+| P4.5 | Phase 4: Remote support + app control + MDM | Done |
+| P4.6 | Phase 5: MSP-ready multi-tenant operations | Done |
+| P4.7 | Phase D2: USB / removable-media policy enforcement (agent-side) | Done |
 
-> **Phase 0 status.** 13/13 Phase 0 tasks complete (ADR + Fleet
-> capability map + per-engine license reviews + workspace-root
-> `deny.toml` + canonical wire spec in
-> [`docs/device-control/SCHEMAS.md`](./docs/device-control/SCHEMAS.md)
-> + wire-schema sign-off + Phase 0 exit checklist).
->
-> **Phase 1 status.** 8/17 agent-side tasks complete (1.1–1.9,
-> excluding 1.9 Linux which is part of the same `AdminManager`
-> implementation): config / event / message-type plumbing,
-> `AdminManager` + `DevicePostureProvider` PAL traits with
-> Windows / macOS / Linux implementations, and the three new
-> crates `sda-device-control`, `sda-query`, and `sda-posture`
-> have all landed. With every new module gated by
-> `modules.*.enabled: false` defaults, the agent's idle
-> footprint is unchanged when Device Control is off.
+> **Cross-repo status (2026-05-11).** All agent-side Device Control
+> work (Phases 0–5 + D2 user-mode enforcement) is complete on this
+> repo, and every control-plane ⚙️ task (1.14–1.16, 2.12–2.14, 3.6,
+> 4.9–4.11, 5.1–5.5 + 5.6 GA-prep scaffold) is complete on
+> [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform)
+> under PRs
+> [#85](https://github.com/kennguy3n/sn360-security-platform/pull/85)
+> and [#86](https://github.com/kennguy3n/sn360-security-platform/pull/86).
+> Open items are deferred-path productisation (the Windows WHQL-signed
+> kernel filter driver `D2.3-driver` and the macOS signed
+> `IOUSBHostInterface` SystemExtension `D2.4-sysext`) and the
+> external-gated 5.2 pentest, 5.7 legal review, and D4.6 SRE on-call
+> sign-off on the platform side.
 
-See [`docs/device-control/PROGRESS.md`](./docs/device-control/PROGRESS.md) for the detailed Device Control delivery log.
+See [`docs/device-control/PROGRESS.md`](./docs/device-control/PROGRESS.md) for the canonical per-phase Device Control task ledger, test counts, and changelog.
 
 ## Phase 5 detailed status
 
