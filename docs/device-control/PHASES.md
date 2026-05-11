@@ -13,8 +13,13 @@ Control. Progress is tracked in [PROGRESS.md](./PROGRESS.md).
 > [`docs/revised-phase-plan.md`](../revised-phase-plan.md).
 >
 > Status values follow the SDA convention: **Done**, **In Progress**,
-> **Not Started**. All Phase 0–5 items below start as **Not Started**
-> until matching code merges to `main`.
+> **Not Started**. As of 2026-05-11, all Phase 0–5 agent-side tasks
+> are **Done** and all ⚙️ server-side tasks 1.14–1.16, 2.12–2.14,
+> 3.6, 4.9–4.11, 5.1–5.5 are **Done** — see
+> [`sn360-security-platform` PR #85](https://github.com/kennguy3n/sn360-security-platform/pull/85)
+> and [PR #86](https://github.com/kennguy3n/sn360-security-platform/pull/86).
+> Live status is canonically tracked in [PROGRESS.md](./PROGRESS.md);
+> this file freezes the original sequencing and deliverables.
 
 ---
 
@@ -155,9 +160,9 @@ records flowing for every observation.
 | 1.11 | Plain-English findings | Implement Finding text for the five PROPOSAL.md § 2.2 examples. | Done |
 | 1.12 | `sda-agent-vitals` MVP | Heartbeat, queue depth, watchdog faults emitted as `AgentVitals`. | Done |
 | 1.13 | Evidence record emission | `EvidenceRecord` published for every `ActionResult` (even no-ops). | Done |
-| 1.14 | Device Registry integration ⚙️ | Heartbeat + enrollment flow against Device Registry. Implemented in `sn360-security-platform`. | Not Started |
-| 1.15 | SMI sub-score wiring ⚙️ | SMI Engine consumes Findings + ActionResults. Implemented in `sn360-security-platform`. | Not Started |
-| 1.16 | Risk Engine v0 ⚙️ | First-pass Recommendation generation from Findings. Implemented in `sn360-security-platform`. | Not Started |
+| 1.14 | Device Registry integration ⚙️ | Heartbeat + enrollment flow against Device Registry. Implemented in `sn360-security-platform`. | Done — `services/device-registry` shipped under `sn360-security-platform` [PR #85](https://github.com/kennguy3n/sn360-security-platform/pull/85); Agent Vitals scanner (PROPOSAL §7) under [PR #86](https://github.com/kennguy3n/sn360-security-platform/pull/86). |
+| 1.15 | SMI sub-score wiring ⚙️ | SMI Engine consumes Findings + ActionResults. Implemented in `sn360-security-platform`. | Done — `services/smi-engine` shipped under `sn360-security-platform` [PR #85](https://github.com/kennguy3n/sn360-security-platform/pull/85). |
+| 1.16 | Risk Engine v0 ⚙️ | First-pass Recommendation generation from Findings. Implemented in `sn360-security-platform`. | Done — `services/risk-engine` shipped under `sn360-security-platform` [PR #85](https://github.com/kennguy3n/sn360-security-platform/pull/85). |
 | 1.17 | Phase 1 E2E suite | New `make e2e-device-control` harness covering the five canonical examples. | Done |
 
 ### Acceptance criteria
@@ -213,9 +218,9 @@ fixes safely) for the software-management half of MVP.
 | 2.9 | Approval-state surfacing | Approved / Pending / Denied / Recalled as `Recommendation`s. | Done |
 | 2.10 | Rollback path | `UpdatePackage` records previous version; failure triggers `RollbackPackage`. | Done |
 | 2.11 | Evidence on install/update/uninstall | `EvidenceRecord` per side effect, including rollbacks. | Done |
-| 2.12 | Package Catalog service ⚙️ | Tenant-scoped catalogue API. Implemented in `sn360-security-platform`. | Not Started |
-| 2.13 | Action Orchestrator ⚙️ | Job state machine, retries, dispatch. Implemented in `sn360-security-platform`. | Not Started |
-| 2.14 | Approval Service ⚙️ | Auto + human approval workflows. Implemented in `sn360-security-platform`. | Not Started |
+| 2.12 | Package Catalog service ⚙️ | Tenant-scoped catalogue API. Implemented in `sn360-security-platform`. | Done — `services/package-catalog` shipped under `sn360-security-platform` [PR #85](https://github.com/kennguy3n/sn360-security-platform/pull/85); tenant-scoped catalogues + cross-tenant shared templates (5.1, 5.5) under [PR #86](https://github.com/kennguy3n/sn360-security-platform/pull/86). |
+| 2.13 | Action Orchestrator ⚙️ | Job state machine, retries, dispatch. Implemented in `sn360-security-platform`. | Done — `services/action-orchestrator` shipped under `sn360-security-platform` [PR #85](https://github.com/kennguy3n/sn360-security-platform/pull/85). |
+| 2.14 | Approval Service ⚙️ | Auto + human approval workflows. Implemented in `sn360-security-platform`. | Done — `services/approval-service` shipped under `sn360-security-platform` [PR #85](https://github.com/kennguy3n/sn360-security-platform/pull/85); MSP-tier approval chains (5.2) under [PR #86](https://github.com/kennguy3n/sn360-security-platform/pull/86). |
 | 2.15 | Phase 2 E2E suite | Extends `make e2e-device-control` to cover install / update / uninstall + rollback. | Done |
 
 ### Acceptance criteria
@@ -257,7 +262,7 @@ auto-revocation, evidence, and SMI feedback.
 | 3.3 | Revocation watchdog | Tokio task scheduling + multi-trigger revoke. | Done |
 | 3.4 | Boot-time idempotent revoke | On startup, revoke any expired grants. | Done |
 | 3.5 | Drift detection | Compare observed grants vs. tracked grants; emit Finding. | Done |
-| 3.6 | Approval Service v1 ⚙️ | Auto + human + per-tenant policy. Implemented in `sn360-security-platform`. | Not Started |
+| 3.6 | Approval Service v1 ⚙️ | Auto + human + per-tenant policy. Implemented in `sn360-security-platform`. | Done — `services/approval-service` per-tenant policies + MFA hint shipped under `sn360-security-platform` [PR #85](https://github.com/kennguy3n/sn360-security-platform/pull/85). |
 | 3.7 | Evidence at every transition | Requested / Granted / Revoked / Drift each emit `EvidenceRecord`. | Done |
 | 3.8 | Phase 3 E2E suite | Covers PROPOSAL.md § 2.2 example 5 end to end. | Done |
 
@@ -304,9 +309,9 @@ PROPOSAL.md § 2.3.
 | 4.6 | Santa integration (macOS) | Wrap Santa's binauthorize / file-modification rules. | Done |
 | 4.7 | WDAC + AppLocker (Windows) | Signed-policy push via PowerShell; clean-room WDAC XML emitter in [`crates/sda-app-control/src/wdac.rs`](../../crates/sda-app-control/src/wdac.rs); AppLocker fallback for hosts without WDAC. | Done |
 | 4.8 | Linux app control | Clean-room dm-verity-aware enforcement in [`crates/sda-app-control/src/linux.rs`](../../crates/sda-app-control/src/linux.rs); root-hash-pinned policy entries; degrades to logged-only Monitor mode without dm-verity. | Done |
-| 4.9 | Android MDM connector ⚙️ | Implemented in `sn360-security-platform`. | Not Started |
-| 4.10 | Apple MDM/DDM connector ⚙️ | Implemented in `sn360-security-platform`. | Not Started |
-| 4.11 | ChromeOS connector ⚙️ | Implemented in `sn360-security-platform`. | Not Started |
+| 4.9 | Android MDM connector ⚙️ | Implemented in `sn360-security-platform`. | Done — `services/android-mdm` (AMAPI translator) shipped under `sn360-security-platform` [PR #85](https://github.com/kennguy3n/sn360-security-platform/pull/85). |
+| 4.10 | Apple MDM/DDM connector ⚙️ | Implemented in `sn360-security-platform`. | Done — `services/apple-mdm` (Apple Declarative Device Management translator) shipped under `sn360-security-platform` [PR #86](https://github.com/kennguy3n/sn360-security-platform/pull/86). |
+| 4.11 | ChromeOS connector ⚙️ | Implemented in `sn360-security-platform`. | Done — `services/chromeos-mdm` (Chrome Policy API translator) shipped under `sn360-security-platform` [PR #86](https://github.com/kennguy3n/sn360-security-platform/pull/86). |
 | 4.12 | Phase 4 E2E suite | Remote-support session ([`crates/sda-agent/tests/e2e_remote_support.rs`](../../crates/sda-agent/tests/e2e_remote_support.rs), `make e2e-remote-support`); app-control monitor + enforce + rollback + evidence ([`crates/sda-agent/tests/e2e_app_control.rs`](../../crates/sda-agent/tests/e2e_app_control.rs), `make e2e-app-control`). | Done |
 
 ### Acceptance criteria
@@ -340,11 +345,11 @@ PROPOSAL.md § 2.3.
 
 | # | Task | Description | Status |
 |---|------|-------------|--------|
-| 5.1 | Tenant catalogues ⚙️ | Per-tenant + cross-tenant template catalogues. Implemented in `sn360-security-platform`. | Not Started |
-| 5.2 | Approval routing ⚙️ | Per-tenant + MSP approver chains. Implemented in `sn360-security-platform`. | Not Started |
-| 5.3 | White-label exports ⚙️ | Branded PDF + JSON evidence exports. Implemented in `sn360-security-platform`. | Not Started |
-| 5.4 | MSP dashboard ⚙️ | Cross-tenant operational view. Implemented in `sn360-security-platform`. | Not Started |
-| 5.5 | Cross-tenant templates ⚙️ | Shared templates + per-tenant overrides. Implemented in `sn360-security-platform`. | Not Started |
+| 5.1 | Tenant catalogues ⚙️ | Per-tenant + cross-tenant template catalogues. Implemented in `sn360-security-platform`. | Done — `services/package-catalog` `template_bases` + `tenant_template_overrides` (deep-merge resolver) shipped under `sn360-security-platform` [PR #86](https://github.com/kennguy3n/sn360-security-platform/pull/86). |
+| 5.2 | Approval routing ⚙️ | Per-tenant + MSP approver chains. Implemented in `sn360-security-platform`. | Done — `services/approval-service` MSP-tier `approval_chains` step evaluator shipped under `sn360-security-platform` [PR #86](https://github.com/kennguy3n/sn360-security-platform/pull/86). |
+| 5.3 | White-label exports ⚙️ | Branded PDF + JSON evidence exports. Implemented in `sn360-security-platform`. | Done — `services/evidence-vault` (append-only Ed25519 chain + JSON / CSV / branded-PDF exports) shipped under `sn360-security-platform` [PR #86](https://github.com/kennguy3n/sn360-security-platform/pull/86). |
+| 5.4 | MSP dashboard ⚙️ | Cross-tenant operational view. Implemented in `sn360-security-platform`. | Done — `sn360-dashboard-plugin/public/pages/MSPDashboard/` + tenant-controller `/internal/msp/{mspTid}/aggregate` shipped under `sn360-security-platform` [PR #86](https://github.com/kennguy3n/sn360-security-platform/pull/86). |
+| 5.5 | Cross-tenant templates ⚙️ | Shared templates + per-tenant overrides. Implemented in `sn360-security-platform`. | Done — shared templates + per-tenant overrides shipped together with 5.1 under `sn360-security-platform` [PR #86](https://github.com/kennguy3n/sn360-security-platform/pull/86). |
 | 5.6 | `sda-management-compat` shim | Translate Fleet-flavoured GitOps YAML into SDA-native config. New [`sda-management-compat`](../../crates/sda-management-compat/) crate maps Fleet `queries` / `policies` / `software` / `scripts` / `agent_options` / `labels` per the [PROPOSAL.md § 4.1 mapping](./PROPOSAL.md#41-fleet-concepts-to-port-into-sda) and rejects every key on the [PROPOSAL.md § 4.2 do-not-port list](./PROPOSAL.md#42-fleet-concepts-not-to-port-into-sda) per [ADR-001](./ADR-001-functional-port.md). | Done |
 | 5.7 | Phase 5 E2E suite | Cross-tenant scenario coverage in [`crates/sda-agent/tests/e2e_management_compat.rs`](../../crates/sda-agent/tests/e2e_management_compat.rs); `make e2e-management-compat`. | Done |
 
