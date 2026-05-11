@@ -1,7 +1,23 @@
 name: CI
 
+# Lane model
+# ---------
+# Default lane (always runs):
+#   * pr-gate (lint + unit tests)
+# Full lane (opt-in):
+#   * full-suite (integration + E2E)
+#   * benchmark
+# Triggers for the full lane:
+#   1. push to main / develop                  - post-merge regression
+#   2. workflow_dispatch w/ run_full_suite    - reviewer kicks it manually
+#   3. PR labeled `ci:full`                    - reviewer opt-in per PR
+# Branch protection should require only pr-gate; the full lane is
+# expected to be slow and is reserved for changes that genuinely
+# touch integration / E2E surface.
+
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
     paths-ignore:
       - 'docs/**'
       - '*.md'
@@ -44,8 +60,11 @@ jobs:
   full-suite:
     name: Full Test Suite
     if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_dispatch' && inputs.run_full_suite)
+      (github.event_name == 'push' &&
+       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.run_full_suite) ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'ci:full'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -63,7 +82,12 @@ jobs:
 
   benchmark:
     name: Performance Benchmark
-    if: github.event_name == 'workflow_dispatch' && inputs.run_benchmark
+    if: >-
+      (github.event_name == 'push' &&
+       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.run_benchmark) ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'ci:full'))
     runs-on: ubuntu-latest
     continue-on-error: true
     env:
