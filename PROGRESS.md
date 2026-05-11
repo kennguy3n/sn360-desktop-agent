@@ -1,6 +1,6 @@
 # SN360 Desktop Agent — Development Progress
 
-Tracks the implementation status of `sn360-agent-device` against the
+Tracks the implementation status of `sn360-desktop-agent` against the
 roadmap in
 [`device-agent-proposal.md`](./device-agent-proposal.md) §12.
 
@@ -247,10 +247,10 @@ See [`docs/device-control/PROGRESS.md`](./docs/device-control/PROGRESS.md) for t
 
 | Deliverable | Status | PR |
 |---|---|---|
-| Self-update module (signed manifest + rollback) | Done | [#49](https://github.com/kennguy3n/sn360-agent-device/pull/49) |
-| Privilege separation (drop-privileges, minimal caps per module) | Done | [#50](https://github.com/kennguy3n/sn360-agent-device/pull/50) |
-| Tamper protection (binary / config / keys integrity + watchdog) | Done | [#50](https://github.com/kennguy3n/sn360-agent-device/pull/50) |
-| Installers — `.deb`, `.rpm`, `.pkg`, `.msi`, hardened systemd unit | Done | [#48](https://github.com/kennguy3n/sn360-agent-device/pull/48) |
+| Self-update module (signed manifest + rollback) | Done | [#49](https://github.com/kennguy3n/sn360-desktop-agent/pull/49) |
+| Privilege separation (drop-privileges, minimal caps per module) | Done | [#50](https://github.com/kennguy3n/sn360-desktop-agent/pull/50) |
+| Tamper protection (binary / config / keys integrity + watchdog) | Done | [#50](https://github.com/kennguy3n/sn360-desktop-agent/pull/50) |
+| Installers — `.deb`, `.rpm`, `.pkg`, `.msi`, hardened systemd unit | Done | [#48](https://github.com/kennguy3n/sn360-desktop-agent/pull/48) |
 | **5.6 Enhanced protocol — TLS 1.3 + MessagePack + HTTP/2 (opt-in)** | **Done** | *(this branch)* |
 
 ### Phase 5.6 detail — Enhanced protocol
@@ -292,7 +292,7 @@ platform hardening here).
 
 ## Devin Review Dashboard Triage
 
-The `https://uney.devinenterprise.com/review/kennguy3n/sn360-agent-device/pull/{55,54,52}`
+The `https://uney.devinenterprise.com/review/kennguy3n/sn360-desktop-agent/pull/{55,54,52}`
 dashboards were not reachable from this session's network
 namespace (name-resolution blocked on the host), so findings were
 triaged directly against the in-PR review comments that are

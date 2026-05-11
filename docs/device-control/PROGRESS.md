@@ -279,7 +279,12 @@ Upcoming workstreams:
 
 ## Changelog
 
-### 2026-05-11 — Cross-repo doc audit after `sn360-security-platform` PR #86
+> Each entry is collapsed; click the date row to expand the full
+> implementation notes for that PR.
+
+<details>
+<summary>2026-05-11 — Cross-repo doc audit after `sn360-security-platform` PR #86</summary>
+
 
 Documentation-only follow-up to the
 [`sn360-security-platform` PR #86](https://github.com/kennguy3n/sn360-security-platform/pull/86)
@@ -306,7 +311,11 @@ No agent-side code or test changes — every Phase 0–5 + D2 task on
 the agent side was already Done after the 2026-05-10 audit; the
 contractual changes were on the platform side.
 
-### 2026-05-10 — Cross-repo audit: ⚙️ task closure + productisation deferred-path docs
+</details>
+
+<details>
+<summary>2026-05-10 — Cross-repo audit: ⚙️ task closure + productisation deferred-path docs</summary>
+
 
 This PR is documentation + hardening only on the agent side. It
 synchronises the agent docs with the platform PRs that just landed,
@@ -349,7 +358,11 @@ Hardening:
   canonical SCHEMAS.md fixtures. Round-trips ensure the agent's
   Rust types and the platform's Go types stay byte-stable.
 
-### 2026-05-10 — Phase D2 (USB / removable-media policy enforcement) agent-side completion
+</details>
+
+<details>
+<summary>2026-05-10 — Phase D2 (USB / removable-media policy enforcement) agent-side completion</summary>
+
 
 This PR closes the agent-side scope of Phase D2 against the matching
 control-plane work already on `main` of `sn360-security-platform`.
@@ -422,7 +435,11 @@ compatible additive change; older agents stop at the existing
 decoder XML / ISM template wiring (D2.5 / D2.8) was already shipped
 on `main` of `sn360-security-platform`.
 
-### 2026-05-10 — CI audit: fix failures and add conditional tiers
+</details>
+
+<details>
+<summary>2026-05-10 — CI audit: fix failures and add conditional tiers</summary>
+
 
 Fixed CI workflow failures caused by `benchmark-ci` requiring sudo +
 sysstat on GitHub runners. Removed unnecessary `libyara-dev` (vendored)
@@ -432,7 +449,11 @@ tiers: `pr-gate` (lint + unit on every PR, skips docs-only changes),
 and `benchmark` (manual dispatch only, continue-on-error). Lint no
 longer runs twice on push events.
 
-### 2026-05-09 — CI tiered test targets
+</details>
+
+<details>
+<summary>2026-05-09 — CI tiered test targets</summary>
+
 
 Added tiered Makefile test targets (`test-unit`, `test-e2e-all`,
 `test-full`, `test-pr`) and a GitHub Actions CI workflow
@@ -440,7 +461,11 @@ Added tiered Makefile test targets (`test-unit`, `test-e2e-all`,
 tests on every PR) and `full-suite` (all tests on push to main and
 manual dispatch). PRs no longer need to run the full E2E suite.
 
-### 2026-05-08 — Phase 4 completion (4.7/4.8/4.12) + Phase 5 agent-side (5.6/5.7)
+</details>
+
+<details>
+<summary>2026-05-08 — Phase 4 completion (4.7/4.8/4.12) + Phase 5 agent-side (5.6/5.7)</summary>
+
 
 This PR completes the agent-side scope of Phase 4 and lands the
 Phase 5 agent-side deliverable (`sda-management-compat`).
@@ -476,7 +501,11 @@ Phase 5 — agent-side completion:
 
 All agent-side Device Control tasks are now complete.
 
-### 2026-05-08 — Phase 4 completion (WDAC / AppLocker, Linux app control, E2E) + Phase 5 management-compat shim
+</details>
+
+<details>
+<summary>2026-05-08 — Phase 4 completion (WDAC / AppLocker, Linux app control, E2E) + Phase 5 management-compat shim</summary>
+
 
 This PR closes out the agent-side scope of Phase 4 and lands the
 agent-side scope of Phase 5. All new code is gated on the same
@@ -650,7 +679,11 @@ PRs #6 and #7 (which closed out the agent-side scope of Phases 2
 and 3 and tasks 4.1–4.6) are also corrected. The five
 PROPOSAL.md § 2.2 examples are unchanged.
 
-### 2026-05-08 — Phase 3 drift detection + Phase 4 remote support & app control
+</details>
+
+<details>
+<summary>2026-05-08 — Phase 3 drift detection + Phase 4 remote support & app control</summary>
+
 
 This PR closes out the agent-side scope of Phase 3 and lands the
 Phase 4 PAL traits + module scaffolds + Monitor-mode controllers.
@@ -813,7 +846,11 @@ Documentation: `PROGRESS.md`, `README.md`, `ARCHITECTURE.md`, and
 4.1–4.6 as Done. The five PROPOSAL.md § 2.2 examples are
 unchanged.
 
-### 2026-05-07 — Phase 0 tasks 0.1–0.10 landed (documentation only)
+</details>
+
+<details>
+<summary>2026-05-07 — Phase 0 tasks 0.1–0.10 landed (documentation only)</summary>
+
 
 Tasks 0.1 through 0.10 of Phase 0 — Architecture, Legal, and Schema
 — landed in this PR. All changes are documentation-only; no Rust
@@ -858,7 +895,11 @@ Tasks remaining for Phase 0 exit:
 Existing 433/433 unit tests, 14/14 base E2E, and 10/10 security E2E
 remain green; no source code changed in this PR.
 
-### 2026-05-07 — Phase 0 task 0.11 landed (schema specs)
+</details>
+
+<details>
+<summary>2026-05-07 — Phase 0 task 0.11 landed (schema specs)</summary>
+
 
 Task 0.11 of Phase 0 — Architecture, Legal, and Schema — landed in
 this PR. All changes are documentation-only.
@@ -890,7 +931,11 @@ Tasks remaining for Phase 0 exit:
   maintainers.
 - **0.13** — Phase 0 exit checklist recorded in this file.
 
-### 2026-05-07 — Phase 0 tasks 0.12 and 0.13 landed (sign-off + exit)
+</details>
+
+<details>
+<summary>2026-05-07 — Phase 0 tasks 0.12 and 0.13 landed (sign-off + exit)</summary>
+
 
 Tasks 0.12 and 0.13 close out Phase 0. All changes are
 documentation-only; Phase 1 code work begins under a separate set
@@ -995,7 +1040,11 @@ Existing 433/433 unit tests, 14/14 base E2E, and 10/10 security
 E2E remain green; no source code changed in this section of the
 PR.
 
-### 2026-05-07 — Phase 1 tasks 1.1–1.9 landed (agent code surface)
+</details>
+
+<details>
+<summary>2026-05-07 — Phase 1 tasks 1.1–1.9 landed (agent code surface)</summary>
+
 
 Tasks 1.1 through 1.9 of Phase 1 — Visibility + Admin/Root Review —
 landed in this PR. Phase 1 server-side tasks (1.10–1.13, 1.17) and
@@ -1092,7 +1141,11 @@ Tasks remaining for Phase 1 exit:
 - ⚙️ **1.14 / 1.15 / 1.16** — server-side, in
   [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform).
 
-### 2026-05-07 — Phase 1 tasks 1.10–1.13, 1.17 + Phase 2 tasks 2.1–2.5 landed
+</details>
+
+<details>
+<summary>2026-05-07 — Phase 1 tasks 1.10–1.13, 1.17 + Phase 2 tasks 2.1–2.5 landed</summary>
+
 
 This PR closes out the agent-side scope of Phase 1 and lands the
 Phase 2 PAL + module scaffold. All tasks below are gated on the
@@ -1227,7 +1280,11 @@ Documentation: `PROGRESS.md`, `README.md`, `ARCHITECTURE.md`, and
 `PHASES.md` updated to reflect tasks 1.10–1.13, 1.17, 2.1–2.5 as
 Done. The five PROPOSAL.md § 2.2 examples are unchanged.
 
-### 2026-05-07 — Phase 2 tasks 2.6–2.11, 2.15 + Phase 3 tasks 3.1–3.3 landed
+</details>
+
+<details>
+<summary>2026-05-07 — Phase 2 tasks 2.6–2.11, 2.15 + Phase 3 tasks 3.1–3.3 landed</summary>
+
 
 This PR closes out the agent-side scope of Phase 2 and lands the
 Phase 3 PAL implementations + JIT-admin scaffold + revocation
@@ -1383,3 +1440,6 @@ Tests:
 Documentation: `PROGRESS.md`, `README.md`, `ARCHITECTURE.md`, and
 `PHASES.md` updated to reflect tasks 2.6–2.11, 2.15 and 3.1–3.3
 as Done. The five PROPOSAL.md § 2.2 examples are unchanged.
+
+</details>
+

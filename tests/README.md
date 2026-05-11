@@ -1,6 +1,6 @@
 # SN360 Desktop Agent — Tests
 
-End-to-end tests and fixtures for `sn360-agent-device`. Unit tests
+End-to-end tests and fixtures for `sn360-desktop-agent`. Unit tests
 live alongside each crate under `crates/*/src` and are exercised with
 `cargo test --all`; this directory contains only the **integration /
 E2E** harness, which drives the agent against a real Wazuh 4.9.2

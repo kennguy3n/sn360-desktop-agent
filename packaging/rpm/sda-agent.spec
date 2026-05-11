@@ -4,7 +4,7 @@ Release:        1%{?dist}
 Summary:        Lightweight Wazuh-compatible security agent
 
 License:        GPL-2.0-only
-URL:            https://github.com/kennguy3n/sn360-agent-device
+URL:            https://github.com/kennguy3n/sn360-desktop-agent
 
 # The source tarball is expected to contain:
 #   - sda-agent (release binary, already compiled)

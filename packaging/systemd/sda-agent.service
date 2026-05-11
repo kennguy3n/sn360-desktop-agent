@@ -1,6 +1,6 @@
 [Unit]
 Description=SN360 Desktop Agent
-Documentation=https://github.com/kennguy3n/sn360-agent-device
+Documentation=https://github.com/kennguy3n/sn360-desktop-agent
 After=network-online.target
 Wants=network-online.target
 
