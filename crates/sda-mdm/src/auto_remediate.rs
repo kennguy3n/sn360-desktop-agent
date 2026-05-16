@@ -96,12 +96,13 @@ pub struct EphemeralKey {
 
 impl EphemeralKey {
     pub fn generate() -> Self {
+        use sha2::Digest;
         let mut seed = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut seed);
+        OsRng.fill_bytes(&mut seed);
         let signing = SigningKey::from_bytes(&seed);
         let mut hasher = sha2::Sha256::new();
-        sha2::Digest::update(&mut hasher, signing.verifying_key().as_bytes());
-        let digest = sha2::Digest::finalize(hasher);
+        hasher.update(signing.verifying_key().as_bytes());
+        let digest = hasher.finalize();
         let fingerprint = hex::encode(&digest[..8]);
         Self {
             signing: Arc::new(signing),
@@ -200,7 +201,11 @@ impl AutoRemediator {
             return;
         }
 
-        let result = tokio::task::block_in_place(|| op(self.provider.as_ref()));
+        // The PAL `op` is a blocking std::process::Command call.
+        // Run it directly — the supervisor lives on a tokio task
+        // already and the PAL calls are short-lived (each wraps a
+        // single OS-native CLI invocation).
+        let result = op(self.provider.as_ref());
         let finished_at = Utc::now();
         match result {
             Ok(()) => {

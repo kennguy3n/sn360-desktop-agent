@@ -2009,6 +2009,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "sda-mdm"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "ed25519-dalek",
+ "hex",
+ "notify",
+ "rand_core 0.6.4",
+ "ring",
+ "sda-comms",
+ "sda-core",
+ "sda-device-control",
+ "sda-event-bus",
+ "sda-pal",
+ "sda-posture",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "sda-pal"
 version = "0.1.0"
 dependencies = [

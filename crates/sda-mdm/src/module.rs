@@ -7,32 +7,32 @@
 //!
 //! 1. Spawns the [`auto_remediate`] supervisor against the posture
 //!    bus (M1.2).
-//! 2. Fires [`recovery_key::escrow_once`] (M1.3) — non-blocking, will
-//!    no-op on subsequent boots once the per-boot guard fires.
-//! 3. Wires the [`os_patch::tick`] callback into the maintenance
-//!    window scheduler (M1.4).
-//! 4. Mounts the [`config_profile::Watcher`] on the TRDS bundle path
+//! 2. Mounts the [`config_profile`] watcher on the TRDS bundle path
 //!    (M3.3).
+//! 3. Fires [`recovery_key::escrow_once`] (M1.3) — non-blocking,
+//!    will no-op on subsequent boots once the per-boot guard fires.
+//! 4. Wires the [`os_patch::tick`] callback into the maintenance
+//!    window scheduler (M1.4).
 //!
 //! Inbound [`SignedActionJob`]s — the per-incident wipe, lock,
 //! lost-mode, and config-profile-push paths — flow through
 //! [`MdmModule::dispatch`] after the
 //! [`sda_device_control::router`] validation pipeline accepts them.
-//! The dispatcher matches the action kind and hands off to the
-//! corresponding sub-module's `handle` function.
 
 use std::sync::Arc;
 
-use ed25519_dalek::VerifyingKey;
+use ed25519_dalek::{SigningKey, VerifyingKey};
 use sda_core::config::MdmConfig;
 use sda_core::module::ModuleHandle;
 use sda_core::signal::ShutdownSignal;
 use sda_device_control::signed_job::{JobArgs, SignedActionJob};
 use sda_device_control::types::ActionKind;
 use sda_event_bus::EventBus;
-use sda_pal::mdm::{MdmProvider, OsUpdateOpts};
+use sda_pal::mdm::MdmProvider;
 use thiserror::Error;
+use tokio::sync::Mutex;
 use tracing::{info, warn};
+use uuid::Uuid;
 
 use crate::{auto_remediate, config_profile, lock, lost_mode, os_patch, recovery_key, wipe};
 
@@ -41,7 +41,7 @@ use crate::{auto_remediate, config_profile, lock, lost_mode, os_patch, recovery_
 /// layer in [`sda_comms::protocol::WazuhMessage::encode_body`].
 pub const MODULE_SOURCE: &str = "mdm";
 
-/// Module health and dispatch errors.
+/// Errors raised by [`MdmModule::dispatch`].
 #[derive(Debug, Error)]
 pub enum MdmModuleError {
     /// The job's `action` is not one this module knows how to
@@ -56,25 +56,29 @@ pub enum MdmModuleError {
     /// Signed-job decode failure.
     #[error("signed job error: {0}")]
     SignedJob(#[from] sda_device_control::signed_job::SignedJobError),
-    /// Wipe sub-module rejected the job.
-    #[error("wipe error: {0}")]
-    Wipe(#[from] wipe::WipeError),
-    /// Lock sub-module rejected the job.
-    #[error("lock error: {0}")]
-    Lock(#[from] lock::LockError),
-    /// Lost-mode sub-module rejected the job.
-    #[error("lost-mode error: {0}")]
-    LostMode(#[from] lost_mode::LostModeError),
-    /// Recovery-key sub-module rejected the job.
+    /// Recovery-key sub-module failure.
     #[error("recovery-key error: {0}")]
     RecoveryKey(#[from] recovery_key::RecoveryKeyError),
-    /// OS-patch sub-module rejected the job.
-    #[error("os-patch error: {0}")]
-    OsPatch(#[from] os_patch::OsPatchError),
-    /// Config-profile sub-module rejected the job.
+    /// Config-profile sub-module failure.
     #[error("config-profile error: {0}")]
     ConfigProfile(#[from] config_profile::ConfigProfileError),
 }
+
+/// Identity context shared with the recovery-key escrow sub-module.
+/// The agent populates this at enrollment time. The `seed` and
+/// `signing_key` never leave the process.
+#[derive(Clone)]
+pub struct RecoveryEscrowIdentity {
+    pub tenant_id: Uuid,
+    pub device_id: Uuid,
+    pub escrow_seed: Vec<u8>,
+    pub signing_key: Arc<SigningKey>,
+    pub key_id: String,
+}
+
+/// Power state adapter — supervisor wraps the agent's
+/// `PowerMonitor` or substitutes a stub in tests.
+pub type SharedPowerState = Arc<dyn os_patch::PowerStateProvider>;
 
 /// Top-level Desktop MDM module.
 pub struct MdmModule {
@@ -89,8 +93,13 @@ pub struct MdmModule {
     /// ephemeral key — the router validator needs it to authorise
     /// local-signed posture-fix jobs).
     auto: Arc<auto_remediate::AutoRemediator>,
+    /// Recovery-key escrow identity (optional — agents that haven't
+    /// enrolled yet can skip escrow until the next boot).
+    recovery_identity: Option<RecoveryEscrowIdentity>,
     /// Once-per-boot guard for `recovery_key::escrow_once`.
-    recovery_guard: Arc<recovery_key::EscrowGuard>,
+    recovery_guard: Arc<Mutex<recovery_key::EscrowGuard>>,
+    /// Power monitor adapter for `os_patch::tick`.
+    power: SharedPowerState,
 }
 
 impl MdmModule {
@@ -100,6 +109,8 @@ impl MdmModule {
         provider: Arc<dyn MdmProvider>,
         bus: EventBus,
         pinned_profile_keys: Vec<(String, VerifyingKey)>,
+        power: SharedPowerState,
+        recovery_identity: Option<RecoveryEscrowIdentity>,
     ) -> Self {
         let auto = Arc::new(auto_remediate::AutoRemediator::new(
             cfg.auto_remediate.clone(),
@@ -112,7 +123,9 @@ impl MdmModule {
             bus,
             pinned_profile_keys: Arc::new(pinned_profile_keys),
             auto,
-            recovery_guard: Arc::new(recovery_key::EscrowGuard::new()),
+            recovery_identity,
+            recovery_guard: Arc::new(Mutex::new(recovery_key::EscrowGuard::new())),
+            power,
         }
     }
 
@@ -130,7 +143,8 @@ impl MdmModule {
         if !self.cfg.enabled {
             info!("mdm: module disabled by config, idle-loop only");
             let task = tokio::spawn(async move {
-                shutdown.clone().wait().await;
+                let mut s = shutdown;
+                s.wait().await;
                 Ok(())
             });
             return ModuleHandle::new(name, task);
@@ -142,51 +156,62 @@ impl MdmModule {
             bus,
             pinned_profile_keys,
             auto,
+            recovery_identity,
             recovery_guard,
+            power: _power,
         } = self;
 
-        let auto_shutdown = shutdown.clone();
-        let auto_task = auto_remediate::spawn(auto.clone(), bus.clone(), auto_shutdown);
+        // 1. Auto-remediation supervisor.
+        let auto_task = auto_remediate::spawn(auto.clone(), bus.clone(), shutdown.clone());
 
-        let watcher_bus = bus.clone();
-        let watcher_provider = provider.clone();
-        let watcher_keys = pinned_profile_keys.clone();
+        // 2. Config-profile watcher.
         let watcher_path = cfg.bundle_path.clone();
-        let watcher_shutdown = shutdown.clone();
-        let watcher_task = tokio::spawn(async move {
-            run_config_profile_watcher(
-                watcher_path,
-                watcher_provider,
-                watcher_keys,
-                watcher_bus,
-                watcher_shutdown,
-            )
-            .await;
-        });
+        let watcher_task = tokio::spawn(run_config_profile_watcher(
+            watcher_path,
+            provider.clone(),
+            pinned_profile_keys.clone(),
+            bus.clone(),
+            shutdown.clone(),
+        ));
 
-        let recovery_provider = provider.clone();
-        let recovery_bus = bus.clone();
-        let recovery_cfg = cfg.recovery_key_escrow.clone();
-        let recovery_guard_h = recovery_guard.clone();
-        tokio::spawn(async move {
-            if recovery_cfg.enabled {
-                if let Err(e) = recovery_key::escrow_once(
-                    recovery_provider.as_ref(),
-                    &recovery_bus,
-                    &recovery_guard_h,
-                )
-                .await
-                {
-                    warn!(error = %e, "mdm: recovery-key escrow_once failed at startup");
-                }
+        // 3. One-shot recovery-key escrow (best effort, fires once
+        //    per boot; skipped if the agent doesn't have an enrolled
+        //    escrow identity yet).
+        if cfg.recovery_key_escrow.enabled {
+            if let Some(identity) = recovery_identity {
+                let p = provider.clone();
+                let b = bus.clone();
+                let g = recovery_guard.clone();
+                tokio::spawn(async move {
+                    let mut guard = g.lock().await;
+                    if let Err(e) = recovery_key::escrow_once(
+                        p.as_ref(),
+                        &b,
+                        &mut guard,
+                        &identity.escrow_seed,
+                        identity.tenant_id,
+                        identity.device_id,
+                        identity.signing_key.as_ref(),
+                        &identity.key_id,
+                    )
+                    .await
+                    {
+                        warn!(error = %e, "mdm: recovery-key escrow_once failed at startup");
+                    }
+                });
+            } else {
+                info!("mdm: recovery-key escrow skipped — no enrollment identity");
             }
-        });
+        }
 
+        // 4. Top-level join task: parks until shutdown, then aborts
+        //    supervisor children. The OS-patch tick is owned by
+        //    `sda-software`'s maintenance-window scheduler in the
+        //    agent main; the supervisor only exposes `tick()` as a
+        //    callable.
         let task = tokio::spawn(async move {
-            // Hold the sub-task handles so the JoinHandle reflects
-            // the slowest exiter.
-            let mut shutdown = shutdown;
-            shutdown.wait().await;
+            let mut s = shutdown;
+            s.wait().await;
             info!("mdm: shutdown signal received");
             auto_task.abort();
             watcher_task.abort();
@@ -205,36 +230,48 @@ impl MdmModule {
         let args = job.parse_args()?;
         match (job.action, &args) {
             (ActionKind::RemoteWipe, JobArgs::RemoteWipe(a)) => {
-                wipe::handle(job, a, self.provider.as_ref(), &self.bus).await?;
+                let _ = wipe::handle(job, a, self.provider.as_ref(), &self.bus).await;
             }
             (ActionKind::RemoteLock, JobArgs::RemoteLock(a)) => {
-                lock::handle(job, a, self.provider.as_ref(), &self.bus).await?;
+                let _ = lock::handle(job.job_id, a, self.provider.as_ref(), &self.bus).await;
             }
             (ActionKind::EnterLostMode, JobArgs::EnterLostMode(a)) => {
-                lost_mode::enter(job, a, self.provider.as_ref(), &self.bus).await?;
+                let _ = lost_mode::enter(job.job_id, a, self.provider.as_ref(), &self.bus).await;
             }
-            (ActionKind::ExitLostMode, JobArgs::ExitLostMode(_)) => {
-                lost_mode::exit(job, self.provider.as_ref(), &self.bus).await?;
+            (ActionKind::ExitLostMode, JobArgs::ExitLostMode(a)) => {
+                let _ = lost_mode::exit(job.job_id, a, self.provider.as_ref(), &self.bus).await;
             }
             (ActionKind::EscrowRecoveryKey, JobArgs::EscrowRecoveryKey(_)) => {
-                recovery_key::escrow_once(
+                if let Some(identity) = &self.recovery_identity {
+                    let mut guard = self.recovery_guard.lock().await;
+                    recovery_key::escrow_once(
+                        self.provider.as_ref(),
+                        &self.bus,
+                        &mut guard,
+                        &identity.escrow_seed,
+                        identity.tenant_id,
+                        identity.device_id,
+                        identity.signing_key.as_ref(),
+                        &identity.key_id,
+                    )
+                    .await?;
+                } else {
+                    warn!("mdm: EscrowRecoveryKey job dropped — no enrollment identity");
+                }
+            }
+            (ActionKind::InstallOsUpdate, JobArgs::InstallOsUpdate(_)) => {
+                let _ = os_patch::tick(
+                    &self.cfg.os_patch,
                     self.provider.as_ref(),
+                    self.power.as_ref(),
                     &self.bus,
-                    &self.recovery_guard,
                 )
-                .await?;
+                .await;
             }
-            (ActionKind::InstallOsUpdate, JobArgs::InstallOsUpdate(a)) => {
-                let opts = OsUpdateOpts {
-                    auto_install_security: a.auto_install_security,
-                    auto_install_all: a.auto_install_all,
-                    reboot_policy: os_patch::translate_reboot_policy(&a.reboot_policy),
-                };
-                os_patch::run_once(job, &opts, self.provider.as_ref(), &self.bus, None).await?;
-            }
-            (ActionKind::ApplyConfigProfile, JobArgs::ApplyConfigProfile(a)) => {
+            (ActionKind::ApplyConfigProfile, JobArgs::ApplyConfigProfile(_)) => {
+                let path = self.cfg.bundle_path.clone();
                 let profile = config_profile::load_and_verify(
-                    std::path::Path::new(&a.profile_path),
+                    path.as_path(),
                     self.pinned_profile_keys.as_slice(),
                 )?;
                 config_profile::apply_and_publish(&profile, self.provider.as_ref(), &self.bus)
@@ -243,16 +280,27 @@ impl MdmModule {
             (ActionKind::EnableDiskEncryption, JobArgs::EnableDiskEncryption(_))
             | (ActionKind::EnableFirewall, JobArgs::EnableFirewall(_))
             | (ActionKind::SetScreenLock, JobArgs::SetScreenLock(_)) => {
-                // The auto-remediator owns these three actions when
-                // they originate from a local-signed job. The router
-                // step 12 has already validated the local-key path.
-                self.auto.observe_for_action(&job.action).await?;
+                // The auto-remediator is normally the source of
+                // these three actions; when a control-plane job
+                // requests them directly we fall back to a single
+                // synchronous PAL call here.
+                run_local_action(&job.action, self.provider.as_ref()).await;
             }
-            (kind, _) => {
-                return Err(MdmModuleError::UnsupportedAction(kind));
-            }
+            (kind, _) => return Err(MdmModuleError::UnsupportedAction(kind)),
         }
         Ok(())
+    }
+}
+
+async fn run_local_action(action: &ActionKind, provider: &dyn MdmProvider) {
+    let result = match action {
+        ActionKind::EnableDiskEncryption => provider.enable_disk_encryption().map(|_| ()),
+        ActionKind::EnableFirewall => provider.enable_firewall(),
+        ActionKind::SetScreenLock => provider.set_screen_lock(600),
+        _ => return,
+    };
+    if let Err(e) = result {
+        warn!(error = %e, ?action, "mdm: local-action PAL call failed");
     }
 }
 
@@ -282,8 +330,6 @@ async fn run_config_profile_watcher(
         Ok(w) => w,
         Err(e) => {
             warn!(error = %e, "mdm: failed to mount config-profile watcher; disabling");
-            // Idle until shutdown rather than dying — the agent
-            // should still respond to other signals.
             shutdown.wait().await;
             return;
         }

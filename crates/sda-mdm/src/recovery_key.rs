@@ -25,7 +25,7 @@
 
 use chrono::Utc;
 use ed25519_dalek::Signer;
-use ring::aead::{LessSafeKey, Nonce, UnboundKey, AAD, CHACHA20_POLY1305};
+use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
 use ring::hkdf;
 use ring::rand::{SecureRandom, SystemRandom};
 use sda_event_bus::{Event, EventBus, EventKind, Priority};
@@ -125,7 +125,7 @@ pub fn build_payload(
 
     // 4. Encrypt in place: copy the material, append the auth tag.
     let mut ciphertext = raw.material.clone();
-    key.seal_in_place_append_tag(nonce, AAD::empty(), &mut ciphertext)
+    key.seal_in_place_append_tag(nonce, Aad::empty(), &mut ciphertext)
         .map_err(|_| RecoveryKeyError::Encrypt)?;
 
     // 5. Build the wire envelope.

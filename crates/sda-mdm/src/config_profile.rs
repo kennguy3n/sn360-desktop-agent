@@ -26,7 +26,7 @@
 //!    profile.
 
 use chrono::{DateTime, Utc};
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, VerifyingKey};
 use sda_event_bus::{Event, EventBus, EventKind, Priority};
 use sda_pal::mdm::{MdmProvider, SignedConfigProfile};
 use serde::{Deserialize, Serialize};
@@ -68,6 +68,7 @@ pub enum ConfigProfileStatus {
 #[serde(deny_unknown_fields)]
 pub struct ConfigProfileBody {
     pub profile_id: Uuid,
+    pub tenant_id: Uuid,
     pub schema_version: u16,
     pub issued_at: DateTime<Utc>,
     pub password_policy: PasswordPolicy,
@@ -151,7 +152,7 @@ pub enum ConfigProfileError {
 pub fn load_and_verify(
     path: &Path,
     pinned_keys: &[(String, VerifyingKey)],
-) -> Result<SignedConfigProfile, ConfigProfileError> {
+) -> Result<VerifiedProfile, ConfigProfileError> {
     let bytes = std::fs::read(path)?;
     let signed: SignedProfile = serde_json::from_slice(&bytes)?;
 
@@ -175,15 +176,39 @@ pub fn load_and_verify(
 
     let mut h = Sha256::new();
     h.update(&preimage);
-    let sha = h.finalize();
+    let sha = hex::encode(h.finalize());
+    let canonical_json = String::from_utf8(preimage)
+        .map_err(|_| ConfigProfileError::Canonicalise)?;
 
-    Ok(SignedConfigProfile {
-        profile_id: signed.body.profile_id,
-        body: preimage,
-        signature: sig_bytes.to_vec(),
-        signing_key_id: signed.key_id,
-        sha256: hex::encode(sha),
+    Ok(VerifiedProfile {
+        inner: SignedConfigProfile {
+            profile_id: signed.body.profile_id,
+            tenant_id: signed.body.tenant_id,
+            canonical_json,
+            signature: sig_bytes.to_vec(),
+            key_id: signed.key_id,
+        },
+        sha256: sha,
     })
+}
+
+/// Wrapper carrying the verified [`SignedConfigProfile`] plus the
+/// SHA-256 of its canonical pre-image. The hash is surfaced in the
+/// `MdmConfigProfileApplied` event payload but does not live on the
+/// PAL type.
+#[derive(Debug, Clone)]
+pub struct VerifiedProfile {
+    pub inner: SignedConfigProfile,
+    pub sha256: String,
+}
+
+impl VerifiedProfile {
+    pub fn profile_id(&self) -> Uuid {
+        self.inner.profile_id
+    }
+    pub fn pal(&self) -> &SignedConfigProfile {
+        &self.inner
+    }
 }
 
 /// Canonical bytes used for signing/verification. We rely on
@@ -254,12 +279,12 @@ impl Watcher {
 /// Apply one verified profile via the PAL and publish the
 /// MdmConfigProfileApplied event.
 pub async fn apply_and_publish(
-    profile: &SignedConfigProfile,
+    profile: &VerifiedProfile,
     provider: &dyn MdmProvider,
     bus: &EventBus,
 ) -> MdmConfigProfileAppliedPayload {
     let applied_at = Utc::now();
-    let (status, error) = match provider.apply_config_profile(profile) {
+    let (status, error) = match provider.apply_config_profile(profile.pal()) {
         Ok(()) => (ConfigProfileStatus::Applied, None),
         Err(e) => {
             warn!(error = %e, "mdm: apply_config_profile failed");
@@ -267,7 +292,7 @@ pub async fn apply_and_publish(
         }
     };
     let payload = MdmConfigProfileAppliedPayload {
-        profile_id: profile.profile_id,
+        profile_id: profile.profile_id(),
         profile_sha256: profile.sha256.clone(),
         applied_at,
         status,
@@ -275,7 +300,7 @@ pub async fn apply_and_publish(
     };
     publish_applied(bus, &payload).await;
     info!(
-        profile_id = %profile.profile_id,
+        profile_id = %profile.profile_id(),
         ?status,
         "mdm: config profile applied"
     );
