@@ -256,10 +256,10 @@ mod tests {
 
     fn cfg() -> OsPatchConfig {
         OsPatchConfig {
+            enabled: true,
             auto_install_security: true,
             auto_install_all: false,
             defer_on_battery: true,
-            maintenance_window_tick_secs: 3600,
         }
     }
 
@@ -311,10 +311,10 @@ mod tests {
     #[test]
     fn config_to_opts_security_only() {
         let c = OsPatchConfig {
+            enabled: true,
             auto_install_security: true,
             auto_install_all: false,
             defer_on_battery: true,
-            maintenance_window_tick_secs: 3600,
         };
         let o = config_to_opts(&c);
         assert!(o.include_security);
@@ -325,10 +325,10 @@ mod tests {
     #[test]
     fn config_to_opts_all_updates() {
         let c = OsPatchConfig {
+            enabled: true,
             auto_install_security: true,
             auto_install_all: true,
             defer_on_battery: false,
-            maintenance_window_tick_secs: 3600,
         };
         let o = config_to_opts(&c);
         assert!(o.include_security);

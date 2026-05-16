@@ -376,6 +376,7 @@ mod tests {
     fn sample_body(id: Uuid) -> ConfigProfileBody {
         ConfigProfileBody {
             profile_id: id,
+            tenant_id: Uuid::nil(),
             schema_version: 1,
             issued_at: Utc.with_ymd_and_hms(2026, 5, 1, 12, 0, 0).unwrap(),
             password_policy: PasswordPolicy {
@@ -420,8 +421,8 @@ mod tests {
         std::fs::write(&path, serde_json::to_vec(&signed).unwrap()).unwrap();
         let pinned = vec![("pinned-key".to_string(), key.verifying_key())];
         let parsed = load_and_verify(&path, &pinned).unwrap();
-        assert_eq!(parsed.profile_id, id);
-        assert_eq!(parsed.signing_key_id, "pinned-key");
+        assert_eq!(parsed.profile_id(), id);
+        assert_eq!(parsed.inner.key_id, "pinned-key");
         assert_eq!(parsed.sha256.len(), 64);
     }
 
@@ -526,11 +527,15 @@ mod tests {
             applied: Arc::new(AtomicBool::new(false)),
         };
         let applied = provider.applied.clone();
-        let profile = SignedConfigProfile {
-            profile_id: Uuid::nil(),
-            body: serde_json::to_vec(&sample_body(Uuid::nil())).unwrap(),
-            signature: vec![0u8; 64],
-            signing_key_id: "pinned-key".into(),
+        let canonical = serde_json::to_string(&sample_body(Uuid::nil())).unwrap();
+        let profile = VerifiedProfile {
+            inner: SignedConfigProfile {
+                profile_id: Uuid::nil(),
+                tenant_id: Uuid::nil(),
+                canonical_json: canonical,
+                signature: vec![0u8; 64],
+                key_id: "pinned-key".into(),
+            },
             sha256: "0".repeat(64),
         };
         let payload = apply_and_publish(&profile, &provider, &bus).await;

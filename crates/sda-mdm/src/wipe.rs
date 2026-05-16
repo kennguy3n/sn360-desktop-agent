@@ -169,6 +169,7 @@ mod tests {
             job_id: Uuid::nil(),
             tenant_id: Uuid::nil(),
             device_id: Uuid::nil(),
+            correlation_id: Some(Uuid::nil()),
             recommendation_id: None,
             action: ActionKind::RemoteWipe,
             args: serde_json::json!({ "reason": "lost", "crypto_shred_only": false }),

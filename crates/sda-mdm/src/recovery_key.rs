@@ -230,7 +230,7 @@ fn sha256(bytes: &[u8]) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ring::aead::{OpeningKey, NonceSequence};
+    use ring::aead::{BoundKey, NonceSequence, OpeningKey};
     use sda_pal::mdm::RecoveryKeyType;
 
     fn signing_key() -> ed25519_dalek::SigningKey {
@@ -277,7 +277,7 @@ mod tests {
         let mut opening = OpeningKey::new(unbound, OneShot(payload.nonce));
         let mut ct = payload.ciphertext.clone();
         let pt = opening
-            .open_in_place(AAD::empty(), &mut ct)
+            .open_in_place(Aad::empty(), &mut ct)
             .expect("decrypt must succeed");
         assert_eq!(pt, raw.material.as_slice());
     }

@@ -419,8 +419,9 @@ mod tests {
                 return Err(MdmError::Command("luks unavailable".into()));
             }
             Ok(EncryptionOutcome {
-                key_type: RecoveryKeyType::Luks,
-                recovery_key_present: true,
+                enabled: true,
+                recovery_key_escrowed: true,
+                provider: "luks".into(),
             })
         }
         fn enable_firewall(&self) -> sda_pal::mdm::Result<()> {

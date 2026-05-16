@@ -250,6 +250,7 @@ mod tests {
             signature: vec![0u8; 64],
             key_id: "test-key".into(),
             correlation_id: None,
+            additional_signatures: Vec::new(),
         }
     }
 
