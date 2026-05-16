@@ -9,6 +9,7 @@ license.workspace = true
 sda-core = { workspace = true }
 sda-event-bus = { workspace = true }
 sda-pal = { workspace = true }
+sda-mdm = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

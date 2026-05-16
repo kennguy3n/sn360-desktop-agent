@@ -23,6 +23,7 @@ use std::sync::Arc;
 
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use sda_core::config::MdmConfig;
+use sda_core::location::LastKnownLocationStore;
 use sda_core::module::ModuleHandle;
 use sda_core::signal::ShutdownSignal;
 use sda_device_control::signed_job::{JobArgs, SignedActionJob};
@@ -34,6 +35,7 @@ use tokio::sync::Mutex;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::lost_mode::{IpGeolocator, LocationReporterHandle, NoopGeolocator};
 use crate::{auto_remediate, config_profile, lock, lost_mode, os_patch, recovery_key, wipe};
 
 /// Source tag used in every [`sda_event_bus::Event`] published from
@@ -100,6 +102,17 @@ pub struct MdmModule {
     recovery_guard: Arc<Mutex<recovery_key::EscrowGuard>>,
     /// Power monitor adapter for `os_patch::tick`.
     power: SharedPowerState,
+    /// Shared last-known-location store. The
+    /// [`crate::lost_mode::LocationReporterHandle`] writes into this
+    /// while the device is in lost mode; the agent-vitals heartbeat
+    /// reads from it when assembling the next `AgentVitals` payload.
+    location_store: LastKnownLocationStore,
+    /// IP-geolocation backend used by the reporter. Tests inject
+    /// [`NoopGeolocator`]; production agents inject an HTTP client.
+    geolocator: Arc<dyn IpGeolocator>,
+    /// Reporter task handle (started by `EnterLostMode`, aborted by
+    /// `ExitLostMode` or agent shutdown).
+    reporter_handle: Arc<Mutex<LocationReporterHandle>>,
 }
 
 impl MdmModule {
@@ -111,6 +124,33 @@ impl MdmModule {
         pinned_profile_keys: Vec<(String, VerifyingKey)>,
         power: SharedPowerState,
         recovery_identity: Option<RecoveryEscrowIdentity>,
+    ) -> Self {
+        Self::with_geolocator(
+            cfg,
+            provider,
+            bus,
+            pinned_profile_keys,
+            power,
+            recovery_identity,
+            LastKnownLocationStore::new(),
+            Arc::new(NoopGeolocator),
+        )
+    }
+
+    /// Construct with a caller-owned location store and geolocator
+    /// backend. The agent main passes the store down so the
+    /// agent-vitals heartbeat can read the same value the reporter
+    /// writes.
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_geolocator(
+        cfg: MdmConfig,
+        provider: Arc<dyn MdmProvider>,
+        bus: EventBus,
+        pinned_profile_keys: Vec<(String, VerifyingKey)>,
+        power: SharedPowerState,
+        recovery_identity: Option<RecoveryEscrowIdentity>,
+        location_store: LastKnownLocationStore,
+        geolocator: Arc<dyn IpGeolocator>,
     ) -> Self {
         let auto = Arc::new(auto_remediate::AutoRemediator::new(
             cfg.auto_remediate.clone(),
@@ -126,6 +166,9 @@ impl MdmModule {
             recovery_identity,
             recovery_guard: Arc::new(Mutex::new(recovery_key::EscrowGuard::new())),
             power,
+            location_store,
+            geolocator,
+            reporter_handle: Arc::new(Mutex::new(LocationReporterHandle::new())),
         }
     }
 
@@ -159,7 +202,12 @@ impl MdmModule {
             recovery_identity,
             recovery_guard,
             power: _power,
+            location_store: _,
+            geolocator: _,
+            reporter_handle,
         } = self;
+        // Capture the reporter so the shutdown task can stop it.
+        let reporter_for_shutdown = reporter_handle.clone();
 
         // 1. Auto-remediation supervisor.
         let auto_task = auto_remediate::spawn(auto.clone(), bus.clone(), shutdown.clone());
@@ -215,6 +263,9 @@ impl MdmModule {
             info!("mdm: shutdown signal received");
             auto_task.abort();
             watcher_task.abort();
+            // Stop the lost-mode location reporter if it was
+            // started by a previous EnterLostMode dispatch.
+            reporter_for_shutdown.lock().await.stop();
             Ok(())
         });
         ModuleHandle::new(name, task)
@@ -236,10 +287,26 @@ impl MdmModule {
                 let _ = lock::handle(job.job_id, a, self.provider.as_ref(), &self.bus).await;
             }
             (ActionKind::EnterLostMode, JobArgs::EnterLostMode(a)) => {
-                let _ = lost_mode::enter(job.job_id, a, self.provider.as_ref(), &self.bus).await;
+                let _ = lost_mode::enter(
+                    job.job_id,
+                    a,
+                    self.provider.as_ref(),
+                    &self.bus,
+                    self.reporter_handle.clone(),
+                    self.location_store.clone(),
+                    self.geolocator.clone(),
+                )
+                .await;
             }
             (ActionKind::ExitLostMode, JobArgs::ExitLostMode(a)) => {
-                let _ = lost_mode::exit(job.job_id, a, self.provider.as_ref(), &self.bus).await;
+                let _ = lost_mode::exit(
+                    job.job_id,
+                    a,
+                    self.provider.as_ref(),
+                    &self.bus,
+                    self.reporter_handle.clone(),
+                )
+                .await;
             }
             (ActionKind::EscrowRecoveryKey, JobArgs::EscrowRecoveryKey(_)) => {
                 if let Some(identity) = &self.recovery_identity {

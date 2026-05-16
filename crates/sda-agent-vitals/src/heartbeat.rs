@@ -48,7 +48,7 @@ pub enum TickOutcome {
 /// lexicographically named) makes the encoded form stable on every
 /// tick.
 pub fn snapshot_to_event_kind(snap: &VitalsSnapshot) -> EventKind {
-    let payload = serde_json::to_string(&json!({
+    let mut body = json!({
         "schema_version": 1,
         "rss_kb": snap.rss_kb,
         "cpu_percent": snap.cpu_percent,
@@ -57,8 +57,20 @@ pub fn snapshot_to_event_kind(snap: &VitalsSnapshot) -> EventKind {
         "agent_version": snap.agent_version,
         "uptime_secs": snap.uptime_secs,
         "last_seen": snap.last_seen.to_rfc3339(),
-    }))
-    .expect("serializing AgentVitals payload must not fail");
+    });
+    if let Some(loc) = snap.last_known_location {
+        // Additive field — see `docs/desktop-mdm/ARCHITECTURE.md` § 3.7.
+        // Devices that never entered lost mode omit the field
+        // entirely so the existing wire schema is unchanged.
+        body["last_known_location"] = json!({
+            "lat": loc.lat,
+            "lon": loc.lon,
+            "accuracy_m": loc.accuracy_m,
+            "reported_at": loc.reported_at.to_rfc3339(),
+        });
+    }
+    let payload =
+        serde_json::to_string(&body).expect("serializing AgentVitals payload must not fail");
     EventKind::AgentVitals { payload }
 }
 
@@ -118,6 +130,7 @@ mod tests {
             agent_version: "0.1.0".into(),
             uptime_secs: 42,
             last_seen: Utc::now(),
+            last_known_location: None,
         }
     }
 
@@ -132,6 +145,33 @@ mod tests {
                 assert_eq!(parsed["queue_depth"], 2);
                 assert_eq!(parsed["uptime_secs"], 42);
                 assert_eq!(parsed["agent_version"], "0.1.0");
+                assert!(
+                    parsed.get("last_known_location").is_none(),
+                    "last_known_location must be omitted when None"
+                );
+            }
+            other => panic!("expected AgentVitals, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn snapshot_to_event_kind_includes_location_when_present() {
+        use sda_core::location::LastKnownLocation;
+        let mut snap = fixed_snapshot();
+        snap.last_known_location = Some(LastKnownLocation {
+            lat: 37.7749,
+            lon: -122.4194,
+            accuracy_m: 25.0,
+            reported_at: Utc::now(),
+        });
+        match snapshot_to_event_kind(&snap) {
+            EventKind::AgentVitals { payload } => {
+                let parsed: serde_json::Value = serde_json::from_str(&payload).unwrap();
+                let loc = parsed.get("last_known_location").expect("loc field present");
+                assert_eq!(loc["lat"], 37.7749);
+                assert_eq!(loc["lon"], -122.4194);
+                assert_eq!(loc["accuracy_m"], 25.0);
+                assert!(loc.get("reported_at").is_some());
             }
             other => panic!("expected AgentVitals, got {other:?}"),
         }

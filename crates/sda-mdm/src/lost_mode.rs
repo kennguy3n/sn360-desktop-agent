@@ -11,12 +11,17 @@
 //! [`sda_event_bus::EventKind::AgentVitals`] heartbeat payload) on
 //! every successful network reconnect.
 
+use std::sync::Arc;
+use std::time::Duration;
+
 use chrono::{DateTime, Utc};
+use sda_core::location::{LastKnownLocation, LastKnownLocationStore};
 use sda_device_control::signed_job::{EnterLostModeArgs, ExitLostModeArgs};
 use sda_event_bus::{Event, EventBus, EventKind, Priority};
 use sda_pal::mdm::MdmProvider;
 use serde::{Deserialize, Serialize};
-use tracing::{info, warn};
+use tokio::sync::Mutex;
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::module::MODULE_SOURCE;
@@ -51,30 +56,99 @@ pub enum LostModeStatus {
     Failure,
 }
 
-/// Best-effort IP-geolocation report. Phase M2 ships the wire format
-/// — the live reporter (`report_location_interval_secs`) populates
-/// it on every successful network reconnect.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct LastKnownLocation {
-    pub lat: f64,
-    pub lon: f64,
-    /// Estimated accuracy radius in metres.
-    pub accuracy_m: f64,
-    pub reported_at: DateTime<Utc>,
+/// Pluggable IP-geolocation surface. The production agent hooks a
+/// real HTTP client that queries an IP-geo service; tests inject
+/// [`NoopGeolocator`] or a mock.
+pub trait IpGeolocator: Send + Sync {
+    fn locate(&self) -> Option<LastKnownLocation>;
+}
+
+/// Stub geolocator that always returns `None`. Used when no
+/// geolocation service is configured.
+pub struct NoopGeolocator;
+impl IpGeolocator for NoopGeolocator {
+    fn locate(&self) -> Option<LastKnownLocation> {
+        None
+    }
+}
+
+/// Default reporter interval while in lost mode: 5 minutes.
+const LOCATION_REPORT_INTERVAL: Duration = Duration::from_secs(300);
+
+/// Shared handle for the background location reporter task. The
+/// module holds this behind an `Arc<Mutex<…>>` so that `enter()` can
+/// start the reporter and `exit()` can cancel it via
+/// [`tokio::task::JoinHandle::abort`].
+pub struct LocationReporterHandle {
+    task: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl Default for LocationReporterHandle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LocationReporterHandle {
+    pub fn new() -> Self {
+        Self { task: None }
+    }
+
+    /// Spawn the reporter loop. If one is already running it is
+    /// aborted first.
+    pub fn start(&mut self, store: LastKnownLocationStore, geolocator: Arc<dyn IpGeolocator>) {
+        self.stop();
+        let task = tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(LOCATION_REPORT_INTERVAL).await;
+                if let Some(loc) = geolocator.locate() {
+                    store.set(loc);
+                    debug!(lat = loc.lat, lon = loc.lon, "mdm: location updated");
+                }
+            }
+        });
+        self.task = Some(task);
+    }
+
+    /// Stop the reporter (if running). Called by [`exit`] and on
+    /// agent shutdown.
+    pub fn stop(&mut self) {
+        if let Some(t) = self.task.take() {
+            t.abort();
+        }
+    }
 }
 
 /// Run the enter-lost-mode handler.
+///
+/// On success the supplied `reporter` is started against the
+/// supplied location store + geolocator; the reporter ticks every
+/// [`LOCATION_REPORT_INTERVAL`] (5 min by default) and updates the
+/// store, which the agent-vitals heartbeat reads when assembling the
+/// next `AgentVitals` payload.
 pub async fn enter(
     job_id: Uuid,
     args: &EnterLostModeArgs,
     provider: &dyn MdmProvider,
     bus: &EventBus,
+    reporter: Arc<Mutex<LocationReporterHandle>>,
+    store: LastKnownLocationStore,
+    geolocator: Arc<dyn IpGeolocator>,
 ) -> MdmLostModeEnteredPayload {
     let entered_at = Utc::now();
     let result = provider.enter_lost_mode(&args.message);
     let (status, error) = match &result {
-        Ok(()) => (LostModeStatus::Success, None),
+        Ok(()) => {
+            // Best-effort: do one synchronous location reading right
+            // away so the next AgentVitals heartbeat carries a
+            // non-stale position, then start the periodic reporter.
+            if let Some(loc) = geolocator.locate() {
+                store.set(loc);
+            }
+            let mut h = reporter.lock().await;
+            h.start(store.clone(), geolocator.clone());
+            (LostModeStatus::Success, None)
+        }
         Err(e) => {
             warn!(error = %e, "mdm: enter_lost_mode failed");
             (LostModeStatus::Failure, Some(e.to_string()))
@@ -93,16 +167,25 @@ pub async fn enter(
 }
 
 /// Run the exit-lost-mode handler.
+///
+/// Stops the background location reporter started by [`enter`]. The
+/// last reported location remains in the store so callers can still
+/// surface it as a stale-but-useful position after exit.
 pub async fn exit(
     job_id: Uuid,
     _args: &ExitLostModeArgs,
     provider: &dyn MdmProvider,
     bus: &EventBus,
+    reporter: Arc<Mutex<LocationReporterHandle>>,
 ) -> MdmLostModeExitedPayload {
     let exited_at = Utc::now();
     let result = provider.exit_lost_mode();
     let (status, error) = match &result {
-        Ok(()) => (LostModeStatus::Success, None),
+        Ok(()) => {
+            let mut h = reporter.lock().await;
+            h.stop();
+            (LostModeStatus::Success, None)
+        }
         Err(e) => {
             warn!(error = %e, "mdm: exit_lost_mode failed");
             (LostModeStatus::Failure, Some(e.to_string()))
@@ -230,6 +313,10 @@ mod tests {
         }
     }
 
+    fn reporter() -> Arc<Mutex<LocationReporterHandle>> {
+        Arc::new(Mutex::new(LocationReporterHandle::new()))
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn enter_success() {
         let (bus, _) = EventBus::new(8, 8);
@@ -238,7 +325,9 @@ mod tests {
         let args = EnterLostModeArgs {
             message: "Please call".into(),
         };
-        let r = enter(Uuid::nil(), &args, &p, &bus).await;
+        let store = LastKnownLocationStore::new();
+        let geo: Arc<dyn IpGeolocator> = Arc::new(NoopGeolocator);
+        let r = enter(Uuid::nil(), &args, &p, &bus, reporter(), store, geo).await;
         assert!(entered.load(Ordering::Relaxed));
         assert_eq!(r.status, LostModeStatus::Success);
         assert!(r.error.is_none());
@@ -249,7 +338,7 @@ mod tests {
         let (bus, _) = EventBus::new(8, 8);
         let p = provider();
         let exited = p.exited.clone();
-        let r = exit(Uuid::nil(), &ExitLostModeArgs {}, &p, &bus).await;
+        let r = exit(Uuid::nil(), &ExitLostModeArgs {}, &p, &bus, reporter()).await;
         assert!(exited.load(Ordering::Relaxed));
         assert_eq!(r.status, LostModeStatus::Success);
     }
@@ -262,7 +351,9 @@ mod tests {
         let args = EnterLostModeArgs {
             message: "x".into(),
         };
-        let r = enter(Uuid::nil(), &args, &p, &bus).await;
+        let store = LastKnownLocationStore::new();
+        let geo: Arc<dyn IpGeolocator> = Arc::new(NoopGeolocator);
+        let r = enter(Uuid::nil(), &args, &p, &bus, reporter(), store, geo).await;
         assert_eq!(r.status, LostModeStatus::Failure);
         assert!(r.error.is_some());
     }
