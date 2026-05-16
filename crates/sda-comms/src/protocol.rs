@@ -82,6 +82,24 @@ pub enum MessageType {
     /// OS attach event the supervisor evaluates.
     UsbDevicePolicyDecision,
 
+    // --- Desktop MDM message types (Phase M1–M3) ---
+    /// Result of a `RemoteWipe` action.
+    MdmWipeResult,
+    /// Result of a `RemoteLock` action.
+    MdmLockResult,
+    /// `EnterLostMode` action completed.
+    MdmLostModeEntered,
+    /// `ExitLostMode` action completed.
+    MdmLostModeExited,
+    /// Recovery key escrow envelope (encrypted via ChaCha20-Poly1305).
+    MdmRecoveryKeyEscrowed,
+    /// Result of an `InstallOsUpdate` action.
+    MdmOsUpdateResult,
+    /// A signed config profile was applied.
+    MdmConfigProfileApplied,
+    /// Auto-remediation supervisor finished a self-signed local job.
+    MdmAutoRemediationResult,
+
     /// Generic message.
     Generic,
 }
@@ -122,6 +140,17 @@ impl MessageType {
             MessageType::AgentVitals => "agent-vitals",
             MessageType::EvidenceRecord => "evidence-record",
             MessageType::UsbDevicePolicyDecision => "usb-device-policy-decision",
+            // Desktop MDM (Phase M1–M3). These wire strings are part
+            // of the public contract — any change is a major schema
+            // version bump (see SCHEMAS.md § 11).
+            MessageType::MdmWipeResult => "mdm-wipe-result",
+            MessageType::MdmLockResult => "mdm-lock-result",
+            MessageType::MdmLostModeEntered => "mdm-lost-mode-entered",
+            MessageType::MdmLostModeExited => "mdm-lost-mode-exited",
+            MessageType::MdmRecoveryKeyEscrowed => "mdm-recovery-key-escrowed",
+            MessageType::MdmOsUpdateResult => "mdm-os-update-result",
+            MessageType::MdmConfigProfileApplied => "mdm-config-profile-applied",
+            MessageType::MdmAutoRemediationResult => "mdm-auto-remediation-result",
             MessageType::Generic => "message",
         }
     }
@@ -157,6 +186,14 @@ impl MessageType {
             "agent-vitals" => MessageType::AgentVitals,
             "evidence-record" => MessageType::EvidenceRecord,
             "usb-device-policy-decision" => MessageType::UsbDevicePolicyDecision,
+            "mdm-wipe-result" => MessageType::MdmWipeResult,
+            "mdm-lock-result" => MessageType::MdmLockResult,
+            "mdm-lost-mode-entered" => MessageType::MdmLostModeEntered,
+            "mdm-lost-mode-exited" => MessageType::MdmLostModeExited,
+            "mdm-recovery-key-escrowed" => MessageType::MdmRecoveryKeyEscrowed,
+            "mdm-os-update-result" => MessageType::MdmOsUpdateResult,
+            "mdm-config-profile-applied" => MessageType::MdmConfigProfileApplied,
+            "mdm-auto-remediation-result" => MessageType::MdmAutoRemediationResult,
             _ => MessageType::Generic,
         }
     }
@@ -293,6 +330,29 @@ impl WazuhMessage {
             MessageType::EvidenceRecord => format!("1:evidence-record:{}", self.payload),
             MessageType::UsbDevicePolicyDecision => {
                 format!("1:device-control:usb-policy-decision:{}", self.payload)
+            }
+            // Desktop MDM events follow the same logcollector
+            // queue + source-tag convention as Device Control so
+            // legacy Wazuh consoles can still see them as raw JSON.
+            MessageType::MdmWipeResult => format!("1:mdm:wipe-result:{}", self.payload),
+            MessageType::MdmLockResult => format!("1:mdm:lock-result:{}", self.payload),
+            MessageType::MdmLostModeEntered => {
+                format!("1:mdm:lost-mode-entered:{}", self.payload)
+            }
+            MessageType::MdmLostModeExited => {
+                format!("1:mdm:lost-mode-exited:{}", self.payload)
+            }
+            MessageType::MdmRecoveryKeyEscrowed => {
+                format!("1:mdm:recovery-key-escrowed:{}", self.payload)
+            }
+            MessageType::MdmOsUpdateResult => {
+                format!("1:mdm:os-update-result:{}", self.payload)
+            }
+            MessageType::MdmConfigProfileApplied => {
+                format!("1:mdm:config-profile-applied:{}", self.payload)
+            }
+            MessageType::MdmAutoRemediationResult => {
+                format!("1:mdm:auto-remediation-result:{}", self.payload)
             }
             // Control messages already carry the correct prefix.
             MessageType::Keepalive | MessageType::Startup | MessageType::Shutdown => {

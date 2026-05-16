@@ -95,6 +95,15 @@ pub enum FindingKind {
     /// effect (closed-by-default) and surfaces the failure as a
     /// high-severity finding so the dashboard can alert.
     DeviceControlBundleVerificationFailure,
+    // --- Desktop MDM findings (Phase M1–M3) ---
+    DiskEncryptionOff,
+    FirewallOff,
+    ScreenLockOff,
+    OsPatchOverdue,
+    RecoveryKeyNotEscrowed,
+    DeviceLost,
+    /// A signed config profile failed Ed25519 verification.
+    ConfigProfileTampered,
     Other,
 }
 
@@ -114,6 +123,17 @@ pub enum ActionKind {
     StartRemoteSupport,
     EndRemoteSupport,
     QueryAdHoc,
+    // --- Desktop MDM actions (Phase M1–M3) ---
+    RemoteWipe,
+    RemoteLock,
+    EnterLostMode,
+    ExitLostMode,
+    EscrowRecoveryKey,
+    InstallOsUpdate,
+    ApplyConfigProfile,
+    EnableDiskEncryption,
+    EnableFirewall,
+    SetScreenLock,
 }
 
 /// Outcome of a `SignedActionJob` execution.
@@ -161,6 +181,13 @@ pub enum JobRefused {
     /// executor sub-module is not yet implemented (e.g. Phase 3
     /// JIT admin grant).
     NotImplemented,
+    // --- Desktop MDM refusals (Phase M2) ---
+    /// Dual-control wipe: the inbound job carried fewer than two
+    /// distinct approver signatures.
+    WipeRequiresDualControl,
+    /// A self-signed local job (auto-remediation) tried to invoke
+    /// an action that is only allowed for control-plane jobs.
+    LocalKeyNotAuthorisedForAction,
 }
 
 #[cfg(test)]
@@ -291,6 +318,15 @@ mod tests {
             FindingKind::AdminAccessRequested,
             FindingKind::PostureViolation,
             FindingKind::VulnerabilityMatch,
+            FindingKind::AdminDrift,
+            FindingKind::DeviceControlBundleVerificationFailure,
+            FindingKind::DiskEncryptionOff,
+            FindingKind::FirewallOff,
+            FindingKind::ScreenLockOff,
+            FindingKind::OsPatchOverdue,
+            FindingKind::RecoveryKeyNotEscrowed,
+            FindingKind::DeviceLost,
+            FindingKind::ConfigProfileTampered,
             FindingKind::Other,
         ] {
             assert_eq!(rt(&v), v);
@@ -326,6 +362,16 @@ mod tests {
             ActionKind::StartRemoteSupport,
             ActionKind::EndRemoteSupport,
             ActionKind::QueryAdHoc,
+            ActionKind::RemoteWipe,
+            ActionKind::RemoteLock,
+            ActionKind::EnterLostMode,
+            ActionKind::ExitLostMode,
+            ActionKind::EscrowRecoveryKey,
+            ActionKind::InstallOsUpdate,
+            ActionKind::ApplyConfigProfile,
+            ActionKind::EnableDiskEncryption,
+            ActionKind::EnableFirewall,
+            ActionKind::SetScreenLock,
         ] {
             assert_eq!(rt(&v), v);
         }
@@ -359,6 +405,8 @@ mod tests {
             (JobRefused::ArgsParseError, "args_parse_error"),
             (JobRefused::PreconditionFailed, "precondition_failed"),
             (JobRefused::NotImplemented, "not_implemented"),
+            (JobRefused::WipeRequiresDualControl, "wipe_requires_dual_control"),
+            (JobRefused::LocalKeyNotAuthorisedForAction, "local_key_not_authorised_for_action"),
         ];
         for (variant, wire) in cases {
             let got = serde_json::to_string(&variant).unwrap();

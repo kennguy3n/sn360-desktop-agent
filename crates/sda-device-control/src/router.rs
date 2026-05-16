@@ -459,6 +459,10 @@ fn refusal_human_readable(reason: JobRefused) -> &'static str {
         JobRefused::ArgsParseError => "args_parse_error",
         JobRefused::PreconditionFailed => "precondition_failed",
         JobRefused::NotImplemented => "not_implemented",
+        // Desktop MDM (Phase M1–M3) — dual-control + local-key
+        // refusals. See `crates/sda-device-control/src/types.rs`.
+        JobRefused::WipeRequiresDualControl => "wipe_requires_dual_control",
+        JobRefused::LocalKeyNotAuthorisedForAction => "local_key_not_authorised_for_action",
     }
 }
 
