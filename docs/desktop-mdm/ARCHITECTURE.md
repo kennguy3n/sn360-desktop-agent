@@ -358,7 +358,7 @@ inspect snapshot fields:
 debounce check (agent-local DB) — reject duplicates within 24h window
    |
    v
-sign locally with ephemeral key (per-boot rotated)
+sign locally with ephemeral key (rotated on every config push)
    |
    v
 sda-device-control::router (accepts local ephemeral key in addition to control-plane keys)
