@@ -24,18 +24,19 @@ Status legend:
 
 ## Current Status
 
-All phases are **Not Started** — this is the initial planning slate.
-The existing SDA test surface — **1075 unit tests, 14/14 base E2E,
-10/10 security E2E** — remains green and must continue to pass as
-`sda-mdm` crates are added.
+**Phases M1–M3 (agent-side) are Done** — all agent-side code has
+landed in PR [#20](https://github.com/kennguy3n/sn360-desktop-agent/pull/20).
+Server-side tasks (M1.7, M1.8, M2.4, M4.*) remain Not Started.
+The existing SDA test surface — **1075+ unit tests, 14/14 base E2E,
+10/10 security E2E** — remains green.
 
 ## Phase summary
 
 | Phase | Theme                                                            | Status      |
 |-------|------------------------------------------------------------------|-------------|
-| M1    | Auto-remediation + recovery key escrow + OS patch                | Not Started |
-| M2    | Remote wipe + remote lock + lost mode                            | Not Started |
-| M3    | Declarative configuration profiles                               | Not Started |
+| M1    | Auto-remediation + recovery key escrow + OS patch                | Done (agent-side) |
+| M2    | Remote wipe + remote lock + lost mode                            | Done (agent-side) |
+| M3    | Declarative configuration profiles                               | Done (agent-side) |
 | M4    | Dashboard UI + one-click actions + recovery key viewer           | Not Started |
 
 The headline exit criterion for Phase M as a whole is: a tenant admin
@@ -59,15 +60,15 @@ the control plane.
 
 | ID    | Task                                                                                         | Status      |
 |-------|-----------------------------------------------------------------------------------------------|-------------|
-| M1.1  | `sda-pal::MdmProvider` trait + per-OS implementations for `enable_disk_encryption`, `enable_firewall`, `set_screen_lock` (Windows / macOS / Linux) | Not Started |
-| M1.2  | `sda-mdm` crate scaffold (`crates/sda-mdm/`) + `auto_remediate::supervisor` subscribed to `sda-posture` snapshots, with the 24h debounce window from [PROPOSAL § 6.4](./PROPOSAL.md#64-auto-remediation--local-only) | Not Started |
-| M1.3  | Recovery key escrow — BitLocker (`manage-bde -protectors -get`), FileVault (`fdesetup showrecoverykey`), LUKS (`cryptsetup luksDump` / SN360 keyslot 7); ChaCha20-Poly1305 envelope per [PROPOSAL § 6.3](./PROPOSAL.md#63-recovery-key-escrow--encryption-envelope) | Not Started |
-| M1.4  | OS patch orchestration — Windows (`PSWindowsUpdate` / `UsoClient`), macOS (`softwareupdate`), Linux (`unattended-upgrades` / `dnf-automatic` / `zypper patch`); maintenance-window + battery-aware deferral | Not Started |
-| M1.5  | New `FindingKind` variants in `sda-core` (`DiskEncryptionOff`, `FirewallOff`, `ScreenLockOff`, `OsPatchOverdue`, `RecoveryKeyNotEscrowed`, `DeviceLost`) + new `ActionKind` variants (`EscrowRecoveryKey`, `InstallOsUpdate`, `EnableDiskEncryption`, `EnableFirewall`, `SetScreenLock`) | Not Started |
-| M1.6  | New `MessageType` variants in `sda-comms` (`MdmRecoveryKeyEscrowed`, `MdmOsUpdateResult`, `MdmAutoRemediationResult`) + explicit `encode_body()` arms + `map_event_to_message` mapping | Not Started |
+| M1.1  | `sda-pal::MdmProvider` trait + per-OS implementations for `enable_disk_encryption`, `enable_firewall`, `set_screen_lock` (Windows / macOS / Linux) | Done |
+| M1.2  | `sda-mdm` crate scaffold (`crates/sda-mdm/`) + `auto_remediate::supervisor` subscribed to `sda-posture` snapshots, with the 24h debounce window from [PROPOSAL § 6.4](./PROPOSAL.md#64-auto-remediation--local-only) | Done |
+| M1.3  | Recovery key escrow — BitLocker (`manage-bde -protectors -get`), FileVault (`fdesetup showrecoverykey`), LUKS (`cryptsetup luksDump` / SN360 keyslot 7); ChaCha20-Poly1305 envelope per [PROPOSAL § 6.3](./PROPOSAL.md#63-recovery-key-escrow--encryption-envelope) | Done |
+| M1.4  | OS patch orchestration — Windows (`PSWindowsUpdate` / `UsoClient`), macOS (`softwareupdate`), Linux (`unattended-upgrades` / `dnf-automatic` / `zypper patch`); maintenance-window + battery-aware deferral | Done |
+| M1.5  | New `FindingKind` variants in `sda-core` (`DiskEncryptionOff`, `FirewallOff`, `ScreenLockOff`, `OsPatchOverdue`, `RecoveryKeyNotEscrowed`, `DeviceLost`) + new `ActionKind` variants (`EscrowRecoveryKey`, `InstallOsUpdate`, `EnableDiskEncryption`, `EnableFirewall`, `SetScreenLock`) | Done |
+| M1.6  | New `MessageType` variants in `sda-comms` (`MdmRecoveryKeyEscrowed`, `MdmOsUpdateResult`, `MdmAutoRemediationResult`) + explicit `encode_body()` arms + `map_event_to_message` mapping | Done |
 | M1.7  | MDM Findings → Risk Engine recommendations ⚙️ (`services/risk-engine`: `disk_encryption_off`, `firewall_off`, `screen_lock_off`, `recovery_key_not_escrowed`, `os_patch_overdue` rules)         | Not Started |
 | M1.8  | SMI `mdm_compliance` sub-score ⚙️ (`services/smi-engine`: formula `clamp(100 - 10*fde_off - 10*fw_off - 10*sl_off - 5*rk_missing - 5*patch_overdue)`) | Not Started |
-| M1.9  | Phase M1 E2E suite (`make e2e-mdm`) — Linux / macOS / Windows hermetic tests for auto-remediation, recovery key escrow round-trip, OS patch scan + install | Not Started |
+| M1.9  | Phase M1 E2E suite (`make e2e-mdm`) — Linux / macOS / Windows hermetic tests for auto-remediation, recovery key escrow round-trip, OS patch scan + install | In Progress |
 
 ### Phase M1 exit criteria
 
@@ -95,12 +96,12 @@ control-plane Approval Service and the agent's signed-job validator.
 
 | ID    | Task                                                                                                                | Status      |
 |-------|---------------------------------------------------------------------------------------------------------------------|-------------|
-| M2.1  | Remote wipe — per-OS crypto-shred + OS factory reset (`manage-bde` + `systemreset.exe`, `fdesetup removerecovery` + `obliterate` / `diskutil eraseDisk`, `cryptsetup luksErase` + `dd` + forced reboot); evidence-before-action emit per [PROPOSAL § 6.2](./PROPOSAL.md#62-wipe--dual-control) | Not Started |
-| M2.2  | Remote lock — per-OS lock screen + tenant message (`LockWorkStation` + credential-provider tile, `CGSession -suspend` + notification, `loginctl lock-sessions` + Plymouth) | Not Started |
-| M2.3  | Lost mode — agent-side locked display + IP-geolocation last-known-location reporting on every successful reconnect; reversible via `ExitLostMode` action | Not Started |
+| M2.1  | Remote wipe — per-OS crypto-shred + OS factory reset (`manage-bde` + `systemreset.exe`, `fdesetup removerecovery` + `obliterate` / `diskutil eraseDisk`, `cryptsetup luksErase` + `dd` + forced reboot); evidence-before-action emit per [PROPOSAL § 6.2](./PROPOSAL.md#62-wipe--dual-control) | Done |
+| M2.2  | Remote lock — per-OS lock screen + tenant message (`LockWorkStation` + credential-provider tile, `CGSession -suspend` + notification, `loginctl lock-sessions` + Plymouth) | Done |
+| M2.3  | Lost mode — agent-side locked display + IP-geolocation last-known-location reporting on every successful reconnect; reversible via `ExitLostMode` action | Done |
 | M2.4  | Desktop MDM service ⚙️ (`services/desktop-mdm` wipe / lock / lost-mode command dispatch endpoints) | Not Started |
-| M2.5  | Dual-control approval for wipe actions — Approval Service enforces two distinct approvers; agent's signed-job validator enforces `signatures.len() >= 2` and distinct `approver_user_id` per [ARCHITECTURE § 4.4](./ARCHITECTURE.md#44-signed-job-validation-extensions) | Not Started |
-| M2.6  | Phase M2 E2E suite — single-signature wipe job is refused; two-signature wipe job crypto-shreds; lock + lost-mode + exit-lost-mode round-trip; last-known-location appears in vitals after reconnect | Not Started |
+| M2.5  | Dual-control approval for wipe actions — Approval Service enforces two distinct approvers; agent's signed-job validator enforces `signatures.len() >= 2` and distinct `approver_user_id` per [ARCHITECTURE § 4.4](./ARCHITECTURE.md#44-signed-job-validation-extensions) | Done |
+| M2.6  | Phase M2 E2E suite — single-signature wipe job is refused; two-signature wipe job crypto-shreds; lock + lost-mode + exit-lost-mode round-trip; last-known-location appears in vitals after reconnect | In Progress |
 
 ### Phase M2 exit criteria
 
@@ -124,10 +125,10 @@ path with Ed25519 signature coverage.
 
 | ID    | Task                                                                                                                  | Status      |
 |-------|-----------------------------------------------------------------------------------------------------------------------|-------------|
-| M3.1  | Declarative configuration profile schema — `SignedConfigProfile` type, RFC 8785 canonical-JSON body, Ed25519 signature, `key_id` rotation set | Not Started |
-| M3.2  | Config profile enforcement — Windows (registry writes under `HKLM\SOFTWARE\Policies\Microsoft\Windows\*`), macOS (`profiles install` legacy + `mdmclient` DDM on Sequoia+), Linux (`dconf write` + polkit drop-in + `pam_pwquality.conf`) | Not Started |
-| M3.3  | Config profile push via TRDS signed bundle — `policy/mdm/profile.json` slice + filesystem watcher under `/var/lib/sn360-desktop-agent/bundle/policy/mdm/` ⚙️ (TRDS-compiler side in `sn360-security-platform`) | Not Started |
-| M3.4  | Phase M3 E2E suite — push profile via bundle, verify password policy / screen lock / Bluetooth enforcement on all three platforms; tampered profile rejected at signature check | Not Started |
+| M3.1  | Declarative configuration profile schema — `SignedConfigProfile` type, RFC 8785 canonical-JSON body, Ed25519 signature, `key_id` rotation set | Done |
+| M3.2  | Config profile enforcement — Windows (registry writes under `HKLM\SOFTWARE\Policies\Microsoft\Windows\*`), macOS (`profiles install` legacy + `mdmclient` DDM on Sequoia+), Linux (`dconf write` + polkit drop-in + `pam_pwquality.conf`) | Done |
+| M3.3  | Config profile push via TRDS signed bundle — `policy/mdm/profile.json` slice + filesystem watcher under `/var/lib/sn360-desktop-agent/bundle/policy/mdm/` ⚙️ (TRDS-compiler side in `sn360-security-platform`) | Done (agent-side) |
+| M3.4  | Phase M3 E2E suite — push profile via bundle, verify password policy / screen lock / Bluetooth enforcement on all three platforms; tampered profile rejected at signature check | In Progress |
 
 ### Phase M3 exit criteria
 

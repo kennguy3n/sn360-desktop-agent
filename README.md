@@ -12,6 +12,7 @@ See [`device-agent-proposal.md`](./device-agent-proposal.md) for the full archit
 ## Features
 
 - **USB / Removable-Media Device Policy Enforcement** — atomic CAS-applied `DevicePolicySet` evaluator with priority-ordered matching, per-OS adapters (Linux udev + UDS, Windows SetupDi + named pipe, macOS IOKit + UDS), closed-by-default fallback (Phase D2)
+- **ShieldNet Desktop MDM** — default-on auto-remediation supervisor (disk encryption / firewall / screen lock), one-time-per-boot recovery key escrow (BitLocker / FileVault / LUKS) with ChaCha20-Poly1305 + Ed25519, OS patch orchestration with battery-aware deferral, dual-control remote wipe, remote lock, lost mode with IP geolocation reporting, and declarative configuration profile enforcement via Ed25519-signed bundle slices (Phase M1–M3; default on)
 - **File Integrity Monitoring (FIM)** — real-time filesystem watching via inotify / FSEvents / ReadDirectoryChangesW
 - **Log Collection** — file tailing, systemd journal, Windows Event Log, macOS unified logging
 - **System Inventory** — packages, network interfaces, hardware, OS info (syscollector-compatible)
@@ -78,6 +79,9 @@ make e2e-app-control
 make e2e-remote-support
 make e2e-management-compat
 make e2e-device-policy
+make e2e-mdm                 # Phase M1 (auto-remediation, recovery escrow, OS patch)
+make e2e-mdm-actions         # Phase M2 (wipe / lock / lost-mode)
+make e2e-mdm-profile         # Phase M3 (config profile push + enforcement)
 
 # Shell-based E2E (requires Docker)
 make e2e              # Linux E2E against local SIEM manager
@@ -124,7 +128,8 @@ page can opt into either lane individually via `run_full_suite` /
 +-------------------------------------------------------------+
 |  sda-fim  | sda-logcollector | sda-inventory | sda-sca   |  |
 |  sda-active-response | sda-rootcheck | sda-local-detection |
-|  sda-enhanced-inventory | sda-comms                        |
+|  sda-enhanced-inventory | sda-device-control | sda-mdm     |
+|  sda-comms                                                 |
 +-------------------------------------------------------------+
 |                        sda-pal                              |
 |   FS watcher | log source | sysinfo | service | firewall    |
@@ -155,6 +160,7 @@ page can opt into either lane individually via `run_full_suite` /
 | `sda-enhanced-inventory` | Running software, browser extensions, CycloneDX SBOM |
 | `sda-updater` | Self-update module — periodic signed-manifest poll, Ed25519 + pinned SHA-256 verification, atomic binary swap with `.bak` rollback on smoke-test failure (Phase 3.1; default off) |
 | `sda-device-control` | ShieldNet Device Control router — `SignedActionJob` validation, `Finding` / `Recommendation` / `ActionResult` / `EvidenceRecord` schemas, the maintenance-window + quiet-hours policy from Phase 2, **plus the Phase D2 USB / removable-media policy enforcement supervisor (`usb_policy.rs`, `usb_supervisor.rs`, `usb_module.rs`) and per-OS adapters (`usb_linux.rs` udev + UDS, `usb_windows.rs` SetupDi + named-pipe, `usb_macos.rs` IOKit + UDS)** (Phase 1 + 2 + D2; default off) |
+| `sda-mdm` | ShieldNet Desktop MDM — auto-remediation supervisor, recovery key escrow, OS patch orchestration, remote wipe/lock/lost-mode, declarative config profiles (Phase M1–M3; default on) |
 | `sda-query` | osquery sidecar wrapper — scheduled host queries with bounded resource budget (Phase 1; default off) |
 | `sda-posture` | Cross-platform device-posture snapshots (disk encryption, firewall, screen-lock, OS patch level) with delta + power-aware scheduling (Phase 1; default off) |
 | `sda-agent-vitals` | Agent vitals — heartbeat, queue depth, watchdog faults emitted as `AgentVitals` events (Phase 1; default off) |
@@ -196,6 +202,8 @@ For the full configuration reference, see the [Configuration section in `device-
 
 **Phases 1–6 complete.** Phase 5 platform hardening (self-update, privilege separation, tamper protection, installers), Phase 5.6 enhanced protocol (opt-in TLS 1.3 / MessagePack / HTTP/2), and Phase 6 testing & release infrastructure — expanded CI matrix, benchmark regression gate, `cargo audit` gate, nightly `cargo-fuzz` matrix, tag-triggered multi-OS release workflow, and the [`docs/release-process.md`](./docs/release-process.md) runbook — have all landed.
 
+**ShieldNet Desktop MDM** — all agent-side Desktop MDM work (Phases M1–M3) is complete; the `sda-mdm` crate ships default-on with auto-remediation, one-time-per-boot recovery key escrow, OS patch orchestration, dual-control remote wipe, remote lock, lost mode, and Ed25519-signed declarative configuration profile enforcement. Server-side control-plane tasks (Risk Engine MDM rules, SMI `mdm_compliance` sub-score, Desktop MDM service) remain Not Started; see [`docs/desktop-mdm/PROGRESS.md`](./docs/desktop-mdm/PROGRESS.md) for the per-task ledger.
+
 **ShieldNet Device Control** — all agent-side Device Control work (Phases 0–5 + D2) is complete. **All control-plane ⚙️ tasks have also landed** (`sn360-security-platform` PRs [#85](https://github.com/kennguy3n/sn360-security-platform/pull/85) and [#86](https://github.com/kennguy3n/sn360-security-platform/pull/86)) including the Risk Engine / Approval / Action Orchestrator services, the Android / Apple DDM / ChromeOS MDM connector triplet, and the full Phase 5 MSP / GA-prep slate (tenant catalogues, MSP-tier approval routing, white-label evidence exports, MSP cross-tenant dashboard, cross-tenant templates, billing / onboarding / pricing-tier scaffold). See [`docs/device-control/PROGRESS.md`](./docs/device-control/PROGRESS.md) for the per-phase task ledger, test counts, and changelog.
 
 The beta tag push (`v0.9.0-beta.1`) and signed-binary publication are gated on release credentials and signing keys outside automation; see [`PROGRESS.md`](./PROGRESS.md) for the detailed status, test results (433 passing / 0 failed, 14/14 base E2E, 10/10 security E2E), and benchmarks. This repository contains only the agent-side (on-device) code. Server-side Control Plane components (Agent Gateway, TRDS, IOCFS, SIS) are implemented in [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform).
@@ -213,6 +221,9 @@ The beta tag push (`v0.9.0-beta.1`) and signed-binary publication are gated on r
 - [**docs/device-control/ADR-001-functional-port.md**](./docs/device-control/ADR-001-functional-port.md) — ADR-001: SDA Device Control is a clean-room functional port (no Fleet source vendored)
 - [**docs/device-control/fleet-capability-mapping.md**](./docs/device-control/fleet-capability-mapping.md) — Fleet → SDA / SN360 capability map and do-not-port list
 - [**docs/device-control/SCHEMAS.md**](./docs/device-control/SCHEMAS.md) — canonical, versioned wire spec for `Finding`, `Recommendation`, `SignedActionJob`, `ActionResult`, `EvidenceRecord`
+- [**docs/desktop-mdm/PROPOSAL.md**](./docs/desktop-mdm/PROPOSAL.md) — ShieldNet Desktop MDM technical proposal
+- [**docs/desktop-mdm/ARCHITECTURE.md**](./docs/desktop-mdm/ARCHITECTURE.md) — Desktop MDM architecture reference (PAL trait, data flows, config schema, module startup order)
+- [**docs/desktop-mdm/PROGRESS.md**](./docs/desktop-mdm/PROGRESS.md) — Desktop MDM development progress
 - [**TEST_RESULTS.md**](./TEST_RESULTS.md) — Latest unit / E2E / security E2E results (with a Non-Wazuh Component Verification section)
 - [**CHANGELOG.md**](./CHANGELOG.md) — Release notes
 - [**device-agent-proposal.md**](./device-agent-proposal.md) — Original architecture & implementation proposal

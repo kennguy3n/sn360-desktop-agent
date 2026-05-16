@@ -227,6 +227,22 @@ All Priority 3 tasks have landed. Phase 5 is complete.
 | P4.6 | Phase 5: MSP-ready multi-tenant operations | Done |
 | P4.7 | Phase D2: USB / removable-media policy enforcement (agent-side) | Done |
 
+### Priority 5 — Desktop MDM Module
+
+The canonical per-task ledger lives in
+[`docs/desktop-mdm/PROGRESS.md`](./docs/desktop-mdm/PROGRESS.md);
+this section is a top-level summary.
+
+| # | Task | Status |
+|---|------|--------|
+| P5.1 | Phase M1: Auto-remediation + recovery key escrow + OS patch (agent-side) | Done |
+| P5.2 | Phase M2: Remote wipe (dual-control) + remote lock + lost mode (agent-side) | Done |
+| P5.3 | Phase M3: Declarative configuration profiles (agent-side, TRDS bundle watcher) | Done |
+| P5.4 | Phase M4: Dashboard UI + one-click actions + recovery key viewer ⚙️ | Not Started — server-side, [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform) |
+| P5.5 | Risk Engine MDM recommendations (M1.7) ⚙️ | Not Started — server-side |
+| P5.6 | SMI `mdm_compliance` sub-score (M1.8) ⚙️ | Not Started — server-side |
+| P5.7 | Desktop MDM service (M2.4) ⚙️ | Not Started — server-side |
+
 > **Cross-repo status (2026-05-11).** All agent-side Device Control
 > work (Phases 0–5 + D2 user-mode enforcement) is complete on this
 > repo, and every control-plane ⚙️ task (1.14–1.16, 2.12–2.14, 3.6,
