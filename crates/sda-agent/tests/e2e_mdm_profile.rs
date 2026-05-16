@@ -237,7 +237,7 @@ async fn tampered_profile_rejected_and_previous_retained() {
         1,
         "clean profile must apply once"
     );
-    let retained = provider.last_profile_id.lock().unwrap().clone();
+    let retained = *provider.last_profile_id.lock().unwrap();
     assert_eq!(retained, Some(clean_id));
 
     // Step 2 — write a profile, sign it, then mutate the body after
@@ -275,7 +275,7 @@ async fn tampered_profile_rejected_and_previous_retained() {
         "tampered profile must not be applied"
     );
     assert_eq!(
-        provider.last_profile_id.lock().unwrap().clone(),
+        *provider.last_profile_id.lock().unwrap(),
         Some(clean_id),
         "previous profile must remain the PAL's last-applied value"
     );
