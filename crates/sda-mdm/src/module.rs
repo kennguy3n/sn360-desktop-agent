@@ -232,17 +232,15 @@ impl MdmModule {
                 let g = recovery_guard.clone();
                 tokio::spawn(async move {
                     let mut guard = g.lock().await;
-                    if let Err(e) = recovery_key::escrow_once(
-                        p.as_ref(),
-                        &b,
-                        &mut guard,
-                        &identity.escrow_seed,
-                        identity.tenant_id,
-                        identity.device_id,
-                        identity.signing_key.as_ref(),
-                        &identity.key_id,
-                    )
-                    .await
+                    let id = recovery_key::EscrowIdentity {
+                        seed: &identity.escrow_seed,
+                        tenant_id: identity.tenant_id,
+                        device_id: identity.device_id,
+                        signing_key: identity.signing_key.as_ref(),
+                        key_id: &identity.key_id,
+                    };
+                    if let Err(e) =
+                        recovery_key::escrow_once(p.as_ref(), &b, &mut guard, &id).await
                     {
                         warn!(error = %e, "mdm: recovery-key escrow_once failed at startup");
                     }
@@ -311,17 +309,15 @@ impl MdmModule {
             (ActionKind::EscrowRecoveryKey, JobArgs::EscrowRecoveryKey(_)) => {
                 if let Some(identity) = &self.recovery_identity {
                     let mut guard = self.recovery_guard.lock().await;
-                    recovery_key::escrow_once(
-                        self.provider.as_ref(),
-                        &self.bus,
-                        &mut guard,
-                        &identity.escrow_seed,
-                        identity.tenant_id,
-                        identity.device_id,
-                        identity.signing_key.as_ref(),
-                        &identity.key_id,
-                    )
-                    .await?;
+                    let id = recovery_key::EscrowIdentity {
+                        seed: &identity.escrow_seed,
+                        tenant_id: identity.tenant_id,
+                        device_id: identity.device_id,
+                        signing_key: identity.signing_key.as_ref(),
+                        key_id: &identity.key_id,
+                    };
+                    recovery_key::escrow_once(self.provider.as_ref(), &self.bus, &mut guard, &id)
+                        .await?;
                 } else {
                     warn!("mdm: EscrowRecoveryKey job dropped — no enrollment identity");
                 }

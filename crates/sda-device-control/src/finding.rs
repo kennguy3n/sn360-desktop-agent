@@ -209,7 +209,9 @@ pub fn render_plain_english(kind: FindingKind, evidence: &serde_json::Value) -> 
         }
         FindingKind::ConfigProfileTampered => {
             let id = s(evidence, "profile_id").unwrap_or("(unknown)");
-            format!("Config profile {id} failed signature verification — previous profile retained.")
+            format!(
+                "Config profile {id} failed signature verification — previous profile retained."
+            )
         }
         FindingKind::PermanentAdmin => {
             let count = evidence

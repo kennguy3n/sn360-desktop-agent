@@ -10,14 +10,13 @@
 //!    `profile.sig`) under [`sda_core::config::MdmConfig::bundle_path`].
 //! 2. The [`Watcher`] (built on the `notify` crate) wakes the
 //!    supervisor on every filesystem change.
-//! 3. The supervisor calls [`load_and_verify`] which:
-//!     a. Parses the body as a [`ConfigProfileBody`].
-//!     b. Canonicalises it (RFC 8785-ish — `serde_json::to_vec` over
-//!        a struct with `deny_unknown_fields` and stable field order
-//!        is enough for our purposes; the control plane signs the
-//!        same bytes).
-//!     c. Verifies the Ed25519 signature against the pinned signing
-//!        key set.
+//! 3. The supervisor calls [`load_and_verify`] which (a) parses the
+//!    body as a [`ConfigProfileBody`], (b) canonicalises it
+//!    (RFC 8785-ish — `serde_json::to_vec` over a struct with
+//!    `deny_unknown_fields` and stable field order is enough for
+//!    our purposes; the control plane signs the same bytes), and
+//!    (c) verifies the Ed25519 signature against the pinned
+//!    signing key set.
 //! 4. On verification success the supervisor calls
 //!    [`MdmProvider::apply_config_profile`] and publishes
 //!    [`EventKind::MdmConfigProfileApplied`].
@@ -177,8 +176,8 @@ pub fn load_and_verify(
     let mut h = Sha256::new();
     h.update(&preimage);
     let sha = hex::encode(h.finalize());
-    let canonical_json = String::from_utf8(preimage)
-        .map_err(|_| ConfigProfileError::Canonicalise)?;
+    let canonical_json =
+        String::from_utf8(preimage).map_err(|_| ConfigProfileError::Canonicalise)?;
 
     Ok(VerifiedProfile {
         inner: SignedConfigProfile {
@@ -488,10 +487,7 @@ mod tests {
                 material: vec![],
             })
         }
-        fn install_os_updates(
-            &self,
-            _o: &OsUpdateOpts,
-        ) -> sda_pal::mdm::Result<OsUpdateOutcome> {
+        fn install_os_updates(&self, _o: &OsUpdateOpts) -> sda_pal::mdm::Result<OsUpdateOutcome> {
             unreachable!()
         }
         fn apply_config_profile(&self, _p: &SignedConfigProfile) -> sda_pal::mdm::Result<()> {

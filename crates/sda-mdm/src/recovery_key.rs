@@ -113,14 +113,15 @@ pub fn build_payload(
         .map_err(|_| RecoveryKeyError::HkdfExpand)?;
 
     // 2. Build the ChaCha20-Poly1305 sealing key.
-    let unbound = UnboundKey::new(&CHACHA20_POLY1305, &wrap_bytes)
-        .map_err(|_| RecoveryKeyError::Encrypt)?;
+    let unbound =
+        UnboundKey::new(&CHACHA20_POLY1305, &wrap_bytes).map_err(|_| RecoveryKeyError::Encrypt)?;
     let key = LessSafeKey::new(unbound);
 
     // 3. Generate a random 96-bit nonce.
     let rng = SystemRandom::new();
     let mut nonce_bytes = [0u8; 12];
-    rng.fill(&mut nonce_bytes).map_err(|_| RecoveryKeyError::Rng)?;
+    rng.fill(&mut nonce_bytes)
+        .map_err(|_| RecoveryKeyError::Rng)?;
     let nonce = Nonce::assume_unique_for_key(nonce_bytes);
 
     // 4. Encrypt in place: copy the material, append the auth tag.
@@ -172,6 +173,16 @@ fn signing_preimage(
     h.finalize().to_vec()
 }
 
+/// Identity material bound into the recovery-key envelope. Bundled
+/// so [`escrow_once`] does not grow an inscrutable argument list.
+pub struct EscrowIdentity<'a> {
+    pub seed: &'a [u8],
+    pub tenant_id: Uuid,
+    pub device_id: Uuid,
+    pub signing_key: &'a ed25519_dalek::SigningKey,
+    pub key_id: &'a str,
+}
+
 /// One-shot helper used by the supervisor: pulls the raw key from
 /// the PAL, dedups against the [`EscrowGuard`], builds the signed
 /// payload, and publishes it on the bus.
@@ -182,11 +193,7 @@ pub async fn escrow_once(
     provider: &dyn MdmProvider,
     bus: &EventBus,
     guard: &mut EscrowGuard,
-    seed: &[u8],
-    tenant_id: Uuid,
-    device_id: Uuid,
-    signing_key: &ed25519_dalek::SigningKey,
-    key_id: &str,
+    identity: &EscrowIdentity<'_>,
 ) -> Result<Option<RecoveryKeyPayload>, RecoveryKeyError> {
     let raw = match provider.escrow_recovery_key() {
         Ok(r) => r,
@@ -201,9 +208,16 @@ pub async fn escrow_once(
         return Ok(None);
     }
 
-    let payload = build_payload(&raw, seed, tenant_id, device_id, signing_key, key_id)?;
-    let json = serde_json::to_string(&payload)
-        .map_err(|e| RecoveryKeyError::Publish(e.to_string()))?;
+    let payload = build_payload(
+        &raw,
+        identity.seed,
+        identity.tenant_id,
+        identity.device_id,
+        identity.signing_key,
+        identity.key_id,
+    )?;
+    let json =
+        serde_json::to_string(&payload).map_err(|e| RecoveryKeyError::Publish(e.to_string()))?;
     let event = Event::new(
         MODULE_SOURCE,
         Priority::High,

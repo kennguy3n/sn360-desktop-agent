@@ -224,7 +224,6 @@ pub struct SetScreenLockArgs {
     pub timeout_secs: u32,
 }
 
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InstallPackageArgs {
@@ -455,9 +454,7 @@ impl JobArgs {
                 }
                 JobArgs::ApplyConfigProfile(v)
             }
-            ActionKind::EnableDiskEncryption => {
-                JobArgs::EnableDiskEncryption(from_value(args)?)
-            }
+            ActionKind::EnableDiskEncryption => JobArgs::EnableDiskEncryption(from_value(args)?),
             ActionKind::EnableFirewall => JobArgs::EnableFirewall(from_value(args)?),
             ActionKind::SetScreenLock => {
                 let v: SetScreenLockArgs = from_value(args)?;
@@ -790,10 +787,7 @@ mod tests {
 
     #[test]
     fn additional_signatures_round_trip() {
-        let mut j = job(
-            ActionKind::RemoteWipe,
-            json!({"reason": "theft"}),
-        );
+        let mut j = job(ActionKind::RemoteWipe, json!({"reason": "theft"}));
         j.additional_signatures.push(AdditionalSignature {
             signature: vec![1; 64],
             key_id: "approver-b".into(),

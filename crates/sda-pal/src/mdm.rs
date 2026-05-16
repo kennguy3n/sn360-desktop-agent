@@ -39,7 +39,7 @@ pub enum MdmError {
 pub type Result<T> = std::result::Result<T, MdmError>;
 
 /// Options passed to [`MdmProvider::wipe`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WipeOpts {
     /// `true` ⇒ destroy keys and exit; skip OS factory reset.
@@ -48,15 +48,6 @@ pub struct WipeOpts {
     /// `true` ⇒ defer the action until the device is on AC power.
     #[serde(default)]
     pub wait_for_ac: bool,
-}
-
-impl Default for WipeOpts {
-    fn default() -> Self {
-        Self {
-            crypto_shred_only: false,
-            wait_for_ac: false,
-        }
-    }
 }
 
 /// Outcome of a wipe attempt.
@@ -223,10 +214,10 @@ mod linux_impl {
                 let mut cols = line.split_whitespace();
                 let dev = cols.next()?;
                 let mnt = cols.next()?;
-                if mnt == "/" {
-                    if dev.starts_with("/dev/mapper/") || dev.starts_with("/dev/dm-") {
-                        return Some(dev.to_string());
-                    }
+                if mnt == "/"
+                    && (dev.starts_with("/dev/mapper/") || dev.starts_with("/dev/dm-"))
+                {
+                    return Some(dev.to_string());
                 }
             }
             None
@@ -237,17 +228,14 @@ mod linux_impl {
         /// preference order: `unattended-upgrade`, `dnf-automatic`,
         /// `zypper`. Used by [`Self::install_os_updates`].
         pub(crate) fn detect_update_tool() -> Option<&'static str> {
-            for tool in [
+            [
                 "/usr/bin/unattended-upgrade",
                 "/usr/sbin/unattended-upgrade",
                 "/usr/bin/dnf-automatic",
                 "/usr/bin/zypper",
-            ] {
-                if std::path::Path::new(tool).exists() {
-                    return Some(tool);
-                }
-            }
-            None
+            ]
+            .into_iter()
+            .find(|tool| std::path::Path::new(tool).exists())
         }
     }
 
@@ -265,7 +253,7 @@ mod linux_impl {
             // Best-effort overwrite of the LUKS header band.
             let _ = Command::new("dd")
                 .args([
-                    &format!("if=/dev/urandom"),
+                    "if=/dev/urandom",
                     &format!("of={dev}"),
                     "bs=1M",
                     "count=10",
@@ -482,7 +470,10 @@ mod macos_impl {
         ///   Title: macOS Sonoma, Version: 14.5, Size: 11G
         /// ```
         pub(crate) fn parse_softwareupdate_count(stdout: &str) -> u32 {
-            stdout.lines().filter(|l| l.trim_start().starts_with("* ")).count() as u32
+            stdout
+                .lines()
+                .filter(|l| l.trim_start().starts_with("* "))
+                .count() as u32
         }
     }
 
@@ -620,14 +611,20 @@ mod macos_impl {
 
         fn enter_lost_mode(&self, _message: &str) -> Result<()> {
             let _ = Command::new("launchctl")
-                .args(["load", "/Library/LaunchDaemons/com.sn360.sda.mdm.lost-mode.plist"])
+                .args([
+                    "load",
+                    "/Library/LaunchDaemons/com.sn360.sda.mdm.lost-mode.plist",
+                ])
                 .status();
             Ok(())
         }
 
         fn exit_lost_mode(&self) -> Result<()> {
             let _ = Command::new("launchctl")
-                .args(["unload", "/Library/LaunchDaemons/com.sn360.sda.mdm.lost-mode.plist"])
+                .args([
+                    "unload",
+                    "/Library/LaunchDaemons/com.sn360.sda.mdm.lost-mode.plist",
+                ])
                 .status();
             Ok(())
         }
@@ -678,10 +675,7 @@ mod windows_impl {
         /// Count "successfully installed" lines in PSWindowsUpdate
         /// output as a coarse update count.
         pub(crate) fn parse_pswindowsupdate_count(stdout: &str) -> u32 {
-            stdout
-                .lines()
-                .filter(|l| l.contains("Installed"))
-                .count() as u32
+            stdout.lines().filter(|l| l.contains("Installed")).count() as u32
         }
     }
 
@@ -714,7 +708,7 @@ mod windows_impl {
                 // LockWorkStation directly; we shell out to user32 via
                 // `rundll32` as a fallback.
                 let _ = _kbm::keybd_event; // touch the import so cargo
-                                            // doesn't strip the dep.
+                                           // doesn't strip the dep.
             }
             let status = Command::new("rundll32.exe")
                 .args(["user32.dll,LockWorkStation"])

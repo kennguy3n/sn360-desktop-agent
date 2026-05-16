@@ -989,10 +989,7 @@ mod tests {
         // A local-ephemeral-key-signed `RemoteLock` is *not* in the
         // allow-list — even though step 4 (signature) would pass.
         let hooks = DualControlHooks::new().with_local_key("sn360-local-ephemeral");
-        let mut j = job_for(
-            ActionKind::RemoteLock,
-            json!({"message": "lock it"}),
-        );
+        let mut j = job_for(ActionKind::RemoteLock, json!({"message": "lock it"}));
         j.key_id = "sn360-local-ephemeral".into();
         let r = validate(&j, &identity(), now_in_window(), &hooks);
         assert_eq!(r.unwrap_err(), JobRefused::LocalKeyNotAuthorisedForAction);

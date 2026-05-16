@@ -405,8 +405,14 @@ mod tests {
             (JobRefused::ArgsParseError, "args_parse_error"),
             (JobRefused::PreconditionFailed, "precondition_failed"),
             (JobRefused::NotImplemented, "not_implemented"),
-            (JobRefused::WipeRequiresDualControl, "wipe_requires_dual_control"),
-            (JobRefused::LocalKeyNotAuthorisedForAction, "local_key_not_authorised_for_action"),
+            (
+                JobRefused::WipeRequiresDualControl,
+                "wipe_requires_dual_control",
+            ),
+            (
+                JobRefused::LocalKeyNotAuthorisedForAction,
+                "local_key_not_authorised_for_action",
+            ),
         ];
         for (variant, wire) in cases {
             let got = serde_json::to_string(&variant).unwrap();

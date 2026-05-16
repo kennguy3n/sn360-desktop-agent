@@ -481,10 +481,9 @@ async fn main() -> Result<()> {
         info!("starting desktop MDM module");
         let mdm_provider: std::sync::Arc<dyn sda_pal::mdm::MdmProvider> =
             std::sync::Arc::from(sda_pal::mdm::default_mdm_provider());
-        let mdm_power: sda_mdm::module::SharedPowerState =
-            std::sync::Arc::new(sda_mdm::os_patch::WatchPowerStateProvider::new(
-                power_rx.clone(),
-            ));
+        let mdm_power: sda_mdm::module::SharedPowerState = std::sync::Arc::new(
+            sda_mdm::os_patch::WatchPowerStateProvider::new(power_rx.clone()),
+        );
         let mdm_module = sda_mdm::MdmModule::new(
             config.modules.mdm.clone(),
             mdm_provider,

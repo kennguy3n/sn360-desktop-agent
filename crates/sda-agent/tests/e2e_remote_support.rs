@@ -463,17 +463,32 @@ async fn pal_not_supported_ends_session_cleanly() {
 // ---------- Scenario 9: no mobile MDM crate --------------------------------
 
 /// PROPOSAL.md § 9.7 acceptance #3 / PHASES.md § 4.12 #3 — this
-/// repository must not contain mobile MDM code. Asserted by walking
-/// the Cargo workspace and ensuring no crate name contains `mdm`.
+/// repository must not contain *mobile* MDM code. Asserted by
+/// walking the Cargo workspace and ensuring no crate name matches
+/// the mobile-MDM naming patterns. `sda-mdm` (Desktop MDM,
+/// `docs/desktop-mdm/PROPOSAL.md`) is explicitly allowed.
 #[test]
 fn no_mobile_mdm_crate_in_workspace() {
     let workspace_root = workspace_root();
     let cargo = std::fs::read_to_string(workspace_root.join("Cargo.toml")).expect("Cargo.toml");
+    // Crates intentionally allowed under this guardrail.
+    const ALLOWED: &[&str] = &["crates/sda-mdm"];
+    // Patterns that would indicate a *mobile* MDM crate (iOS/Android).
+    const MOBILE_PATTERNS: &[&str] = &["mobile-mdm", "ios-mdm", "android-mdm", "/mdm-mobile"];
     for line in cargo.lines() {
         let l = line.trim();
-        if l.starts_with('"') && l.contains("mdm") {
+        if !l.starts_with('"') || !l.contains("mdm") {
+            continue;
+        }
+        if ALLOWED.iter().any(|a| l.contains(a)) {
+            continue;
+        }
+        if MOBILE_PATTERNS.iter().any(|p| l.contains(p)) {
             panic!("mobile MDM crate detected in workspace: {l}");
         }
+        // Defence-in-depth: any *new* unknown `mdm` crate must be
+        // listed in ALLOWED above and reviewed deliberately.
+        panic!("unrecognised mdm crate in workspace; allow-list it explicitly: {l}");
     }
 }
 

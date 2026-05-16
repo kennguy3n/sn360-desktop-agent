@@ -84,9 +84,7 @@ impl PowerStateProvider for WatchPowerStateProvider {
         use sda_core::power::PowerProfile;
         matches!(
             *self.rx.borrow(),
-            PowerProfile::BatteryActive
-                | PowerProfile::BatteryIdle
-                | PowerProfile::CriticalBattery
+            PowerProfile::BatteryActive | PowerProfile::BatteryIdle | PowerProfile::CriticalBattery
         )
     }
 }
@@ -233,10 +231,7 @@ mod tests {
                 material: vec![],
             })
         }
-        fn install_os_updates(
-            &self,
-            opts: &OsUpdateOpts,
-        ) -> sda_pal::mdm::Result<OsUpdateOutcome> {
+        fn install_os_updates(&self, opts: &OsUpdateOpts) -> sda_pal::mdm::Result<OsUpdateOutcome> {
             self.ticks.fetch_add(1, Ordering::Relaxed);
             self.last_security
                 .store(opts.include_security, Ordering::Relaxed);

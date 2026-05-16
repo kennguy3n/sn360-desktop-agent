@@ -167,7 +167,9 @@ mod tests {
         match snapshot_to_event_kind(&snap) {
             EventKind::AgentVitals { payload } => {
                 let parsed: serde_json::Value = serde_json::from_str(&payload).unwrap();
-                let loc = parsed.get("last_known_location").expect("loc field present");
+                let loc = parsed
+                    .get("last_known_location")
+                    .expect("loc field present");
                 assert_eq!(loc["lat"], 37.7749);
                 assert_eq!(loc["lon"], -122.4194);
                 assert_eq!(loc["accuracy_m"], 25.0);

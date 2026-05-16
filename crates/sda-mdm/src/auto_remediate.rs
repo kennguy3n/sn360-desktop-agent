@@ -115,7 +115,10 @@ impl EphemeralKey {
     /// ephemeral key.
     pub fn sign(&self, preimage: &[u8]) -> (Vec<u8>, String) {
         let sig = self.signing.sign(preimage);
-        (sig.to_bytes().to_vec(), format!("ephemeral:{}", self.fingerprint))
+        (
+            sig.to_bytes().to_vec(),
+            format!("ephemeral:{}", self.fingerprint),
+        )
     }
 }
 
@@ -210,8 +213,13 @@ impl AutoRemediator {
         match result {
             Ok(()) => {
                 self.mark_remediated(kind).await;
-                let payload =
-                    self.payload(kind, RemediateStatus::Success, started_at, finished_at, None);
+                let payload = self.payload(
+                    kind,
+                    RemediateStatus::Success,
+                    started_at,
+                    finished_at,
+                    None,
+                );
                 info!(?kind, "mdm: auto-remediation succeeded");
                 self.publish_result(payload).await;
             }
@@ -404,10 +412,7 @@ mod tests {
                 material: vec![],
             })
         }
-        fn install_os_updates(
-            &self,
-            _o: &OsUpdateOpts,
-        ) -> sda_pal::mdm::Result<OsUpdateOutcome> {
+        fn install_os_updates(&self, _o: &OsUpdateOpts) -> sda_pal::mdm::Result<OsUpdateOutcome> {
             unreachable!()
         }
         fn apply_config_profile(&self, _p: &SignedConfigProfile) -> sda_pal::mdm::Result<()> {
@@ -450,11 +455,7 @@ mod tests {
     async fn observes_all_three_offs() {
         let (bus, _server_rx) = EventBus::new(64, 64);
         let provider = Arc::new(MockProvider::default());
-        let sup = AutoRemediator::new(
-            config_with_debounce(86_400),
-            provider.clone(),
-            bus.clone(),
-        );
+        let sup = AutoRemediator::new(config_with_debounce(86_400), provider.clone(), bus.clone());
         sup.observe(&snapshot(true)).await;
         assert_eq!(provider.disk_calls.load(Ordering::Relaxed), 1);
         assert_eq!(provider.fw_calls.load(Ordering::Relaxed), 1);
@@ -465,11 +466,7 @@ mod tests {
     async fn debounces_within_window() {
         let (bus, _server_rx) = EventBus::new(64, 64);
         let provider = Arc::new(MockProvider::default());
-        let sup = AutoRemediator::new(
-            config_with_debounce(86_400),
-            provider.clone(),
-            bus.clone(),
-        );
+        let sup = AutoRemediator::new(config_with_debounce(86_400), provider.clone(), bus.clone());
         sup.observe(&snapshot(true)).await;
         sup.observe(&snapshot(true)).await;
         // First call ran for all three; second call should be
@@ -483,8 +480,7 @@ mod tests {
     async fn debounce_zero_re_runs() {
         let (bus, _server_rx) = EventBus::new(64, 64);
         let provider = Arc::new(MockProvider::default());
-        let sup =
-            AutoRemediator::new(config_with_debounce(0), provider.clone(), bus.clone());
+        let sup = AutoRemediator::new(config_with_debounce(0), provider.clone(), bus.clone());
         sup.observe(&snapshot(true)).await;
         sup.observe(&snapshot(true)).await;
         // Debounce window is 0 — both runs must execute.
@@ -518,11 +514,7 @@ mod tests {
             fail_on: Some(RemediateKind::Firewall),
             ..Default::default()
         });
-        let sup = AutoRemediator::new(
-            config_with_debounce(86_400),
-            provider.clone(),
-            bus.clone(),
-        );
+        let sup = AutoRemediator::new(config_with_debounce(86_400), provider.clone(), bus.clone());
 
         let mut snap = snapshot(true);
         snap.disk_encryption = PostureToggle::On;

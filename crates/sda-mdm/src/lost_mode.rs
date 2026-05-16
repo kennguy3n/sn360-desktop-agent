@@ -268,10 +268,7 @@ mod tests {
                 material: vec![],
             })
         }
-        fn install_os_updates(
-            &self,
-            _o: &OsUpdateOpts,
-        ) -> sda_pal::mdm::Result<OsUpdateOutcome> {
+        fn install_os_updates(&self, _o: &OsUpdateOpts) -> sda_pal::mdm::Result<OsUpdateOutcome> {
             unreachable!()
         }
         fn apply_config_profile(&self, _p: &SignedConfigProfile) -> sda_pal::mdm::Result<()> {
