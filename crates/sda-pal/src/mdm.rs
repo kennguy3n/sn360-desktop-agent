@@ -235,6 +235,37 @@ mod linux_impl {
             .into_iter()
             .find(|tool| std::path::Path::new(tool).exists())
         }
+
+        /// Build the arg list passed to the detected update tool.
+        ///
+        /// Split out from [`Self::install_os_updates`] so we can
+        /// unit-test the `--security-only` / `--all` decision tree
+        /// without spawning a real process.
+        ///
+        /// Semantics (matches the macOS `softwareupdate` shape at
+        /// `MacMdmProvider::install_os_updates`):
+        ///
+        ///   * `include_feature = true` ⇒ install everything, no
+        ///     restrictor flag.
+        ///   * `include_security = true && include_feature = false`
+        ///     (the default) ⇒ restrict to security patches only via
+        ///     `--security-only`.
+        ///   * `include_security = false && include_feature = false`
+        ///     ⇒ shouldn't reach the PAL (gated upstream by
+        ///     [`OsPatchConfig`]); we treat it as "nothing requested,
+        ///     don't restrict" for forward-safety.
+        ///
+        /// The previous implementation inverted the guard
+        /// (`!include_security && !include_feature`), which silently
+        /// installed feature updates on every Linux device running
+        /// the default MDM config. Fixed in this commit.
+        pub(crate) fn unattended_upgrade_args(opts: &OsUpdateOpts) -> Vec<&'static str> {
+            let mut args = vec!["--debug", "-v"];
+            if opts.include_security && !opts.include_feature {
+                args.push("--security-only");
+            }
+            args
+        }
     }
 
     impl MdmProvider for LinuxMdmProvider {
@@ -317,10 +348,7 @@ mod linux_impl {
             } else if tool.ends_with("dnf-automatic") {
                 cmd.arg("--installupdates");
             } else {
-                cmd.args(["--debug", "-v"]);
-                if !opts.include_security && !opts.include_feature {
-                    cmd.arg("--security-only");
-                }
+                cmd.args(Self::unattended_upgrade_args(opts));
             }
             let out = cmd.output().map_err(MdmError::Io)?;
             let log = [&out.stdout[..], &out.stderr[..]].concat();
@@ -1166,6 +1194,60 @@ mod linux_tests {
         let p = LinuxMdmProvider::new();
         let r = p.enable_disk_encryption();
         assert!(matches!(r, Err(MdmError::Unsupported(_))));
+    }
+
+    /// Asserts the `--security-only` decision tree for
+    /// `unattended-upgrade` is correct across all four
+    /// `(include_security, include_feature)` combinations.
+    ///
+    /// Regression coverage for the inverted guard caught by Devin
+    /// Review on commit 437ffc8 — under the default MDM config
+    /// (`include_security=true, include_feature=false`) the old
+    /// `!sec && !feat` test evaluated to `false`, so feature updates
+    /// were silently installed on every Linux device.
+    #[test]
+    fn linux_unattended_upgrade_args_decision_tree() {
+        // (include_security, include_feature, expected_extra_flag)
+        let cases: &[(bool, bool, Option<&str>)] = &[
+            // Default MDM config — must restrict to security only.
+            (true, false, Some("--security-only")),
+            // Operator opted into feature updates — install
+            // everything, no restrictor.
+            (true, true, None),
+            // Degenerate "feature only, no security" — install
+            // everything, no restrictor (`unattended-upgrade` has no
+            // `--feature-only`).
+            (false, true, None),
+            // Degenerate "nothing requested" — gated upstream by
+            // `OsPatchConfig`, but if it leaks through we install
+            // everything rather than restrict.
+            (false, false, None),
+        ];
+        for &(include_security, include_feature, expected) in cases {
+            let opts = OsUpdateOpts {
+                include_security,
+                include_feature,
+                reboot_policy: RebootPolicy::Never,
+            };
+            let args = LinuxMdmProvider::unattended_upgrade_args(&opts);
+            // Common prefix is always present.
+            assert!(
+                args.starts_with(&["--debug", "-v"]),
+                "args missing --debug -v prefix: {args:?}"
+            );
+            let has_security_only = args.contains(&"--security-only");
+            match expected {
+                Some("--security-only") => assert!(
+                    has_security_only,
+                    "expected --security-only for (include_security={include_security}, include_feature={include_feature}), got {args:?}"
+                ),
+                None => assert!(
+                    !has_security_only,
+                    "did NOT expect --security-only for (include_security={include_security}, include_feature={include_feature}), got {args:?}"
+                ),
+                _ => unreachable!(),
+            }
+        }
     }
 }
 
