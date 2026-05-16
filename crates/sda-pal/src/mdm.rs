@@ -209,11 +209,20 @@ mod linux_impl {
         /// underlying device. Returns `None` if the layout is not
         /// recognised — callers should treat this as
         /// [`MdmError::Unsupported`].
+        ///
+        /// Malformed lines (empty, whitespace-only, or fewer than
+        /// two columns) are **skipped**, not propagated — the loop
+        /// keeps walking until it either finds the root mount or
+        /// exhausts the input. Real `/proc/mounts` always has 6
+        /// columns per line, but defensive parsing here means a
+        /// future caller feeding e.g. `/etc/fstab` (which can have
+        /// comment lines) or a truncated capture file from a
+        /// support bundle still finds the root mount.
         pub(crate) fn root_luks_device(mounts: &str) -> Option<String> {
             for line in mounts.lines() {
                 let mut cols = line.split_whitespace();
-                let dev = cols.next()?;
-                let mnt = cols.next()?;
+                let Some(dev) = cols.next() else { continue };
+                let Some(mnt) = cols.next() else { continue };
                 if mnt == "/" && (dev.starts_with("/dev/mapper/") || dev.starts_with("/dev/dm-")) {
                     return Some(dev.to_string());
                 }
@@ -1180,6 +1189,37 @@ mod linux_tests {
     fn root_luks_device_returns_none_for_plain_root() {
         let mounts = "/dev/sda1 / ext4 rw,relatime 0 0\n";
         assert_eq!(LinuxMdmProvider::root_luks_device(mounts), None);
+    }
+
+    /// Regression test for the early-return-on-malformed-line bug
+    /// caught by Devin Review on commit `22c95fc`. The previous
+    /// implementation used `?` on `cols.next()` inside the loop, so
+    /// any empty or single-token line *before* the root mount line
+    /// would return `None` from the whole function — falsely
+    /// reporting "no LUKS root device" on a host that does have
+    /// one. Now we `continue` past malformed lines instead.
+    ///
+    /// The fixture interleaves the kinds of garbage that can show
+    /// up in a hand-edited `fstab`-style file or a truncated
+    /// support-bundle capture (comment-like single token, fully
+    /// blank line, whitespace-only line, single-column line
+    /// missing the mountpoint) before finally hitting the real
+    /// root mount.
+    #[test]
+    fn root_luks_device_skips_malformed_lines_and_keeps_searching() {
+        let mounts = "\
+            # comment\n\
+            \n\
+            \t  \n\
+            singletoken\n\
+            sysfs /sys sysfs rw 0 0\n\
+            /dev/mapper/cryptroot / ext4 rw,relatime 0 0\n\
+            /dev/sda1 /boot ext4 rw 0 0\n";
+        assert_eq!(
+            LinuxMdmProvider::root_luks_device(mounts),
+            Some("/dev/mapper/cryptroot".to_string()),
+            "must skip malformed lines and keep walking until the root mount is found"
+        );
     }
 
     #[test]
