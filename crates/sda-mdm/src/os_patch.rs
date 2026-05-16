@@ -64,6 +64,33 @@ pub trait PowerStateProvider: Send + Sync {
     fn is_on_battery(&self) -> bool;
 }
 
+/// Adapter that bridges the agent's
+/// [`sda_core::power::PowerProfileReceiver`] onto the
+/// [`PowerStateProvider`] trait. `is_on_battery` returns `true` for
+/// every battery-backed [`sda_core::power::PowerProfile`] variant —
+/// `BatteryActive`, `BatteryIdle`, and `CriticalBattery`.
+pub struct WatchPowerStateProvider {
+    rx: tokio::sync::watch::Receiver<sda_core::power::PowerProfile>,
+}
+
+impl WatchPowerStateProvider {
+    pub fn new(rx: tokio::sync::watch::Receiver<sda_core::power::PowerProfile>) -> Self {
+        Self { rx }
+    }
+}
+
+impl PowerStateProvider for WatchPowerStateProvider {
+    fn is_on_battery(&self) -> bool {
+        use sda_core::power::PowerProfile;
+        matches!(
+            *self.rx.borrow(),
+            PowerProfile::BatteryActive
+                | PowerProfile::BatteryIdle
+                | PowerProfile::CriticalBattery
+        )
+    }
+}
+
 /// Translate the user-supplied [`OsPatchConfig`] into the PAL-facing
 /// [`OsUpdateOpts`]. Visible for testing.
 pub fn config_to_opts(cfg: &OsPatchConfig) -> OsUpdateOpts {

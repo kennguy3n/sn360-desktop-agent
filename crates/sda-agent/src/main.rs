@@ -471,6 +471,32 @@ async fn main() -> Result<()> {
         }
     }
 
+    // 12i-bis. ShieldNet Desktop MDM module (Phase M1–M3).
+    //           ON by default (`modules.mdm.enabled = true`).
+    //           Spawns the auto-remediation supervisor, config-profile
+    //           watcher, one-shot recovery-key escrow, and parks the
+    //           wipe/lock/lost-mode/config-profile dispatch path until a
+    //           SignedActionJob arrives from the Device Control router.
+    if config.modules.mdm.enabled {
+        info!("starting desktop MDM module");
+        let mdm_provider: std::sync::Arc<dyn sda_pal::mdm::MdmProvider> =
+            std::sync::Arc::from(sda_pal::mdm::default_mdm_provider());
+        let mdm_power: sda_mdm::module::SharedPowerState =
+            std::sync::Arc::new(sda_mdm::os_patch::WatchPowerStateProvider::new(
+                power_rx.clone(),
+            ));
+        let mdm_module = sda_mdm::MdmModule::new(
+            config.modules.mdm.clone(),
+            mdm_provider,
+            agent.event_bus(),
+            Vec::new(), // pinned profile signing keys — populated by TRDS bundle push
+            mdm_power,
+            None, // recovery escrow identity — populated after enrollment handshake
+        );
+        let mdm_handle = mdm_module.start(agent.shutdown_signal());
+        agent.register_module(mdm_handle);
+    }
+
     // 12j. Query (osquery sidecar) module — Phase 1 MVP.
     //      Default is disabled. The supervisor probes the configured
     //      osquery binary, runs scheduled queries, and emits
@@ -802,6 +828,28 @@ fn map_event_to_message(agent_id: &str, kind: &EventKind) -> Option<WazuhMessage
         EventKind::EvidenceRecord { payload } => (MessageType::EvidenceRecord, payload.clone()),
         EventKind::UsbDevicePolicyDecision { payload } => {
             (MessageType::UsbDevicePolicyDecision, payload.clone())
+        }
+
+        // --- Desktop MDM event mapping (Phase M1–M3) ---
+        EventKind::MdmWipeResult { payload } => (MessageType::MdmWipeResult, payload.clone()),
+        EventKind::MdmLockResult { payload } => (MessageType::MdmLockResult, payload.clone()),
+        EventKind::MdmLostModeEntered { payload } => {
+            (MessageType::MdmLostModeEntered, payload.clone())
+        }
+        EventKind::MdmLostModeExited { payload } => {
+            (MessageType::MdmLostModeExited, payload.clone())
+        }
+        EventKind::MdmRecoveryKeyEscrowed { payload } => {
+            (MessageType::MdmRecoveryKeyEscrowed, payload.clone())
+        }
+        EventKind::MdmOsUpdateResult { payload } => {
+            (MessageType::MdmOsUpdateResult, payload.clone())
+        }
+        EventKind::MdmConfigProfileApplied { payload } => {
+            (MessageType::MdmConfigProfileApplied, payload.clone())
+        }
+        EventKind::MdmAutoRemediationResult { payload } => {
+            (MessageType::MdmAutoRemediationResult, payload.clone())
         }
 
         // Lifecycle / internal events are not forwarded.
