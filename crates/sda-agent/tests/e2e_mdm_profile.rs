@@ -199,13 +199,15 @@ async fn signed_profile_applies_and_publishes_event() {
     let applied: Vec<MdmConfigProfileAppliedPayload> = events
         .iter()
         .filter_map(|ev| match &ev.kind {
-            EventKind::MdmConfigProfileApplied { payload } => {
-                serde_json::from_str(payload).ok()
-            }
+            EventKind::MdmConfigProfileApplied { payload } => serde_json::from_str(payload).ok(),
             _ => None,
         })
         .collect();
-    assert_eq!(applied.len(), 1, "exactly one applied event must be emitted");
+    assert_eq!(
+        applied.len(),
+        1,
+        "exactly one applied event must be emitted"
+    );
     assert_eq!(applied[0].profile_id, profile_id);
     assert_eq!(applied[0].status, ConfigProfileStatus::Applied);
     assert_eq!(applied[0].profile_sha256, verified.sha256);
@@ -292,8 +294,7 @@ async fn tampered_profile_rejected_and_previous_retained() {
                 }
             }
             EventKind::MdmConfigProfileApplied { payload } => {
-                let p: MdmConfigProfileAppliedPayload =
-                    serde_json::from_str(payload).unwrap();
+                let p: MdmConfigProfileAppliedPayload = serde_json::from_str(payload).unwrap();
                 if p.status == ConfigProfileStatus::Tampered {
                     tampered_event = true;
                     assert_eq!(p.profile_id, Uuid::nil());

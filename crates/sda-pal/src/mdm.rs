@@ -214,9 +214,7 @@ mod linux_impl {
                 let mut cols = line.split_whitespace();
                 let dev = cols.next()?;
                 let mnt = cols.next()?;
-                if mnt == "/"
-                    && (dev.starts_with("/dev/mapper/") || dev.starts_with("/dev/dm-"))
-                {
+                if mnt == "/" && (dev.starts_with("/dev/mapper/") || dev.starts_with("/dev/dm-")) {
                     return Some(dev.to_string());
                 }
             }

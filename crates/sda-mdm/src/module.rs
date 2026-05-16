@@ -239,8 +239,7 @@ impl MdmModule {
                         signing_key: identity.signing_key.as_ref(),
                         key_id: &identity.key_id,
                     };
-                    if let Err(e) =
-                        recovery_key::escrow_once(p.as_ref(), &b, &mut guard, &id).await
+                    if let Err(e) = recovery_key::escrow_once(p.as_ref(), &b, &mut guard, &id).await
                     {
                         warn!(error = %e, "mdm: recovery-key escrow_once failed at startup");
                     }

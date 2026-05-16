@@ -166,10 +166,9 @@ fn auto_remediation_payloads(events: &[Event]) -> Vec<MdmAutoRemediationResultPa
     events
         .iter()
         .filter_map(|ev| match &ev.kind {
-            EventKind::MdmAutoRemediationResult { payload } => serde_json::from_str::<
-                MdmAutoRemediationResultPayload,
-            >(payload)
-            .ok(),
+            EventKind::MdmAutoRemediationResult { payload } => {
+                serde_json::from_str::<MdmAutoRemediationResultPayload>(payload).ok()
+            }
             _ => None,
         })
         .collect()
