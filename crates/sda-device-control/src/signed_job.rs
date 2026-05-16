@@ -144,8 +144,12 @@ pub struct RemoteWipeArgs {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RemoteLockArgs {
-    /// User-facing message shown on the lock screen (truncated to 240
-    /// chars by the agent).
+    /// User-facing message shown on the lock screen. The agent
+    /// truncates the field to at most 240 *bytes* on a UTF-8
+    /// character boundary — strings whose 240th byte falls inside
+    /// a multi-byte codepoint are clipped at the previous boundary
+    /// (the upper bound is ~240 chars, exact for ASCII, shorter
+    /// when the trailing run is multi-byte CJK/emoji).
     #[serde(default)]
     pub message: String,
 }
@@ -422,9 +426,16 @@ impl JobArgs {
             ActionKind::RemoteLock => {
                 let mut v: RemoteLockArgs = from_value(args)?;
                 // Truncate over-long lock-screen messages so the OS
-                // backend never has to worry about it.
+                // backend never has to worry about it. `String::truncate`
+                // panics if the byte index falls inside a multi-byte
+                // UTF-8 sequence, so walk back to the nearest char
+                // boundary first.
                 if v.message.len() > 240 {
-                    v.message.truncate(240);
+                    let mut end = 240;
+                    while !v.message.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    v.message.truncate(end);
                 }
                 JobArgs::RemoteLock(v)
             }
@@ -737,6 +748,77 @@ mod tests {
             JobArgs::RemoteLock(a) => assert_eq!(a.message.len(), 240),
             _ => panic!("wrong variant"),
         }
+    }
+
+    /// Multi-byte UTF-8 regression: a message whose byte-240 falls
+    /// *inside* a 3-byte CJK character must walk back to the prior
+    /// codepoint boundary rather than panicking inside
+    /// `String::truncate`.
+    #[test]
+    fn parse_remote_lock_truncates_on_utf8_char_boundary() {
+        // Construct a string where byte 240 lands STRICTLY INSIDE a
+        // multi-byte codepoint. 1 ASCII + 81 "漢" (each 3 bytes,
+        // E6 BC A2) = 1 + 243 = 244 bytes. The 80th "漢" occupies
+        // bytes 238..241, so byte 240 is the second continuation
+        // byte of that codepoint. `String::truncate(240)` would
+        // panic; the fix must walk back to byte 238 (end of the
+        // 79th "漢" — preceded by the 1-byte ASCII char, so 80
+        // chars total).
+        let mut s = String::from("a");
+        s.push_str(&"漢".repeat(81));
+        assert_eq!(s.len(), 244);
+        assert!(
+            !s.is_char_boundary(240),
+            "fixture must put byte 240 inside a multi-byte char to exercise the panic path"
+        );
+        let j = job(ActionKind::RemoteLock, json!({"message": s.clone()}));
+        let parsed = j
+            .parse_args()
+            .expect("must not panic on multi-byte boundary");
+        match parsed {
+            JobArgs::RemoteLock(a) => {
+                assert!(
+                    a.message.is_char_boundary(a.message.len()),
+                    "truncated message must land on a UTF-8 boundary"
+                );
+                assert!(
+                    a.message.len() <= 240,
+                    "truncated message must fit in 240 bytes; was {}",
+                    a.message.len()
+                );
+                // 1 ASCII + 79 full "漢" = 1 + 237 = 238 bytes,
+                // 80 chars total.
+                assert_eq!(a.message.chars().count(), 80);
+                assert_eq!(a.message.len(), 238);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    /// Boundary case: a string whose 240th byte sits exactly on a
+    /// char boundary should truncate at 240 bytes with no walk-back.
+    #[test]
+    fn parse_remote_lock_truncates_when_240_is_already_boundary() {
+        // 80 "漢" = 240 bytes exactly. The next codepoint would push
+        // us over, so the truncator should clip after the 80th char.
+        let s: String = "漢".repeat(81);
+        // Sanity: 81 chars = 243 bytes (handled by the test above).
+        // Build the on-boundary case by appending one ASCII char:
+        let mut on_boundary: String = "漢".repeat(80);
+        on_boundary.push('x');
+        assert_eq!(on_boundary.len(), 241);
+        let j = job(
+            ActionKind::RemoteLock,
+            json!({"message": on_boundary.clone()}),
+        );
+        match j.parse_args().unwrap() {
+            JobArgs::RemoteLock(a) => {
+                assert_eq!(a.message.len(), 240);
+                assert!(a.message.is_char_boundary(a.message.len()));
+            }
+            _ => panic!("wrong variant"),
+        }
+        let _ = s; // silence unused warning if the parent test mutates this fixture.
     }
 
     #[test]

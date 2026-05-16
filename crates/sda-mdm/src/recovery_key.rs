@@ -155,6 +155,15 @@ pub fn build_payload(
 
 /// Pre-image fed into the Ed25519 signature. The control plane
 /// re-builds the same bytes from the published payload to verify.
+///
+/// `key_type` is mixed in using its **serde wire spelling**
+/// (`"bit_locker"`, `"file_vault"`, `"luks"`) rather than its
+/// `Debug` representation. That way a future refactor that renames
+/// the enum variants — or one that changes the `Debug` impl —
+/// can't silently invalidate every signed envelope on the network.
+/// The control plane reconstructs the same bytes from the
+/// already-serialised payload, so wire-spelling parity is the only
+/// thing the agent needs to honour here.
 fn signing_preimage(
     tenant_id: Uuid,
     device_id: Uuid,
@@ -163,14 +172,32 @@ fn signing_preimage(
     nonce: &[u8; 12],
     escrowed_at: chrono::DateTime<Utc>,
 ) -> Vec<u8> {
+    let key_type_wire = key_type_wire_spelling(key_type);
     let mut h = Sha256::new();
     h.update(tenant_id.as_bytes());
     h.update(device_id.as_bytes());
-    h.update(format!("{:?}", key_type).as_bytes());
+    h.update(key_type_wire.as_bytes());
     h.update(ciphertext);
     h.update(nonce);
     h.update(escrowed_at.to_rfc3339().as_bytes());
     h.finalize().to_vec()
+}
+
+/// Return the serde wire spelling of [`RecoveryKeyType`].
+///
+/// `serde_json::to_string` would also produce these tokens (quoted),
+/// but it allocates a heap string and pulls in a `Result` we never
+/// expect to fail. The closed enum is small enough that a match arm
+/// is both faster and easier to keep in lock-step with the
+/// `#[serde(rename_all = "snake_case")]` attribute on the upstream
+/// type — if a new variant lands, the compiler errors here.
+fn key_type_wire_spelling(key_type: sda_pal::mdm::RecoveryKeyType) -> &'static str {
+    use sda_pal::mdm::RecoveryKeyType;
+    match key_type {
+        RecoveryKeyType::BitLocker => "bit_locker",
+        RecoveryKeyType::FileVault => "file_vault",
+        RecoveryKeyType::Luks => "luks",
+    }
 }
 
 /// Identity material bound into the recovery-key envelope. Bundled

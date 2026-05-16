@@ -176,12 +176,40 @@ impl AutoRemediator {
         }
     }
 
+    /// Decide whether to attempt remediation for `kind`, and emit
+    /// an [`MdmAutoRemediationResultPayload`] event documenting the
+    /// decision.
+    ///
+    /// **Why we emit events for `Disabled` and `Debounced` even
+    /// though no PAL action ran:** the control plane treats the
+    /// supervisor as a tamper-evident audit trail — the operator
+    /// must be able to prove that an off-posture device was
+    /// _evaluated_ and that the agent's decision-tree _chose_ not
+    /// to act, separate from the case where the supervisor simply
+    /// crashed or was bypassed. That requires a single event per
+    /// `(snapshot, kind)` tuple covering all four
+    /// [`RemediateStatus`] outcomes: `Success`, `Failure`,
+    /// `Disabled`, `Debounced`.
+    ///
+    /// Steady-state cost: with the default 300 s posture-snapshot
+    /// interval, a device with all three toggles `Off` and
+    /// auto-remediation disabled produces 3 `Disabled` events every
+    /// 5 minutes — ~864 events / device / day. This is below the
+    /// event-bus back-pressure budget documented in
+    /// `docs/desktop-mdm/ARCHITECTURE.md` § 3.6; tenants with very
+    /// large fleets can shorten retention server-side or set the
+    /// posture interval higher.
     async fn maybe_run<F>(&self, kind: RemediateKind, enabled: bool, op: F)
     where
         F: FnOnce(&dyn MdmProvider) -> sda_pal::mdm::Result<()> + Send,
     {
         let started_at = Utc::now();
         if !enabled {
+            // Audit-trail event: explicitly record that this kind
+            // was observed off-posture but remediation was disabled
+            // by config. The control plane needs this signal to
+            // distinguish "agent saw it and chose not to act" from
+            // "agent never saw it".
             let payload = self.payload(
                 kind,
                 RemediateStatus::Disabled,
@@ -193,6 +221,9 @@ impl AutoRemediator {
             return;
         }
         if self.is_debounced(kind).await {
+            // Audit-trail event: same rationale as the `Disabled`
+            // branch — the control plane needs to see that the
+            // debounce window suppressed a duplicate attempt.
             let payload = self.payload(
                 kind,
                 RemediateStatus::Debounced,

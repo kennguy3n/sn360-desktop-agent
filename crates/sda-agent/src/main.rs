@@ -484,16 +484,27 @@ async fn main() -> Result<()> {
         let mdm_power: sda_mdm::module::SharedPowerState = std::sync::Arc::new(
             sda_mdm::os_patch::WatchPowerStateProvider::new(power_rx.clone()),
         );
-        let mdm_module = sda_mdm::MdmModule::new(
+        let mdm_module = std::sync::Arc::new(sda_mdm::MdmModule::new(
             config.modules.mdm.clone(),
             mdm_provider,
             agent.event_bus(),
             Vec::new(), // pinned profile signing keys — populated by TRDS bundle push
             mdm_power,
             None, // recovery escrow identity — populated after enrollment handshake
-        );
-        let mdm_handle = mdm_module.start(agent.shutdown_signal());
+        ));
+        // Hold the sender so a future Device Control router refactor
+        // can hand validated MDM-flavour SignedActionJobs into the
+        // dispatcher. The handle is intentionally retained on the
+        // agent main even though no caller forwards into it yet —
+        // dropping it would close the channel and silently disable
+        // the dispatcher.
+        let _mdm_action_tx = mdm_module.action_sender();
+        let mdm_handle = mdm_module.clone().start(agent.shutdown_signal());
         agent.register_module(mdm_handle);
+        // Keep the Arc alive past this scope so `dispatch` stays
+        // reachable for the rest of agent runtime. Once the router
+        // is wired the sender will live here too.
+        let _mdm_module_handle = mdm_module;
     }
 
     // 12j. Query (osquery sidecar) module — Phase 1 MVP.

@@ -13,11 +13,29 @@
 //!    will no-op on subsequent boots once the per-boot guard fires.
 //! 4. Wires the [`os_patch::tick`] callback into the maintenance
 //!    window scheduler (M1.4).
+//! 5. Spawns the inbound-job dispatcher task (M2+) that consumes
+//!    validated [`SignedActionJob`]s off a [`tokio::sync::mpsc`]
+//!    channel and routes them through [`MdmModule::dispatch`].
 //!
 //! Inbound [`SignedActionJob`]s — the per-incident wipe, lock,
 //! lost-mode, and config-profile-push paths — flow through
 //! [`MdmModule::dispatch`] after the
 //! [`sda_device_control::router`] validation pipeline accepts them.
+//!
+//! ## Job flow
+//!
+//! The router does not invoke handlers directly; instead, after the
+//! step-12 validation in `sda_device_control::router::validate`,
+//! the agent main pushes the accepted job into the MDM module's
+//! [`MdmModule::action_sender`] channel. The dispatcher task
+//! inside [`MdmModule::start`] reads the channel and calls
+//! [`MdmModule::dispatch`].
+//!
+//! This pattern keeps the validation surface (Device Control) and
+//! the side-effecting surface (MDM PAL calls) decoupled, while
+//! still making `dispatch` reachable from the runtime — the
+//! [`std::sync::Arc<MdmModule>`] returned by [`MdmModule::start`]
+//! lives on in agent main alongside the channel sender.
 
 use std::sync::Arc;
 
@@ -31,7 +49,7 @@ use sda_device_control::types::ActionKind;
 use sda_event_bus::EventBus;
 use sda_pal::mdm::MdmProvider;
 use thiserror::Error;
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -82,6 +100,11 @@ pub struct RecoveryEscrowIdentity {
 /// `PowerMonitor` or substitutes a stub in tests.
 pub type SharedPowerState = Arc<dyn os_patch::PowerStateProvider>;
 
+/// Bounded queue depth for the inbound-job channel. Keeps memory
+/// usage flat under a flood of incoming jobs; the upstream router
+/// applies its own back-pressure when this fills up.
+const JOB_QUEUE_CAPACITY: usize = 64;
+
 /// Top-level Desktop MDM module.
 pub struct MdmModule {
     cfg: MdmConfig,
@@ -113,6 +136,15 @@ pub struct MdmModule {
     /// Reporter task handle (started by `EnterLostMode`, aborted by
     /// `ExitLostMode` or agent shutdown).
     reporter_handle: Arc<Mutex<LocationReporterHandle>>,
+    /// Inbound-job channel sender. Cloned and handed to callers
+    /// (the agent main forwards router-accepted MDM jobs into this
+    /// channel via [`MdmModule::action_sender`]).
+    action_tx: mpsc::Sender<SignedActionJob>,
+    /// Inbound-job channel receiver. [`MdmModule::start`] takes the
+    /// receiver out of the Mutex and spawns the dispatcher task; on
+    /// the rare case `start` is called twice, the second call no-ops
+    /// the dispatcher (the receiver has already been moved).
+    action_rx: Mutex<Option<mpsc::Receiver<SignedActionJob>>>,
 }
 
 impl MdmModule {
@@ -157,6 +189,7 @@ impl MdmModule {
             provider.clone(),
             bus.clone(),
         ));
+        let (action_tx, action_rx) = mpsc::channel(JOB_QUEUE_CAPACITY);
         Self {
             cfg,
             provider,
@@ -169,7 +202,18 @@ impl MdmModule {
             location_store,
             geolocator,
             reporter_handle: Arc::new(Mutex::new(LocationReporterHandle::new())),
+            action_tx,
+            action_rx: Mutex::new(Some(action_rx)),
         }
+    }
+
+    /// Sender end of the inbound-job channel. The agent main hands
+    /// validated MDM-flavour [`SignedActionJob`]s to this sender;
+    /// the dispatcher task spawned inside [`MdmModule::start`] reads
+    /// the corresponding receiver and routes each job through
+    /// [`MdmModule::dispatch`].
+    pub fn action_sender(&self) -> mpsc::Sender<SignedActionJob> {
+        self.action_tx.clone()
     }
 
     /// Public handle to the auto-remediator's ephemeral key. The
@@ -181,7 +225,15 @@ impl MdmModule {
 
     /// Spawn every supervisor task and return a [`ModuleHandle`]
     /// the agent lifecycle can wait on for shutdown.
-    pub fn start(self, shutdown: ShutdownSignal) -> ModuleHandle {
+    ///
+    /// Takes `self: Arc<Self>` rather than `self` directly so the
+    /// agent main keeps a live reference to the module after
+    /// `start` returns. That reference is what makes
+    /// [`MdmModule::dispatch`] reachable: the inbound-job dispatcher
+    /// task spawned here calls `dispatch` on the same Arc, and the
+    /// agent main can also call it directly (e.g. from a future
+    /// router refactor) without going through the channel.
+    pub fn start(self: Arc<Self>, shutdown: ShutdownSignal) -> ModuleHandle {
         let name = "mdm";
         if !self.cfg.enabled {
             info!("mdm: module disabled by config, idle-loop only");
@@ -193,27 +245,29 @@ impl MdmModule {
             return ModuleHandle::new(name, task);
         }
 
-        let MdmModule {
-            cfg,
-            provider,
-            bus,
-            pinned_profile_keys,
-            auto,
-            recovery_identity,
-            recovery_guard,
-            power: _power,
-            location_store: _,
-            geolocator: _,
-            reporter_handle,
-        } = self;
-        // Capture the reporter so the shutdown task can stop it.
-        let reporter_for_shutdown = reporter_handle.clone();
+        let reporter_for_shutdown = self.reporter_handle.clone();
+        let auto = self.auto.clone();
+        let bus = self.bus.clone();
+        let provider = self.provider.clone();
+        let pinned_profile_keys = self.pinned_profile_keys.clone();
+        let recovery_guard = self.recovery_guard.clone();
+        let recovery_identity = self.recovery_identity.clone();
+        let recovery_enabled = self.cfg.recovery_key_escrow.enabled;
+        let watcher_path = self.cfg.bundle_path.clone();
 
         // 1. Auto-remediation supervisor.
-        let auto_task = auto_remediate::spawn(auto.clone(), bus.clone(), shutdown.clone());
+        let auto_task = auto_remediate::spawn(auto, bus.clone(), shutdown.clone());
 
         // 2. Config-profile watcher.
-        let watcher_path = cfg.bundle_path.clone();
+        //    NOTE on latency: the watcher polls the underlying
+        //    `notify` mpsc with a 500 ms tokio::time::sleep tick, so
+        //    a file change may take up to 500 ms to be observed
+        //    even though `notify` itself fires within milliseconds.
+        //    This is acceptable for the config-profile use case —
+        //    the operator-visible bound is "sub-second" — and keeps
+        //    the watcher off the tokio reactor's hot path. If the
+        //    SLA tightens, switch to `tokio::sync::mpsc` with a
+        //    `notify` glue adapter and drop the polling.
         let watcher_task = tokio::spawn(run_config_profile_watcher(
             watcher_path,
             provider.clone(),
@@ -225,7 +279,7 @@ impl MdmModule {
         // 3. One-shot recovery-key escrow (best effort, fires once
         //    per boot; skipped if the agent doesn't have an enrolled
         //    escrow identity yet).
-        if cfg.recovery_key_escrow.enabled {
+        if recovery_enabled {
             if let Some(identity) = recovery_identity {
                 let p = provider.clone();
                 let b = bus.clone();
@@ -249,7 +303,57 @@ impl MdmModule {
             }
         }
 
-        // 4. Top-level join task: parks until shutdown, then aborts
+        // 4. Inbound-job dispatcher. Reads from the per-module
+        //    `action_rx` channel and routes each accepted job
+        //    through `dispatch`. Without this task, the dispatch
+        //    path is unreachable — the agent main's only handle is
+        //    the `Arc<MdmModule>` returned by `start`, which it must
+        //    hand the sender out of.
+        let dispatch_self = self.clone();
+        let dispatch_shutdown = shutdown.clone();
+        let dispatch_task = tokio::spawn(async move {
+            // Take ownership of the receiver. If `start` is somehow
+            // called twice, the second call's receiver is `None` —
+            // we log + park rather than panic so the supervisor
+            // child still drops cleanly on shutdown.
+            let mut rx = match dispatch_self.action_rx.lock().await.take() {
+                Some(rx) => rx,
+                None => {
+                    warn!("mdm: action receiver already taken — dispatcher idle");
+                    let mut s = dispatch_shutdown;
+                    s.wait().await;
+                    return;
+                }
+            };
+            let mut s = dispatch_shutdown;
+            loop {
+                tokio::select! {
+                    _ = s.wait() => {
+                        info!("mdm: dispatcher shutting down");
+                        return;
+                    }
+                    maybe = rx.recv() => {
+                        match maybe {
+                            Some(job) => {
+                                if let Err(e) = dispatch_self.dispatch(&job).await {
+                                    warn!(error = %e, action = ?job.action, "mdm: dispatch failed");
+                                }
+                            }
+                            None => {
+                                // All senders dropped; nothing more
+                                // is going to arrive. Park on
+                                // shutdown so we don't busy-loop.
+                                info!("mdm: action channel closed — dispatcher idle");
+                                s.wait().await;
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // 5. Top-level join task: parks until shutdown, then aborts
         //    supervisor children. The OS-patch tick is owned by
         //    `sda-software`'s maintenance-window scheduler in the
         //    agent main; the supervisor only exposes `tick()` as a
@@ -260,6 +364,7 @@ impl MdmModule {
             info!("mdm: shutdown signal received");
             auto_task.abort();
             watcher_task.abort();
+            dispatch_task.abort();
             // Stop the lost-mode location reporter if it was
             // started by a previous EnterLostMode dispatch.
             reporter_for_shutdown.lock().await.stop();
@@ -339,30 +444,29 @@ impl MdmModule {
                 config_profile::apply_and_publish(&profile, self.provider.as_ref(), &self.bus)
                     .await;
             }
-            (ActionKind::EnableDiskEncryption, JobArgs::EnableDiskEncryption(_))
-            | (ActionKind::EnableFirewall, JobArgs::EnableFirewall(_))
-            | (ActionKind::SetScreenLock, JobArgs::SetScreenLock(_)) => {
-                // The auto-remediator is normally the source of
-                // these three actions; when a control-plane job
-                // requests them directly we fall back to a single
-                // synchronous PAL call here.
-                run_local_action(&job.action, self.provider.as_ref()).await;
+            (ActionKind::EnableDiskEncryption, JobArgs::EnableDiskEncryption(_)) => {
+                if let Err(e) = self.provider.enable_disk_encryption() {
+                    warn!(error = %e, "mdm: EnableDiskEncryption PAL call failed");
+                }
+            }
+            (ActionKind::EnableFirewall, JobArgs::EnableFirewall(_)) => {
+                if let Err(e) = self.provider.enable_firewall() {
+                    warn!(error = %e, "mdm: EnableFirewall PAL call failed");
+                }
+            }
+            (ActionKind::SetScreenLock, JobArgs::SetScreenLock(a)) => {
+                // Thread the control-plane-provided timeout through
+                // to the PAL. The router has already enforced the
+                // 1..=3600 range (see `signed_job::JobArgs::parse`),
+                // so the value is safe to forward without
+                // re-validation here.
+                if let Err(e) = self.provider.set_screen_lock(a.timeout_secs) {
+                    warn!(error = %e, timeout_secs = a.timeout_secs, "mdm: SetScreenLock PAL call failed");
+                }
             }
             (kind, _) => return Err(MdmModuleError::UnsupportedAction(kind)),
         }
         Ok(())
-    }
-}
-
-async fn run_local_action(action: &ActionKind, provider: &dyn MdmProvider) {
-    let result = match action {
-        ActionKind::EnableDiskEncryption => provider.enable_disk_encryption().map(|_| ()),
-        ActionKind::EnableFirewall => provider.enable_firewall(),
-        ActionKind::SetScreenLock => provider.set_screen_lock(600),
-        _ => return,
-    };
-    if let Err(e) = result {
-        warn!(error = %e, ?action, "mdm: local-action PAL call failed");
     }
 }
 

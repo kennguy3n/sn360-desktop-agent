@@ -1857,6 +1857,34 @@ pub struct MdmConfig {
 }
 
 impl Default for MdmConfig {
+    /// MDM is the **only** Phase-1+ module whose default is
+    /// `enabled = true` with every `auto_remediate.*` flag also
+    /// `true`. This intentionally diverges from every sibling
+    /// module (Device Control, Software, Posture, Query, JIT-admin,
+    /// App Control, etc.), all of which default to `enabled =
+    /// false`.
+    ///
+    /// **Rationale:** the three default-on remediations (disk
+    /// encryption, host firewall, screen lock) are the
+    /// industry-baseline posture controls that no production fleet
+    /// should ship without. Defaulting them off would make
+    /// "upgraded but mis-configured" fleets indistinguishable from
+    /// "intentionally lax" ones, and the operator has no audit
+    /// signal that the agent _could_ have remediated but did not.
+    /// Per `docs/desktop-mdm/ARCHITECTURE.md` § 5 the design
+    /// requires a single explicit opt-out by tenants who do not
+    /// want this behaviour.
+    ///
+    /// **Upgrade path:** existing deployments that upgrade to the
+    /// build containing the MDM module will immediately begin
+    /// auto-remediating FDE / firewall / screen-lock posture on
+    /// every enrolled device. Tenants who do _not_ want this MUST
+    /// add `modules.mdm.enabled = false` (or set individual
+    /// `modules.mdm.auto_remediate.*` flags to `false`) to their
+    /// rendered config **before** rolling the upgrade. The agent
+    /// honours the YAML override on first load — there is no
+    /// hidden gate beyond the standard config-merge path in
+    /// `AgentConfig::from_yaml_file`.
     fn default() -> Self {
         Self {
             enabled: true,

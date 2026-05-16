@@ -219,6 +219,23 @@ pub fn validate<H: JobValidationHooks>(
     // Any failure on this path collapses onto a single refusal
     // reason — `WipeRequiresDualControl` — so the operator UI
     // surfaces one clean message no matter which sub-check tripped.
+    //
+    // **Threat-model scope.** This gate is deliberately limited to
+    // `RemoteWipe`. `RemoteLock` and `EnterLostMode` are also
+    // operator-initiated and disruptive, but they are **reversible**
+    // (an admin can unlock or exit lost mode on the next
+    // round-trip) and they do not destroy data. Per
+    // `docs/desktop-mdm/ARCHITECTURE.md` § 4.4, only an
+    // irreversible / data-destructive primitive earns the
+    // round-trip cost of dual control. The accepted residual risk
+    // is that a single compromised approver key can lock or
+    // lost-mode-flag any enrolled device until a second approver
+    // reverses it — that exposure is the cost of keeping the
+    // lock/lost-mode operator workflow snappy. If/when the threat
+    // model tightens this list (e.g. JIT-admin grant revocation
+    // becomes destructive), the new actions should be added here,
+    // not silently allowed to flow through with a single
+    // signature.
     if job.action == ActionKind::RemoteWipe {
         if job.additional_signatures.is_empty() {
             return Err(JobRefused::WipeRequiresDualControl);
