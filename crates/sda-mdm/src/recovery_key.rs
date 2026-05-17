@@ -83,6 +83,22 @@ impl EscrowGuard {
             }
         }
     }
+
+    /// Clear the per-boot dedup state so the *next* call to
+    /// [`Self::should_escrow`] returns `true` regardless of material.
+    ///
+    /// Used by [`crate::module::MdmModule::dispatch`] when the
+    /// control plane sends an `EscrowRecoveryKey` job with
+    /// `force = true` — the docstring on
+    /// [`sda_device_control::signed_job::EscrowRecoveryKeyArgs`]
+    /// commits the agent to honouring `force` as a one-shot bypass
+    /// of the dedup. After the bypassed call lands, the guard
+    /// records the new hash via the normal `should_escrow` path, so
+    /// subsequent same-material escrows on the same boot still
+    /// dedup correctly — the bypass is one-shot, not permanent.
+    pub fn reset(&mut self) {
+        self.last_material_sha256 = None;
+    }
 }
 
 /// Wrap, sign, and publish a single recovery key.
@@ -285,6 +301,48 @@ mod tests {
         assert!(!g.should_escrow(b"abc"));
         assert!(g.should_escrow(b"abd"));
         assert!(!g.should_escrow(b"abd"));
+    }
+
+    #[test]
+    fn guard_reset_bypasses_dedup_for_one_call() {
+        // Regression test for the bug Devin Review flagged: the
+        // `EscrowRecoveryKey` dispatch arm destructured args with
+        // `_`, dropping the `force` field, so an operator-signed
+        // `force = true` job was a no-op against unchanged
+        // material. The dispatch arm now calls `guard.reset()` on
+        // `force = true` and then re-enters the normal
+        // `should_escrow` path. The reset is one-shot — the very
+        // next escrow re-populates the hash and subsequent
+        // same-material calls dedup again — which is exactly the
+        // contract the `EscrowRecoveryKeyArgs::force` docstring at
+        // `sda_device_control::signed_job::EscrowRecoveryKeyArgs`
+        // commits to.
+        let mut g = EscrowGuard::new();
+        assert!(g.should_escrow(b"abc"), "first escrow must publish");
+        assert!(!g.should_escrow(b"abc"), "second escrow must dedup");
+
+        // Simulate an operator-signed `force = true` job — the
+        // dispatch arm calls `reset()` before re-entering
+        // `escrow_once`. The next `should_escrow` must return
+        // `true` even though the material is unchanged.
+        g.reset();
+        assert!(
+            g.should_escrow(b"abc"),
+            "should_escrow must return true after reset() — the whole \
+             point of the force bypass"
+        );
+
+        // After the bypassed call lands, dedup must re-engage so a
+        // *subsequent* same-material job without `force` is not
+        // also forced through.
+        assert!(
+            !g.should_escrow(b"abc"),
+            "reset() must be one-shot — dedup re-engages once \
+             escrow_once re-populates the hash"
+        );
+
+        // And a genuinely-changed material still publishes.
+        assert!(g.should_escrow(b"abd"));
     }
 
     #[test]

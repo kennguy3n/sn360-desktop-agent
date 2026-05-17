@@ -423,9 +423,21 @@ impl MdmModule {
                 )
                 .await;
             }
-            (ActionKind::EscrowRecoveryKey, JobArgs::EscrowRecoveryKey(_)) => {
+            (ActionKind::EscrowRecoveryKey, JobArgs::EscrowRecoveryKey(a)) => {
                 if let Some(identity) = &self.recovery_identity {
                     let mut guard = self.recovery_guard.lock().await;
+                    // Honour the control plane's `force` bypass —
+                    // `EscrowRecoveryKeyArgs` docstring commits the
+                    // agent to re-escrowing on demand even when the
+                    // PAL returns identical material as the most
+                    // recent in-process escrow. Clearing the dedup
+                    // state is one-shot: `escrow_once` re-populates
+                    // it via `EscrowGuard::should_escrow` after the
+                    // payload publishes, so subsequent same-material
+                    // jobs without `force` still dedup correctly.
+                    if a.force {
+                        guard.reset();
+                    }
                     let id = recovery_key::EscrowIdentity {
                         seed: &identity.escrow_seed,
                         tenant_id: identity.tenant_id,
