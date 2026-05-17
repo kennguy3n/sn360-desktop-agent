@@ -10,6 +10,7 @@ pub mod mdm;
 pub mod package_manager;
 pub mod posture;
 pub mod power;
+pub mod process_monitor;
 pub mod remote_support;
 pub mod sysinfo;
 pub mod types;

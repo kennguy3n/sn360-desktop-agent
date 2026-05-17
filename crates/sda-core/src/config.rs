@@ -267,6 +267,20 @@ pub struct ModulesConfig {
     // false` in their config.
     #[serde(default)]
     pub mdm: MdmConfig,
+
+    // --- EDR Parity modules (Phase E1-E3) ---
+    //
+    // Each EDR module defaults to `enabled: false` per the lazy
+    // module-loading principle. See `docs/edr-parity/ARCHITECTURE.md`
+    // § 6 for the full schema.
+    #[serde(default)]
+    pub process_monitor: ProcessMonitorConfig,
+    #[serde(default)]
+    pub network_monitor: NetworkMonitorConfig,
+    #[serde(default)]
+    pub dns_monitor: DnsMonitorConfig,
+    #[serde(default)]
+    pub host_isolation: HostIsolationConfig,
 }
 
 /// FIM-specific configuration.
@@ -2150,6 +2164,169 @@ fn default_mdm_bundle_path() -> PathBuf {
     #[cfg(not(any(unix, windows)))]
     {
         PathBuf::new()
+    }
+}
+
+// ===========================================================================
+// EDR Parity (Phase E1-E3) module configurations.
+//
+// All four EDR modules default to `enabled = false` per the lazy-
+// module-loading principle — the agent's idle footprint is bit-for-
+// bit identical to the pre-EDR baseline when every flag is left at
+// its default. See `docs/edr-parity/ARCHITECTURE.md` § 6.
+// ===========================================================================
+
+/// Process Telemetry (Phase E1) configuration.
+///
+/// Drives the `sda-process-monitor` crate which subscribes to the
+/// platform process feed (Linux `cn_proc` + `/proc`, Windows ETW,
+/// macOS Endpoint Security) and reconstructs parent chains on
+/// each `Created` event.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessMonitorConfig {
+    /// Whether the process telemetry module is enabled.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Maximum number of ancestors walked on each `Created` event.
+    #[serde(default = "default_process_monitor_parent_chain_depth")]
+    pub parent_chain_depth: u32,
+    /// Whether to emit `ImageLoaded` events for shared-library / DLL
+    /// loads. Best-effort on Linux; native on Windows/macOS.
+    #[serde(default = "default_true")]
+    pub image_load_events: bool,
+    /// Size of the bounded mpsc channel used by the PAL. On overflow
+    /// the oldest event is dropped and a vitals counter is bumped.
+    #[serde(default = "default_process_monitor_event_buffer_size")]
+    pub event_buffer_size: usize,
+    /// Poll interval (milliseconds) for the Linux `/proc` fallback.
+    /// Ignored when the netlink / ETW / Endpoint Security backends
+    /// are in use.
+    #[serde(default = "default_process_monitor_poll_interval_ms")]
+    pub poll_interval_ms: u64,
+}
+
+impl Default for ProcessMonitorConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            parent_chain_depth: default_process_monitor_parent_chain_depth(),
+            image_load_events: true,
+            event_buffer_size: default_process_monitor_event_buffer_size(),
+            poll_interval_ms: default_process_monitor_poll_interval_ms(),
+        }
+    }
+}
+
+fn default_process_monitor_parent_chain_depth() -> u32 {
+    8
+}
+fn default_process_monitor_event_buffer_size() -> usize {
+    4096
+}
+fn default_process_monitor_poll_interval_ms() -> u64 {
+    500
+}
+
+/// Network Telemetry (Phase E3) configuration.
+///
+/// Drives the `sda-network-monitor` crate which subscribes to the
+/// platform network connection feed (Linux audit + `/proc/net`,
+/// Windows ETW, macOS Network Extension).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkMonitorConfig {
+    /// Whether the network telemetry module is enabled.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Whether to surface outbound connections.
+    #[serde(default = "default_true")]
+    pub direction_outbound: bool,
+    /// Whether to surface inbound connections (listeners + accepts).
+    #[serde(default = "default_true")]
+    pub direction_inbound: bool,
+    /// Sample high-rate UDP flows to bound event volume.
+    #[serde(default = "default_true")]
+    pub sample_high_rate_udp: bool,
+    /// Bounded mpsc channel size between the PAL and the module.
+    #[serde(default = "default_network_monitor_event_buffer_size")]
+    pub event_buffer_size: usize,
+}
+
+impl Default for NetworkMonitorConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            direction_outbound: true,
+            direction_inbound: true,
+            sample_high_rate_udp: true,
+            event_buffer_size: default_network_monitor_event_buffer_size(),
+        }
+    }
+}
+
+fn default_network_monitor_event_buffer_size() -> usize {
+    8192
+}
+
+/// DNS Telemetry (Phase E3) configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DnsMonitorConfig {
+    /// Whether the DNS telemetry module is enabled.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Source of DNS events. `"auto"` lets the PAL pick the best
+    /// backend for the host (Linux: systemd-resolved tap, Windows:
+    /// ETW DNS-Client, macOS: NEDNSProxyProvider).
+    #[serde(default = "default_dns_monitor_source")]
+    pub source: String,
+}
+
+impl Default for DnsMonitorConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            source: default_dns_monitor_source(),
+        }
+    }
+}
+
+fn default_dns_monitor_source() -> String {
+    "auto".to_string()
+}
+
+/// Host Isolation (Phase E3) configuration.
+///
+/// Drives the `sda-host-isolation` crate which consumes
+/// `IsolateHost` / `UnisolateHost` `SignedActionJob`s and flips the
+/// per-OS firewall (nftables / Windows Firewall / pfctl) into a
+/// default-drop posture with an allow-list anchored on the agent's
+/// control-plane CIDRs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostIsolationConfig {
+    /// Whether the host isolation module is enabled.
+    #[serde(default)]
+    pub enabled: bool,
+    /// CIDR ranges (IPv4 or IPv6) that MUST remain reachable while
+    /// the host is isolated. Required when `enabled = true`; the
+    /// agent refuses to isolate when this list is empty so the
+    /// operator cannot accidentally cut the control-plane channel.
+    #[serde(default)]
+    pub control_plane_cidrs: Vec<String>,
+    /// Always permit DNS to system resolvers while isolated. Recommended.
+    #[serde(default = "default_true")]
+    pub always_allow_dns: bool,
+    /// Always permit loopback traffic while isolated. Recommended.
+    #[serde(default = "default_true")]
+    pub always_allow_loopback: bool,
+}
+
+impl Default for HostIsolationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            control_plane_cidrs: Vec::new(),
+            always_allow_dns: true,
+            always_allow_loopback: true,
+        }
     }
 }
 

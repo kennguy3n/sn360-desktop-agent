@@ -2079,6 +2079,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "sda-process-monitor"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "sda-core",
+ "sda-event-bus",
+ "sda-pal",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "sda-query"
 version = "0.1.0"
 dependencies = [
