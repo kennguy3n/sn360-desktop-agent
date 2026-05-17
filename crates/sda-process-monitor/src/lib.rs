@@ -490,11 +490,8 @@ mod tests {
         controller.shutdown();
         handle.task.await.unwrap().unwrap();
         // Drain — should be empty.
-        while let Ok(Some(ev)) = tokio::time::timeout(
-            std::time::Duration::from_millis(10),
-            rx.recv(),
-        )
-        .await
+        while let Ok(Some(ev)) =
+            tokio::time::timeout(std::time::Duration::from_millis(10), rx.recv()).await
         {
             assert!(
                 !matches!(
@@ -549,7 +546,11 @@ mod tests {
         assert_eq!(parsed.pid, 42);
         assert_eq!(parsed.ppid, 10);
         assert_eq!(parsed.name, "powershell.exe");
-        let names: Vec<_> = parsed.parent_chain.iter().map(|a| a.name.as_str()).collect();
+        let names: Vec<_> = parsed
+            .parent_chain
+            .iter()
+            .map(|a| a.name.as_str())
+            .collect();
         assert_eq!(names, vec!["cmd.exe", "winword.exe"]);
 
         controller.shutdown();
@@ -614,8 +615,7 @@ mod tests {
             shutdown,
         );
         // Give the loop time to consume + drop the event.
-        let res =
-            tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv()).await;
+        let res = tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv()).await;
         let leaked = matches!(res, Ok(Some(_)));
         assert!(!leaked, "ImageLoaded event leaked while disabled: {res:?}");
 
@@ -657,8 +657,7 @@ mod tests {
         assert!(matches!(first.kind, EventKind::ProcessCreated { .. }));
 
         // Subsequent identical events should be deduped.
-        let second =
-            tokio::time::timeout(std::time::Duration::from_millis(150), rx.recv()).await;
+        let second = tokio::time::timeout(std::time::Duration::from_millis(150), rx.recv()).await;
         let duplicate_fired = matches!(
             second,
             Ok(Some(ref ev)) if matches!(
@@ -761,8 +760,10 @@ mod tests {
                 &self,
                 _pid: u32,
                 _max_depth: u32,
-            ) -> std::result::Result<Vec<ProcessAncestor>, sda_pal::process_monitor::ProcessMonitorError>
-            {
+            ) -> std::result::Result<
+                Vec<ProcessAncestor>,
+                sda_pal::process_monitor::ProcessMonitorError,
+            > {
                 Ok(Vec::new())
             }
         }
@@ -770,12 +771,8 @@ mod tests {
         let (bus, _server_rx) = EventBus::new(4, 4);
         let (controller, shutdown) = ShutdownController::new();
         let monitor: Arc<dyn ProcessMonitor> = Arc::new(FailingMonitor);
-        let handle = ProcessMonitorModule::start_with_monitor(
-            enabled_cfg(),
-            monitor,
-            bus,
-            shutdown,
-        );
+        let handle =
+            ProcessMonitorModule::start_with_monitor(enabled_cfg(), monitor, bus, shutdown);
         controller.shutdown();
         handle.task.await.unwrap().unwrap();
     }

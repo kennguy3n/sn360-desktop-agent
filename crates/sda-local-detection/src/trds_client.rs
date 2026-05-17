@@ -177,8 +177,8 @@ impl TrdsClient {
             .bytes()
             .await
             .map_err(|e| TrdsError::Http(e.to_string()))?;
-        let envelope: SignedBundleEnvelope = serde_json::from_slice(&body)
-            .map_err(|e| TrdsError::BadEnvelope(e.to_string()))?;
+        let envelope: SignedBundleEnvelope =
+            serde_json::from_slice(&body).map_err(|e| TrdsError::BadEnvelope(e.to_string()))?;
         Ok(Some(envelope))
     }
 }
@@ -211,16 +211,17 @@ pub fn verify_envelope(
     let sig_bytes = B64
         .decode(envelope.signature_b64.as_bytes())
         .map_err(|e| TrdsError::BadBase64(format!("signature_b64: {e}")))?;
-    let sig_arr: [u8; 64] = sig_bytes.as_slice().try_into().map_err(|_| {
-        TrdsError::BadBase64("signature_b64: expected 64 raw bytes".into())
-    })?;
+    let sig_arr: [u8; 64] = sig_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| TrdsError::BadBase64("signature_b64: expected 64 raw bytes".into()))?;
     let signature = Signature::from_bytes(&sig_arr);
 
     vk.verify(&bundle_bytes, &signature)
         .map_err(|_| TrdsError::SignatureInvalid(envelope.key_id.clone()))?;
 
-    let bundle = RuleBundle::from_msgpack(&bundle_bytes)
-        .map_err(|e| TrdsError::BadBundle(e.to_string()))?;
+    let bundle =
+        RuleBundle::from_msgpack(&bundle_bytes).map_err(|e| TrdsError::BadBundle(e.to_string()))?;
 
     if bundle.version != envelope.version {
         return Err(TrdsError::VersionMismatch {
@@ -393,7 +394,8 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {
             if let Ok((mut sock, _)) = listener.accept().await {
-                let resp = b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                let resp =
+                    b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
                 let _ = sock.write_all(resp).await;
             }
         });

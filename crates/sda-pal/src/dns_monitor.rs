@@ -275,8 +275,7 @@ impl DnsMonitor for MockDnsMonitor {
         tokio::spawn(async move {
             for ev in canned {
                 if tx.send(ev).await.is_err() {
-                    dropped_clone
-                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    dropped_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     break;
                 }
             }

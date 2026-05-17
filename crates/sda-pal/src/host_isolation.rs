@@ -499,7 +499,7 @@ mod tests {
     fn mock_isolate_can_fail_on_demand() {
         let m = MockHostIsolation::new();
         m.fail_next_isolate_with(HostIsolationError::Command("simulated".into()));
-        let err = m.isolate(&[]).err().expect("error");
+        let err = m.isolate(&[]).expect_err("error");
         assert!(matches!(err, HostIsolationError::Command(_)));
         assert!(!m.is_isolated().unwrap());
     }

@@ -26,8 +26,8 @@ use sda_pal::dns_monitor::{
     default_dns_monitor, DnsEvent, DnsMonitor, DnsMonitorOpts, DnsQueryType,
 };
 use sda_pal::network_monitor::{
-    default_network_monitor, ConnectionDirection, NetworkEvent, NetworkMonitor,
-    NetworkMonitorOpts, TransportProtocol,
+    default_network_monitor, ConnectionDirection, NetworkEvent, NetworkMonitor, NetworkMonitorOpts,
+    TransportProtocol,
 };
 
 const STATUS_INITIALIZED: u8 = 0;
@@ -449,16 +449,40 @@ async fn run_network(
     Ok(())
 }
 
-async fn emit_network_event(
-    ev: NetworkEvent,
-    bus: &EventBus,
-    vitals: &Arc<NetworkMonitorVitals>,
-) {
-    let (direction, protocol, local_addr, local_port, remote_addr, remote_port, observed_at, pid, name) =
-        match ev {
-            NetworkEvent::Connect {
-                direction,
-                protocol,
+async fn emit_network_event(ev: NetworkEvent, bus: &EventBus, vitals: &Arc<NetworkMonitorVitals>) {
+    let (
+        direction,
+        protocol,
+        local_addr,
+        local_port,
+        remote_addr,
+        remote_port,
+        observed_at,
+        pid,
+        name,
+    ) = match ev {
+        NetworkEvent::Connect {
+            direction,
+            protocol,
+            local_addr,
+            local_port,
+            remote_addr,
+            remote_port,
+            observed_at,
+            pid,
+            process_name,
+        } => {
+            let dir = match direction {
+                ConnectionDirection::Inbound => "inbound",
+                ConnectionDirection::Outbound => "outbound",
+            };
+            let proto = match protocol {
+                TransportProtocol::Tcp => "tcp",
+                TransportProtocol::Udp => "udp",
+            };
+            (
+                dir,
+                proto,
                 local_addr,
                 local_port,
                 remote_addr,
@@ -466,35 +490,16 @@ async fn emit_network_event(
                 observed_at,
                 pid,
                 process_name,
-            } => {
-                let dir = match direction {
-                    ConnectionDirection::Inbound => "inbound",
-                    ConnectionDirection::Outbound => "outbound",
-                };
-                let proto = match protocol {
-                    TransportProtocol::Tcp => "tcp",
-                    TransportProtocol::Udp => "udp",
-                };
-                (
-                    dir,
-                    proto,
-                    local_addr,
-                    local_port,
-                    remote_addr,
-                    remote_port,
-                    observed_at,
-                    pid,
-                    process_name,
-                )
-            }
-            NetworkEvent::Disconnect { .. } => {
-                // Disconnect events are tracked internally for stream
-                // hygiene but not published as their own NATS event;
-                // the schema only carries a single
-                // `NetworkConnection` shape.
-                return;
-            }
-        };
+            )
+        }
+        NetworkEvent::Disconnect { .. } => {
+            // Disconnect events are tracked internally for stream
+            // hygiene but not published as their own NATS event;
+            // the schema only carries a single
+            // `NetworkConnection` shape.
+            return;
+        }
+    };
 
     let payload = NetworkConnectionPayload {
         pid,
@@ -792,8 +797,7 @@ mod tests {
             .expect("first event")
             .expect("bus open");
         // No second event should appear within 200ms.
-        let res =
-            tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv()).await;
+        let res = tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv()).await;
         assert!(res.is_err(), "duplicate was emitted, expected dedup");
         controller.shutdown();
         let _ = handle.task.await;

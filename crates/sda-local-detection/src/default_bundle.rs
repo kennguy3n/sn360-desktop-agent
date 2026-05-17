@@ -9,8 +9,7 @@
 //! ship their own bundle via TRDS for production deployments.
 
 use crate::rule_store::{
-    BehavioralRule, BehavioralRuleKind, IocList, IpIoc, RuleBundle, StringIoc, SEV_HIGH,
-    SEV_MEDIUM,
+    BehavioralRule, BehavioralRuleKind, IocList, IpIoc, RuleBundle, StringIoc, SEV_HIGH, SEV_MEDIUM,
 };
 
 /// Bundle version reserved for the agent's embedded baseline.  Any

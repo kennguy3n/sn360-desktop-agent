@@ -161,8 +161,9 @@ async fn handle_client(
             resp.extend_from_slice(&body);
             resp
         }
-        None => b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-            .to_vec(),
+        None => {
+            b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec()
+        }
     };
     stream.write_all(&response_bytes).await?;
     stream.shutdown().await?;
@@ -352,8 +353,7 @@ async fn t02_tampered_bundle_rejected_with_security_alert() {
     // Flip the last base64 char of the bundle blob — guaranteed to
     // either fail msgpack decode OR fail the signature check.
     let last = env.bundle_b64.pop().unwrap();
-    env.bundle_b64
-        .push(if last == 'A' { 'B' } else { 'A' });
+    env.bundle_b64.push(if last == 'A' { 'B' } else { 'A' });
     server.set_envelope(Some(env));
 
     let cfg = lde_cfg(
@@ -397,11 +397,7 @@ async fn t03_unknown_key_id_rejected_with_security_alert() {
     let env = sign_envelope(&build_bundle(9, "x.example"), &signer, "rotated-out");
     server.set_envelope(Some(env));
 
-    let cfg = lde_cfg(
-        &tmp,
-        Some(server.url().into()),
-        vec![pubkey_hex(&signer)],
-    );
+    let cfg = lde_cfg(&tmp, Some(server.url().into()), vec![pubkey_hex(&signer)]);
     let (bus, _server_rx) = EventBus::new(64, 64);
     let mut rx = bus.subscribe();
     let (controller, shutdown) = ShutdownController::new();
@@ -498,13 +494,9 @@ async fn t05_second_valid_bundle_hot_reloads_via_atomic_swap() {
         "edr-2026-q2",
     )));
 
-    let ev = await_alert(
-        &mut rx,
-        Duration::from_secs(5),
-        &applied_predicate(6),
-    )
-    .await
-    .expect("second applied alert (hot-reload)");
+    let ev = await_alert(&mut rx, Duration::from_secs(5), &applied_predicate(6))
+        .await
+        .expect("second applied alert (hot-reload)");
     if let EventKind::LocalDetectionAlert { description, .. } = ev.kind {
         assert!(description.contains("v6"), "got {description}");
     }
@@ -587,13 +579,9 @@ async fn t08_stale_version_envelope_is_ignored_after_initial_pull() {
     let (controller, shutdown) = ShutdownController::new();
     let handle = LocalDetectionModule::start(&agent_config(cfg), bus, shutdown);
 
-    await_alert(
-        &mut rx,
-        Duration::from_secs(5),
-        &applied_predicate(20),
-    )
-    .await
-    .expect("first applied alert at v20");
+    await_alert(&mut rx, Duration::from_secs(5), &applied_predicate(20))
+        .await
+        .expect("first applied alert at v20");
 
     // Now serve a STALE envelope (v10 < v20).  The version-monotonicity
     // guard must reject without emitting either an applied or a

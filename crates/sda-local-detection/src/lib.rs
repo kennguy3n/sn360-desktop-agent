@@ -365,8 +365,7 @@ async fn handle_event(pipeline: &DetectionPipeline, bus: &EventBus, event: &Even
         // joined parent-chain text as primary_text so behavioural
         // rules can match against the full ancestor history.
         EventKind::ProcessCreated { payload } => {
-            let parsed: serde_json::Value =
-                serde_json::from_str(payload).unwrap_or_default();
+            let parsed: serde_json::Value = serde_json::from_str(payload).unwrap_or_default();
             let name = parsed
                 .get("name")
                 .and_then(|v| v.as_str())
@@ -405,13 +404,14 @@ async fn handle_event(pipeline: &DetectionPipeline, bus: &EventBus, event: &Even
             let primary_text = if parent_chain.is_empty() {
                 format!("{name} {cmdline}").trim().to_string()
             } else {
-                format!("{parent_chain} > {name} {cmdline}").trim().to_string()
+                format!("{parent_chain} > {name} {cmdline}")
+                    .trim()
+                    .to_string()
             };
             ("process", entity, primary_text, None, None, Vec::new())
         }
         EventKind::ProcessTerminated { payload } => {
-            let parsed: serde_json::Value =
-                serde_json::from_str(payload).unwrap_or_default();
+            let parsed: serde_json::Value = serde_json::from_str(payload).unwrap_or_default();
             let name = parsed
                 .get("name")
                 .and_then(|v| v.as_str())
@@ -432,8 +432,7 @@ async fn handle_event(pipeline: &DetectionPipeline, bus: &EventBus, event: &Even
             )
         }
         EventKind::ImageLoaded { payload } => {
-            let parsed: serde_json::Value =
-                serde_json::from_str(payload).unwrap_or_default();
+            let parsed: serde_json::Value = serde_json::from_str(payload).unwrap_or_default();
             let image_path = parsed
                 .get("image_path")
                 .and_then(|v| v.as_str())
@@ -453,8 +452,7 @@ async fn handle_event(pipeline: &DetectionPipeline, bus: &EventBus, event: &Even
             )
         }
         EventKind::NetworkConnection { payload } => {
-            let parsed: serde_json::Value =
-                serde_json::from_str(payload).unwrap_or_default();
+            let parsed: serde_json::Value = serde_json::from_str(payload).unwrap_or_default();
             let process_name = parsed
                 .get("process_name")
                 .and_then(|v| v.as_str())
@@ -485,8 +483,7 @@ async fn handle_event(pipeline: &DetectionPipeline, bus: &EventBus, event: &Even
             )
         }
         EventKind::DnsQuery { payload } => {
-            let parsed: serde_json::Value =
-                serde_json::from_str(payload).unwrap_or_default();
+            let parsed: serde_json::Value = serde_json::from_str(payload).unwrap_or_default();
             let query_name = parsed
                 .get("query_name")
                 .and_then(|v| v.as_str())
@@ -506,14 +503,7 @@ async fn handle_event(pipeline: &DetectionPipeline, bus: &EventBus, event: &Even
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
-            (
-                "dns",
-                process_name,
-                query_name,
-                None,
-                None,
-                response_ips,
-            )
+            ("dns", process_name, query_name, None, None, response_ips)
         }
 
         // Other event kinds pass through untouched.
@@ -601,9 +591,7 @@ async fn maybe_respond(
 type PipelineCell = StdRwLock<Arc<DetectionPipeline>>;
 
 fn pipeline_load(cell: &PipelineCell) -> Arc<DetectionPipeline> {
-    cell.read()
-        .expect("LDE pipeline RwLock poisoned")
-        .clone()
+    cell.read().expect("LDE pipeline RwLock poisoned").clone()
 }
 
 fn pipeline_store(cell: &PipelineCell, new: Arc<DetectionPipeline>) {
@@ -638,10 +626,7 @@ fn build_signing_keys(entries: &[String]) -> Vec<SigningKey> {
                 }
                 _ => (format!("rotation-{i}"), raw.clone()),
             };
-            let key = SigningKey {
-                key_id,
-                public_hex,
-            };
+            let key = SigningKey { key_id, public_hex };
             match key.verifying_key() {
                 Ok(_) => Some(key),
                 Err(e) => {
@@ -775,8 +760,7 @@ async fn run(
         "local detection engine ready"
     );
 
-    let pipeline_cell: Arc<PipelineCell> =
-        Arc::new(StdRwLock::new(Arc::new(initial_pipeline)));
+    let pipeline_cell: Arc<PipelineCell> = Arc::new(StdRwLock::new(Arc::new(initial_pipeline)));
 
     let signing_keys = build_signing_keys(&config.rule_bundle_signing_keys);
     let trds_client = match &config.trds_endpoint {

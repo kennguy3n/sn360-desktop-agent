@@ -257,8 +257,7 @@ mod linux {
     impl NetworkMonitor for LinuxNetworkMonitor {
         fn subscribe(&self, opts: &NetworkMonitorOpts) -> Result<NetworkEventStream> {
             let (tx, rx) = mpsc::channel(opts.channel_buffer);
-            let dropped =
-                std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+            let dropped = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
             let dropped_clone = dropped.clone();
             let proc_root = self.proc_root.clone();
             let opts = *opts;
@@ -278,8 +277,7 @@ mod linux {
                             continue;
                         }
                     };
-                    let current_keys: HashSet<ConnKey> =
-                        current.iter().map(key_of).collect();
+                    let current_keys: HashSet<ConnKey> = current.iter().map(key_of).collect();
                     for snap in &current {
                         let k = key_of(snap);
                         if last_keys.contains(&k) {
@@ -305,8 +303,7 @@ mod linux {
                             process_name: snap.process_name.clone(),
                         };
                         if tx.try_send(ev).is_err() {
-                            dropped_clone
-                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            dropped_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         }
                     }
                     for snap in &current {
@@ -325,8 +322,7 @@ mod linux {
                                 pid: None,
                             };
                             if tx.try_send(ev).is_err() {
-                                dropped_clone
-                                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                dropped_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             }
                         }
                     }
@@ -798,8 +794,14 @@ mod cross_platform_tests {
 
     #[test]
     fn transport_protocol_serde_lowercases() {
-        assert_eq!(serde_json::to_string(&TransportProtocol::Tcp).unwrap(), "\"tcp\"");
-        assert_eq!(serde_json::to_string(&TransportProtocol::Udp).unwrap(), "\"udp\"");
+        assert_eq!(
+            serde_json::to_string(&TransportProtocol::Tcp).unwrap(),
+            "\"tcp\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TransportProtocol::Udp).unwrap(),
+            "\"udp\""
+        );
     }
 
     #[test]
@@ -814,7 +816,3 @@ mod cross_platform_tests {
         );
     }
 }
-
-// Silence: tests construct PathBuf-typed PathBufs; suppress unused for builds without proc_root.
-#[allow(dead_code)]
-fn _path_buf_ref(_p: &PathBuf) {}

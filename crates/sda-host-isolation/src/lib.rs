@@ -167,8 +167,17 @@ impl HostIsolationModule {
         let status = Arc::new(AtomicU8::new(STATUS_INITIALIZED));
         let task_status = Arc::clone(&status);
         let task = tokio::spawn(async move {
-            if let Err(e) =
-                run(cfg, identity, pal, hooks, bus, shutdown, rx, task_status.clone()).await
+            if let Err(e) = run(
+                cfg,
+                identity,
+                pal,
+                hooks,
+                bus,
+                shutdown,
+                rx,
+                task_status.clone(),
+            )
+            .await
             {
                 error!(error = %e, "host isolation module failed");
                 task_status.store(STATUS_FAILED, Ordering::Relaxed);
@@ -327,7 +336,10 @@ async fn handle_job(
     // validator already routed by `ActionKind`, but this is a
     // defensive double-check so a future ActionKind variant can't
     // silently land in this module).
-    if !matches!(job.action, ActionKind::IsolateHost | ActionKind::UnisolateHost) {
+    if !matches!(
+        job.action,
+        ActionKind::IsolateHost | ActionKind::UnisolateHost
+    ) {
         warn!(
             action = ?job.action,
             job_id = %job.job_id,
@@ -605,7 +617,7 @@ mod tests {
     #[test]
     fn parse_extra_allow_ips_rejects_invalid_cidr() {
         let bad: Vec<String> = vec!["totally bogus".into()];
-        let err = parse_extra_allow_ips(&bad).err().expect("error");
+        let err = parse_extra_allow_ips(&bad).expect_err("error");
         assert!(err.contains("invalid CIDR"));
     }
 

@@ -241,8 +241,7 @@ mod linux {
     impl ProcessMonitor for LinuxProcessMonitor {
         fn subscribe(&self, opts: &ProcessMonitorOpts) -> Result<ProcessEventStream> {
             let (tx, rx) = mpsc::channel(opts.channel_buffer);
-            let dropped =
-                std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+            let dropped = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
             let dropped_clone = dropped.clone();
             let proc_root = self.proc_root.clone();
             let poll_interval = Duration::from_millis(opts.poll_interval_ms.max(50));
@@ -274,8 +273,7 @@ mod linux {
                                 started_at: Utc::now(),
                             };
                             if tx.try_send(ev).is_err() {
-                                dropped_clone
-                                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                dropped_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             }
                         }
                     }
@@ -288,8 +286,7 @@ mod linux {
                                 ended_at: Utc::now(),
                             };
                             if tx.try_send(ev).is_err() {
-                                dropped_clone
-                                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                dropped_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             }
                         }
                     }
@@ -345,7 +342,9 @@ mod linux {
         for entry in fs::read_dir(proc_root)? {
             let entry = entry?;
             let file_name = entry.file_name();
-            let Some(s) = file_name.to_str() else { continue };
+            let Some(s) = file_name.to_str() else {
+                continue;
+            };
             let Ok(pid) = s.parse::<u32>() else { continue };
             if let Some(snap) = read_snapshot(proc_root, pid) {
                 out.insert(pid, snap);
@@ -519,7 +518,9 @@ mod linux {
                 .await
                 .expect("event within timeout");
             match recv {
-                Some(ProcessEvent::Created { pid, name, ppid, .. }) => {
+                Some(ProcessEvent::Created {
+                    pid, name, ppid, ..
+                }) => {
                     assert_eq!(pid, 42);
                     assert_eq!(name, "newproc");
                     assert_eq!(ppid, 1);
@@ -680,7 +681,10 @@ impl MockProcessMonitor {
 
     /// Append events to be replayed on the next subscription.
     pub fn push_event(&self, event: ProcessEvent) {
-        self.events.lock().expect("mock events poisoned").push(event);
+        self.events
+            .lock()
+            .expect("mock events poisoned")
+            .push(event);
     }
 
     /// Seed an ancestry chain for a given pid.
@@ -695,14 +699,9 @@ impl MockProcessMonitor {
 impl ProcessMonitor for MockProcessMonitor {
     fn subscribe(&self, opts: &ProcessMonitorOpts) -> Result<ProcessEventStream> {
         let (tx, rx) = mpsc::channel(opts.channel_buffer.max(1));
-        let dropped =
-            std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let dropped = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
         let dropped_clone = dropped.clone();
-        let canned: Vec<ProcessEvent> = self
-            .events
-            .lock()
-            .expect("mock events poisoned")
-            .clone();
+        let canned: Vec<ProcessEvent> = self.events.lock().expect("mock events poisoned").clone();
         tokio::spawn(async move {
             for ev in canned {
                 if tx.send(ev).await.is_err() {

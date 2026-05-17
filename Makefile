@@ -23,6 +23,7 @@ TARGETS := \
 .PHONY: build release test lint fmt clippy all-targets clean e2e e2e-compat e2e-macos e2e-windows security-e2e \
         e2e-device-control e2e-software e2e-jit-admin e2e-app-control e2e-remote-support \
         e2e-device-policy e2e-mdm e2e-mdm-actions e2e-mdm-profile \
+        e2e-process-telemetry e2e-lde-hotreload e2e-network-telemetry e2e-host-isolation \
         e2e-management-compat benchmark-ci deb rpm pkg msi \
         test-unit test-integration test-e2e-all test-full test-pr
 
@@ -52,7 +53,7 @@ test-integration:
 	$(CARGO) test --workspace --exclude sda-agent
 	$(CARGO) test --package sda-agent --bins
 
-# All hermetic Device Control + Desktop MDM E2E suites in one shot.
+# All hermetic Device Control + Desktop MDM + EDR Parity E2E suites in one shot.
 test-e2e-all:
 	$(CARGO) test --package sda-agent --test e2e_device_control -- --nocapture
 	$(CARGO) test --package sda-agent --test e2e_software -- --nocapture
@@ -64,6 +65,10 @@ test-e2e-all:
 	$(CARGO) test --package sda-agent --test e2e_mdm -- --nocapture
 	$(CARGO) test --package sda-agent --test e2e_mdm_actions -- --nocapture
 	$(CARGO) test --package sda-agent --test e2e_mdm_profile -- --nocapture
+	$(CARGO) test --package sda-agent --test e2e_process_telemetry -- --nocapture
+	$(CARGO) test --package sda-agent --test e2e_lde_hotreload -- --nocapture
+	$(CARGO) test --package sda-agent --test e2e_network_telemetry -- --nocapture
+	$(CARGO) test --package sda-agent --test e2e_host_isolation -- --nocapture
 
 # Full: everything — unit + integration + all E2E + shell E2E + benchmarks.
 test-full: test-integration test-e2e-all e2e e2e-compat security-e2e benchmark-ci
@@ -195,6 +200,44 @@ e2e-mdm-actions:
 # crates/sda-agent/tests/e2e_mdm_profile.rs.
 e2e-mdm-profile:
 	$(CARGO) test --package sda-agent --test e2e_mdm_profile -- --nocapture
+
+# Phase E1.8 EDR process telemetry E2E suite. Exercises the
+# ProcessMonitor PAL trait + sda-process-monitor module against a
+# canned mock stream: parent-chain reconstruction, event dedup,
+# overflow back-pressure, and behavioural ProcessChain rules (e.g.
+# Word -> PowerShell). Hermetic — no netlink / ETW / Endpoint
+# Security entitlement required. Lives in
+# crates/sda-agent/tests/e2e_process_telemetry.rs.
+e2e-process-telemetry:
+	$(CARGO) test --package sda-agent --test e2e_process_telemetry -- --nocapture
+
+# Phase E2.6 EDR LDE hot-reload E2E suite. Stands up a hand-rolled
+# HTTP mock TRDS server, exercises signed-bundle pull, atomic
+# pipeline swap, tampered-bundle rejection, unknown-key rejection,
+# version substitution, and last-known-good preservation.
+# Hermetic — no internet egress. Lives in
+# crates/sda-agent/tests/e2e_lde_hotreload.rs.
+e2e-lde-hotreload:
+	$(CARGO) test --package sda-agent --test e2e_lde_hotreload -- --nocapture
+
+# Phase E3.12 EDR network telemetry E2E suite. Exercises the
+# NetworkMonitor + DnsMonitor PAL traits + sda-network-monitor
+# module against canned mock streams: NetworkConnection / DnsQuery
+# wire shape, dedup, UDP sampler bound, and LDE IP / domain IOC
+# matching. Hermetic. Lives in
+# crates/sda-agent/tests/e2e_network_telemetry.rs.
+e2e-network-telemetry:
+	$(CARGO) test --package sda-agent --test e2e_network_telemetry -- --nocapture
+
+# Phase E3.12 EDR host isolation E2E suite. Exercises the
+# HostIsolation PAL trait + sda-host-isolation module: signed
+# IsolateHost / UnisolateHost SignedActionJob flow, control-plane
+# CIDR + loopback safety invariants, idempotent dedup, validator
+# rejection of unsigned jobs, disabled-config short-circuit.
+# Hermetic — uses MockHostIsolation, no firewall touched. Lives in
+# crates/sda-agent/tests/e2e_host_isolation.rs.
+e2e-host-isolation:
+	$(CARGO) test --package sda-agent --test e2e_host_isolation -- --nocapture
 
 clean:
 	$(CARGO) clean

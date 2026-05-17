@@ -222,8 +222,7 @@ impl BehavioralEngine {
                     // separated by " > " when a chain is present.
                     // The entity is the spawned process's exe_path
                     // (or name as a fallback).
-                    let Some((name_re, chain_re)) = self.process_chain_regex.get(&idx)
-                    else {
+                    let Some((name_re, chain_re)) = self.process_chain_regex.get(&idx) else {
                         continue;
                     };
                     let (chain_part, leaf_part) = split_chain_and_leaf(event.text);
@@ -326,12 +325,7 @@ mod tests {
         }
     }
 
-    fn process_chain_rule(
-        id: &str,
-        name_re: &str,
-        chain_re: &str,
-        desc: &str,
-    ) -> BehavioralRule {
+    fn process_chain_rule(id: &str, name_re: &str, chain_re: &str, desc: &str) -> BehavioralRule {
         use crate::rule_store::SEV_HIGH;
         BehavioralRule {
             id: id.into(),

@@ -19,7 +19,10 @@ See [`device-agent-proposal.md`](./device-agent-proposal.md) for the full archit
 - **Security Configuration Assessment (SCA)** — YAML policy evaluation
 - **Active Response** — IP blocking, process termination, script execution
 - **Rootkit Detection** — signature scanning, hidden process detection, binary integrity checks
-- **Local Detection Engine** — edge IOC matching, behavioral rules, YARA scanning
+- **Local Detection Engine** — edge IOC matching, behavioral rules, YARA scanning. **Default-ON** since the EDR Parity Phase E2 landing — fresh installs ship with the embedded baseline rule bundle live; TRDS bundle hot-reloads are atomic CAS swaps over a `Arc<ArcSwap<DetectionPipeline>>` and are gated on Ed25519 signature verification against a pinned key rotation set
+- **EDR Process Telemetry** — cross-platform process create / terminate / image-load monitoring (Linux `cn_proc` netlink, Windows ETW `Microsoft-Windows-Kernel-Process`, macOS Endpoint Security framework) with parent-chain enrichment and `parent_chain_regex` behavioral rules (Office→PowerShell, wmiprvse→rundll32, non-system `lsass.exe` access) (Phase E1; default off)
+- **EDR Network + DNS Telemetry** — TCP / UDP connection monitoring (Linux `/proc/net/*` poller, Windows ETW `Microsoft-Windows-Kernel-Network`, macOS Network Extension) and DNS query logging with PID attribution, bounded dedup ring, and per-second UDP flow sampler; remote-IP + domain IOC matching wired into the LDE (Phase E3; default off)
+- **EDR Host Isolation** — network containment via per-OS firewall primitives (Linux nftables `sn360_isolation` table, Windows `netsh advfirewall` + WFP, macOS `pfctl` anchor `com.sn360.host_isolation`); activated by `IsolateHost` / `UnisolateHost` `SignedActionJob`s; safety invariants enforce that control-plane CIDRs and loopback are always in the allow-list (Phase E3; default off)
 - **Enhanced Inventory** — running software, browser extensions, CycloneDX SBOM generation
 - **Adaptive scheduling** — power- and idle-aware module cadence (battery / AC, user idle)
 
@@ -82,6 +85,10 @@ make e2e-device-policy
 make e2e-mdm                 # Phase M1 (auto-remediation, recovery escrow, OS patch)
 make e2e-mdm-actions         # Phase M2 (wipe / lock / lost-mode)
 make e2e-mdm-profile         # Phase M3 (config profile push + enforcement)
+make e2e-process-telemetry   # Phase E1 (process create / terminate / image-load + parent-chain rules)
+make e2e-lde-hotreload       # Phase E2 (TRDS hot-reload + Ed25519 signature verification)
+make e2e-network-telemetry   # Phase E3 (TCP / UDP connections + DNS queries + IOC matching)
+make e2e-host-isolation      # Phase E3 (IsolateHost / UnisolateHost SignedActionJobs)
 
 # Shell-based E2E (requires Docker)
 make e2e              # Linux E2E against local SIEM manager
@@ -129,15 +136,21 @@ page can opt into either lane individually via `run_full_suite` /
 |  sda-fim  | sda-logcollector | sda-inventory | sda-sca   |  |
 |  sda-active-response | sda-rootcheck | sda-local-detection |
 |  sda-enhanced-inventory | sda-device-control | sda-mdm     |
-|  sda-comms                                                 |
+|  sda-process-monitor | sda-network-monitor                 |
+|  sda-host-isolation  | sda-comms                           |
 +-------------------------------------------------------------+
 |                        sda-pal                              |
 |   FS watcher | log source | sysinfo | service | firewall    |
-|                  | power monitor |                          |
+|   process monitor | network monitor | dns monitor           |
+|   host isolation  | power monitor                           |
 +-------------------------------------------------------------+
-|     Linux (inotify, journald, nftables, netlink)            |
-|     macOS (FSEvents, OSLog, pfctl, IOKit)                   |
-|     Windows (ReadDirectoryChangesW, Event Log, SCM)         |
+|     Linux (inotify, journald, nftables, netlink,            |
+|            cn_proc, /proc/net/*)                            |
+|     macOS (FSEvents, OSLog, pfctl, IOKit,                   |
+|            Endpoint Security, Network Extension)            |
+|     Windows (ReadDirectoryChangesW, Event Log, SCM,         |
+|              ETW Kernel-Process / Kernel-Network /          |
+|              DNS-Client, WFP)                               |
 +-------------------------------------------------------------+
 ```
 
@@ -170,6 +183,9 @@ page can opt into either lane individually via `run_full_suite` /
 | `sda-remote-support` | Operator remote-support sessions — `Pending → ConsentRequested → Active → Ended` state machine, pluggable consent prompt (default `StubConsentPrompt` denies), clean-room MeshCentral-style protocol (MessagePack frames + HKDF-SHA256 per-session keys), bus events on start / end (Phase 4; default off, Phase-4 PAL stubs return `NotSupported`) |
 | `sda-app-control` | Binary authorization / application control — Ed25519-signed policy verification (`policy.rs`), Monitor mode (Phase-4 default; logs allow / deny), Enforce mode with single-step `DualControlRollback` (`enforce.rs`), Windows WDAC + AppLocker backend (`wdac.rs`), Linux clean-room dm-verity-aware backend (`linux.rs`), macOS Santa wrapper, bus events on policy apply / decision (Phase 4; default off) |
 | `sda-management-compat` | Fleet GitOps YAML → SDA `AgentConfig` translation shim. Maps Fleet `queries` / `policies` / `software` / `scripts` / `agent_options` / `labels` per the [PROPOSAL.md § 4.1 mapping](./docs/device-control/PROPOSAL.md), rejects every Fleet EE / do-not-port feature per [ADR-001](./docs/device-control/ADR-001-functional-port.md), and enforces tenant-id matching as the agent-side belt-and-braces check on top of control-plane row-level security. Library-only — no runtime module, zero idle footprint by construction (Phase 5; called by the catalogue producer or a GitOps pipeline, not the agent at boot) |
+| `sda-process-monitor` | EDR Parity Phase E1 process telemetry module — subscribes to `sda-pal::ProcessMonitor` (Linux `cn_proc` netlink, Windows ETW `Microsoft-Windows-Kernel-Process`, macOS Endpoint Security), enriches each event with the parent chain up to configured depth, deduplicates and bounds the bus volume via mpsc + drop-oldest back-pressure, emits `ProcessCreated` / `ProcessTerminated` / `ImageLoaded` (Phase E1; default off) |
+| `sda-network-monitor` | EDR Parity Phase E3 network + DNS telemetry module — subscribes to `sda-pal::NetworkMonitor` (Linux `/proc/net/*` poller with `to_ne_bytes()` endian-correct IP parsing, Windows ETW `Microsoft-Windows-Kernel-Network`, macOS Network Extension) and `sda-pal::DnsMonitor`, runs a bounded LRU-ish dedup ring and a 4-per-second UDP flow sampler, emits `NetworkConnection` and `DnsQuery` (Phase E3; default off) |
+| `sda-host-isolation` | EDR Parity Phase E3 host isolation module — consumes `IsolateHost` / `UnisolateHost` `SignedActionJob`s through the same 10-step validation pipeline as `sda-device-control`, builds the allow-list (control-plane CIDRs + loopback + DNS + extras), invokes `sda-pal::HostIsolation` (Linux nftables `sn360_isolation`, Windows `netsh advfirewall` + WFP, macOS `pfctl` anchor `com.sn360.host_isolation`), emits `HostIsolationStateChanged` (Phase E3; default off) |
 
 ## Cross-Compilation
 
@@ -201,6 +217,8 @@ For the full configuration reference, see the [Configuration section in `device-
 ## Project Status
 
 **Phases 1–6 complete.** Phase 5 platform hardening (self-update, privilege separation, tamper protection, installers), Phase 5.6 enhanced protocol (opt-in TLS 1.3 / MessagePack / HTTP/2), and Phase 6 testing & release infrastructure — expanded CI matrix, benchmark regression gate, `cargo audit` gate, nightly `cargo-fuzz` matrix, tag-triggered multi-OS release workflow, and the [`docs/release-process.md`](./docs/release-process.md) runbook — have all landed.
+
+**ShieldNet EDR Parity** — agent-side Phases E0–E3 are complete. Phase E0 (architecture & schema sign-off) added 8 new `EventKind` variants and matching `MessageType` encoder arms; Phase E1 (process telemetry) added the `sda-pal::ProcessMonitor` trait + per-OS implementations + the `sda-process-monitor` crate + behavioral `parent_chain_regex` rules; Phase E2 (LDE maturity) shipped real TRDS hot-reload with Ed25519 signature verification, atomic `Arc<ArcSwap<DetectionPipeline>>` swap, an embedded default bundle, and flipped `local_detection.enabled` to `true` by default; Phase E3 (network telemetry + host isolation) added the `sda-pal::NetworkMonitor` / `DnsMonitor` / `HostIsolation` traits + per-OS implementations + the `sda-network-monitor` and `sda-host-isolation` crates with `IsolateHost` / `UnisolateHost` `SignedActionJob` flow. Server-side ⚙️ tasks (TRDS process-rule compilation, agent-gateway NATS subjects, dashboard isolation button, full rule CRUD + delta distribution) remain Not Started; see [`docs/edr-parity/PROGRESS.md`](./docs/edr-parity/PROGRESS.md) for the per-task ledger. Phases E4–E6 (memory scanning, identity / DLP, kernel productisation) remain Not Started.
 
 **ShieldNet Desktop MDM** — all agent-side Desktop MDM work (Phases M1–M3) is complete; the `sda-mdm` crate ships default-on with auto-remediation, one-time-per-boot recovery key escrow, OS patch orchestration, dual-control remote wipe, remote lock, lost mode, and Ed25519-signed declarative configuration profile enforcement. Server-side control-plane tasks (Risk Engine MDM rules, SMI `mdm_compliance` sub-score, Desktop MDM service) remain Not Started; see [`docs/desktop-mdm/PROGRESS.md`](./docs/desktop-mdm/PROGRESS.md) for the per-task ledger.
 

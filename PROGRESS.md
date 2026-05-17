@@ -257,13 +257,28 @@ for design rationale, phased roadmap, and architecture reference.
 
 | # | Task | Status |
 |---|------|--------|
-| P6.1 | Phase E0: Architecture & schema sign-off | Not Started |
-| P6.2 | Phase E1: Process telemetry (all platforms) | Not Started |
-| P6.3 | Phase E2: LDE maturity + default-ON | Not Started |
-| P6.4 | Phase E3: Network telemetry + host isolation | Not Started |
+| P6.1 | Phase E0: Architecture & schema sign-off | Done |
+| P6.2 | Phase E1: Process telemetry (all platforms) | Done (agent-side); E1.9 / E1.10 ⚙️ Not Started — server-side |
+| P6.3 | Phase E2: LDE maturity + default-ON | Done (agent-side); E2.5 ⚙️ Not Started — server-side |
+| P6.4 | Phase E3: Network telemetry + host isolation | Done (agent-side); E3.13 / E3.14 ⚙️ Not Started — server-side |
 | P6.5 | Phase E4: Memory scanning + fileless detection | Not Started |
 | P6.6 | Phase E5: Identity attack detection + DLP | Not Started |
 | P6.7 | Phase E6: Kernel driver productisation | Not Started |
+
+> **EDR Parity agent-side status (this branch).** Phases E0, E1,
+> E2, and E3 are landed agent-side via PR
+> [#24](https://github.com/kennguy3n/sn360-desktop-agent/pull/24).
+> New crates: `sda-process-monitor`, `sda-network-monitor`,
+> `sda-host-isolation`. New PAL traits: `ProcessMonitor`,
+> `NetworkMonitor`, `DnsMonitor`, `HostIsolation`. LDE is now
+> default-ON with an embedded baseline rule bundle and verified
+> TRDS hot-reload (Ed25519 against a pinned rotation set, atomic
+> `Arc<ArcSwap<DetectionPipeline>>` swap). Four new hermetic E2E
+> suites: `make e2e-process-telemetry` (13 tests), `make
+> e2e-lde-hotreload` (10 tests), `make e2e-network-telemetry` (11
+> tests), `make e2e-host-isolation` (7 tests). Server-side ⚙️
+> tasks (E1.9, E1.10, E2.5, E3.13, E3.14) remain Not Started in
+> [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform).
 
 > **Cross-repo status (2026-05-11).** All agent-side Device Control
 > work (Phases 0–5 + D2 user-mode enforcement) is complete on this

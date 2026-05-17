@@ -307,7 +307,11 @@ async fn t03_parent_chain_enrichment_includes_pal_ancestors() {
         unreachable!()
     };
     let parsed: ProcessCreatedPayload = serde_json::from_str(&payload).unwrap();
-    let names: Vec<&str> = parsed.parent_chain.iter().map(|a| a.name.as_str()).collect();
+    let names: Vec<&str> = parsed
+        .parent_chain
+        .iter()
+        .map(|a| a.name.as_str())
+        .collect();
     assert_eq!(names, vec!["cmd.exe", "winword.exe", "explorer.exe"]);
 
     controller.shutdown();
@@ -504,12 +508,8 @@ async fn t09_subscribe_failure_does_not_crash_agent() {
     let (bus, _server_rx) = EventBus::new(16, 16);
     let mut rx = bus.subscribe();
     let (controller, shutdown) = ShutdownController::new();
-    let handle = ProcessMonitorModule::start_with_monitor(
-        pm_cfg(true, 4, true),
-        monitor,
-        bus,
-        shutdown,
-    );
+    let handle =
+        ProcessMonitorModule::start_with_monitor(pm_cfg(true, 4, true), monitor, bus, shutdown);
     let leaked = count_kinds(&mut rx, Duration::from_millis(100), |_| true).await;
     assert_eq!(leaked, 0);
     controller.shutdown();
@@ -530,7 +530,12 @@ async fn t10_lde_office_powershell_chain_rule_fires() {
             ancestor(200, "explorer.exe"),
         ],
     );
-    monitor.push_event(created(500, 400, "powershell.exe", &["-NoProfile", "-enc", "..."]));
+    monitor.push_event(created(
+        500,
+        400,
+        "powershell.exe",
+        &["-NoProfile", "-enc", "..."],
+    ));
 
     let (bus, _server_rx) = EventBus::new(64, 64);
     let mut rx = bus.subscribe();
@@ -538,11 +543,8 @@ async fn t10_lde_office_powershell_chain_rule_fires() {
     let (lde_controller, shutdown_lde) = ShutdownController::new();
 
     let agent_cfg = agent_config_with(lde_cfg(&tmp));
-    let _lde = sda_local_detection::LocalDetectionModule::start(
-        &agent_cfg,
-        bus.clone(),
-        shutdown_lde,
-    );
+    let _lde =
+        sda_local_detection::LocalDetectionModule::start(&agent_cfg, bus.clone(), shutdown_lde);
     // Give the LDE a beat to load the bundle from disk.
     tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -582,11 +584,8 @@ async fn t11_lde_does_not_fire_chain_rule_on_benign_parents() {
     let (lde_controller, shutdown_lde) = ShutdownController::new();
 
     let agent_cfg = agent_config_with(lde_cfg(&tmp));
-    let _lde = sda_local_detection::LocalDetectionModule::start(
-        &agent_cfg,
-        bus.clone(),
-        shutdown_lde,
-    );
+    let _lde =
+        sda_local_detection::LocalDetectionModule::start(&agent_cfg, bus.clone(), shutdown_lde);
     tokio::time::sleep(Duration::from_millis(100)).await;
     let pm_handle = ProcessMonitorModule::start_with_monitor(
         pm_cfg(true, 4, true),
@@ -628,11 +627,8 @@ async fn t12_lde_wmiprvse_rundll32_chain_rule_fires() {
     let (controller, shutdown_pm) = ShutdownController::new();
     let (lde_controller, shutdown_lde) = ShutdownController::new();
     let agent_cfg = agent_config_with(lde_cfg(&tmp));
-    let _lde = sda_local_detection::LocalDetectionModule::start(
-        &agent_cfg,
-        bus.clone(),
-        shutdown_lde,
-    );
+    let _lde =
+        sda_local_detection::LocalDetectionModule::start(&agent_cfg, bus.clone(), shutdown_lde);
     tokio::time::sleep(Duration::from_millis(100)).await;
     let pm_handle = ProcessMonitorModule::start_with_monitor(
         pm_cfg(true, 4, true),

@@ -966,9 +966,7 @@ fn map_event_to_message(agent_id: &str, kind: &EventKind) -> Option<WazuhMessage
         }
 
         // --- EDR Parity event mapping (Phase E1-E3) ---
-        EventKind::ProcessCreated { payload } => {
-            (MessageType::ProcessCreated, payload.clone())
-        }
+        EventKind::ProcessCreated { payload } => (MessageType::ProcessCreated, payload.clone()),
         EventKind::ProcessTerminated { payload } => {
             (MessageType::ProcessTerminated, payload.clone())
         }
@@ -977,9 +975,7 @@ fn map_event_to_message(agent_id: &str, kind: &EventKind) -> Option<WazuhMessage
             (MessageType::NetworkConnection, payload.clone())
         }
         EventKind::DnsQuery { payload } => (MessageType::DnsQuery, payload.clone()),
-        EventKind::MemoryScanAlert { payload } => {
-            (MessageType::MemoryScanAlert, payload.clone())
-        }
+        EventKind::MemoryScanAlert { payload } => (MessageType::MemoryScanAlert, payload.clone()),
         EventKind::HostIsolationStateChanged { payload } => {
             (MessageType::HostIsolationStateChanged, payload.clone())
         }
