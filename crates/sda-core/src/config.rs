@@ -488,6 +488,21 @@ pub struct LocalDetectionConfig {
     /// Maximum number of detections drained per replay tick.
     #[serde(default = "default_lde_offline_drain_batch")]
     pub offline_drain_batch: usize,
+    /// Optional HTTPS endpoint of the Tenant Rule Distribution Service
+    /// (TRDS).  When `None`, the LDE keeps the bundle loaded from
+    /// `rule_bundle_path` (or the embedded default) and never attempts
+    /// hot-reload (Phase E2.1).
+    #[serde(default)]
+    pub trds_endpoint: Option<String>,
+    /// Ed25519 public keys (lower-case hex, 32-byte raw) that are
+    /// permitted to sign TRDS bundles.  Bundles signed by keys outside
+    /// this rotation set are rejected with a `LocalDetectionAlert` and
+    /// the last-known-good pipeline is preserved (Phase E2.2).
+    #[serde(default)]
+    pub rule_bundle_signing_keys: Vec<String>,
+    /// Connect / read timeout (seconds) for TRDS bundle pulls.
+    #[serde(default = "default_lde_trds_timeout")]
+    pub trds_pull_timeout_secs: u64,
 }
 
 /// Enhanced Inventory module configuration.
@@ -900,6 +915,9 @@ fn default_lde_offline_drain_interval() -> u64 {
 fn default_lde_offline_drain_batch() -> usize {
     128
 }
+fn default_lde_trds_timeout() -> u64 {
+    10
+}
 fn default_lde_quarantine_dir() -> PathBuf {
     #[cfg(unix)]
     {
@@ -994,7 +1012,9 @@ impl Default for RootcheckConfig {
 impl Default for LocalDetectionConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            // Phase E2.3 — LDE is on by default once the embedded
+            // bundle ships with baseline rules.
+            enabled: true,
             rule_pull_interval: default_lde_rule_pull_interval(),
             offline_queue_max: default_lde_offline_queue_max(),
             yara_scan_rate_limit: default_lde_yara_scan_rate_limit(),
@@ -1010,6 +1030,9 @@ impl Default for LocalDetectionConfig {
             quarantine_dir: default_lde_quarantine_dir(),
             offline_drain_interval: default_lde_offline_drain_interval(),
             offline_drain_batch: default_lde_offline_drain_batch(),
+            trds_endpoint: None,
+            rule_bundle_signing_keys: Vec::new(),
+            trds_pull_timeout_secs: default_lde_trds_timeout(),
         }
     }
 }

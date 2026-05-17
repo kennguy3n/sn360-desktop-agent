@@ -14,15 +14,17 @@
 //! loop driven by a [`ShutdownSignal`].
 
 pub mod behavioral;
+pub mod default_bundle;
 pub mod ioc_matcher;
 pub mod offline_queue;
 pub mod response;
 pub mod rule_store;
+pub mod trds_client;
 pub mod yara_scanner;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock as StdRwLock};
 use std::time::Duration;
 
 use tokio::sync::Mutex;
@@ -38,6 +40,7 @@ use crate::ioc_matcher::{IocMatch, IocMatcher};
 use crate::offline_queue::OfflineQueue;
 use crate::response::LocalResponder;
 use crate::rule_store::{IocList, RuleBundle};
+use crate::trds_client::{verify_envelope, SigningKey, TrdsClient, TrdsError};
 use crate::yara_scanner::{YaraMatch, YaraScanner};
 
 const STATUS_INITIALIZED: u8 = 0;
@@ -151,8 +154,9 @@ impl DetectionPipeline {
 
 /// Build the initial rule bundle from `config.rule_bundle_path`.  A
 /// missing or unreadable bundle is *not* fatal — we degrade gracefully
-/// to an empty bundle so the run loop can still serve as a pass-through
-/// (and future TRDS pulls can populate rules).
+/// to the embedded [`default_bundle`](crate::default_bundle::default_bundle)
+/// so the run loop can still serve as a baseline detector while waiting
+/// for the first TRDS pull (Phase E2.4).
 fn load_initial_bundle(path: &std::path::Path) -> RuleBundle {
     match RuleBundle::load(path) {
         Ok(b) => {
@@ -169,12 +173,15 @@ fn load_initial_bundle(path: &std::path::Path) -> RuleBundle {
             b
         }
         Err(e) => {
+            let b = default_bundle::default_bundle();
             warn!(
                 path = %path.display(),
                 error = %e,
-                "LDE rule bundle unavailable; starting with empty ruleset"
+                fallback_version = b.version,
+                fallback_rules = b.behavioral.len(),
+                "LDE rule bundle unavailable; falling back to embedded default baseline"
             );
-            RuleBundle::default()
+            b
         }
     }
 }
@@ -582,6 +589,145 @@ async fn maybe_respond(
     }
 }
 
+/// Atomic-swap container for the active [`DetectionPipeline`].
+///
+/// `handle_event` reads through a brief read-lock to clone the inner
+/// `Arc<DetectionPipeline>` and then runs against that snapshot.
+/// Hot-reload takes a write-lock just long enough to publish the new
+/// `Arc` — in-flight evaluations always complete against the pipeline
+/// they started with.  This mirrors the
+/// `UsbPolicySupervisor::apply_bundle_slice` CAS pattern used by
+/// `sda-device-control`.
+type PipelineCell = StdRwLock<Arc<DetectionPipeline>>;
+
+fn pipeline_load(cell: &PipelineCell) -> Arc<DetectionPipeline> {
+    cell.read()
+        .expect("LDE pipeline RwLock poisoned")
+        .clone()
+}
+
+fn pipeline_store(cell: &PipelineCell, new: Arc<DetectionPipeline>) {
+    *cell.write().expect("LDE pipeline RwLock poisoned") = new;
+}
+
+/// Parse the configured hex pubkeys into [`SigningKey`] entries.  Bad
+/// entries are logged-and-dropped rather than fatal so a single typo
+/// can't take the LDE offline.
+fn build_signing_keys(public_hexes: &[String]) -> Vec<SigningKey> {
+    public_hexes
+        .iter()
+        .enumerate()
+        .filter_map(|(i, hex)| {
+            let key = SigningKey {
+                key_id: format!("rotation-{i}"),
+                public_hex: hex.clone(),
+            };
+            match key.verifying_key() {
+                Ok(_) => Some(key),
+                Err(e) => {
+                    warn!(error = %e, "skipping invalid LDE signing key");
+                    None
+                }
+            }
+        })
+        .collect()
+}
+
+/// Attempt a single TRDS pull and atomic pipeline swap.  Returns the
+/// version actually installed, or the unchanged `current_version` if
+/// nothing changed / the pull failed.
+///
+/// On signature / key-id / version-substitution failures we emit a
+/// High-severity `LocalDetectionAlert` so SIEM operators see the
+/// rejection, but the live pipeline is preserved (last-known-good).
+async fn pull_and_install(
+    client: &TrdsClient,
+    keys: &[SigningKey],
+    config: &LocalDetectionConfig,
+    bus: &EventBus,
+    pipeline_cell: &Arc<PipelineCell>,
+    current_version: u64,
+) -> u64 {
+    let envelope = match client.fetch_envelope(current_version).await {
+        Ok(Some(env)) => env,
+        Ok(None) => {
+            debug!(current_version, "TRDS reports no newer bundle");
+            return current_version;
+        }
+        Err(e) => {
+            warn!(error = %e, "TRDS pull failed; keeping last-known-good pipeline");
+            return current_version;
+        }
+    };
+
+    if envelope.version <= current_version {
+        debug!(
+            envelope_version = envelope.version,
+            current_version, "TRDS returned non-newer envelope; ignoring"
+        );
+        return current_version;
+    }
+
+    let verified = match verify_envelope(&envelope, keys) {
+        Ok(v) => v,
+        Err(e) => {
+            let security = e.is_security_alert();
+            warn!(error = %e, security, "TRDS bundle rejected; keeping last-known-good pipeline");
+            if security {
+                publish_bundle_security_alert(bus, &e).await;
+            }
+            return current_version;
+        }
+    };
+
+    let new_pipeline = match DetectionPipeline::new(config, verified.bundle.clone()) {
+        Ok(p) => p,
+        Err(e) => {
+            warn!(error = %e, "failed to build pipeline from verified bundle");
+            return current_version;
+        }
+    };
+    let new_version = new_pipeline.bundle_version;
+    let new_rule_count = new_pipeline.iocs.rule_count();
+    pipeline_store(pipeline_cell, Arc::new(new_pipeline));
+    info!(
+        version = new_version,
+        rules = new_rule_count,
+        key_id = %verified.key_id,
+        "LDE pipeline hot-reloaded from TRDS"
+    );
+    publish_bundle_applied_alert(bus, new_version).await;
+    new_version
+}
+
+async fn publish_bundle_applied_alert(bus: &EventBus, version: u64) {
+    let kind = EventKind::LocalDetectionAlert {
+        rule_id: "system.trds.applied".into(),
+        rule_type: "system".into(),
+        severity: "info".into(),
+        description: format!("LDE rule bundle v{version} applied"),
+        matched_value: version.to_string(),
+    };
+    let event = Event::new("local_detection", Priority::Low, kind);
+    if let Err(e) = bus.publish_to_server(event).await {
+        debug!(error = %e, "best-effort bundle-applied notice dropped");
+    }
+}
+
+async fn publish_bundle_security_alert(bus: &EventBus, err: &TrdsError) {
+    let kind = EventKind::LocalDetectionAlert {
+        rule_id: "system.trds.rejected".into(),
+        rule_type: "system".into(),
+        severity: "high".into(),
+        description: format!("LDE rejected TRDS bundle: {err}"),
+        matched_value: format!("{err:?}"),
+    };
+    let event = Event::new("local_detection", Priority::High, kind);
+    if let Err(e) = bus.publish_to_server(event).await {
+        warn!(error = %e, "failed to publish TRDS rejection alert");
+    }
+}
+
 /// Main LDE run loop.
 async fn run(
     config: LocalDetectionConfig,
@@ -592,6 +738,8 @@ async fn run(
     info!(
         rule_bundle = %config.rule_bundle_path.display(),
         offline_queue = %config.offline_queue_path.display(),
+        trds_endpoint = ?config.trds_endpoint,
+        signing_keys = config.rule_bundle_signing_keys.len(),
         block_ip = config.block_ip,
         kill_process = config.kill_process,
         quarantine = config.quarantine,
@@ -599,13 +747,36 @@ async fn run(
     );
 
     let bundle = load_initial_bundle(&config.rule_bundle_path);
-    let pipeline = DetectionPipeline::new(&config, bundle)?;
+    let initial_pipeline = DetectionPipeline::new(&config, bundle)?;
     info!(
-        rules = pipeline.iocs.rule_count(),
-        yara_loaded = pipeline.yara.has_rules(),
-        version = pipeline.bundle_version,
+        rules = initial_pipeline.iocs.rule_count(),
+        yara_loaded = initial_pipeline.yara.has_rules(),
+        version = initial_pipeline.bundle_version,
         "local detection engine ready"
     );
+
+    let pipeline_cell: Arc<PipelineCell> =
+        Arc::new(StdRwLock::new(Arc::new(initial_pipeline)));
+
+    let signing_keys = build_signing_keys(&config.rule_bundle_signing_keys);
+    let trds_client = match &config.trds_endpoint {
+        Some(endpoint) => {
+            match TrdsClient::new(
+                endpoint.clone(),
+                Duration::from_secs(config.trds_pull_timeout_secs.max(1)),
+            ) {
+                Ok(c) => {
+                    info!(endpoint, "TRDS hot-reload client armed");
+                    Some(c)
+                }
+                Err(e) => {
+                    warn!(error = %e, "TRDS client construction failed; hot-reload disabled");
+                    None
+                }
+            }
+        }
+        None => None,
+    };
 
     let mut rx: EventReceiver = bus.subscribe();
     status.store(STATUS_RUNNING, Ordering::Relaxed);
@@ -641,19 +812,30 @@ async fn run(
                         break;
                     }
                 };
-                handle_event(&pipeline, &bus, &event).await;
+                let snapshot = pipeline_load(&pipeline_cell);
+                handle_event(&snapshot, &bus, &event).await;
             }
 
             _ = drain_timer.tick() => {
-                drain_offline_queue(&pipeline.offline, &bus, drain_batch_size).await;
+                let snapshot = pipeline_load(&pipeline_cell);
+                drain_offline_queue(&snapshot.offline, &bus, drain_batch_size).await;
             }
 
             _ = rule_pull_timer.tick() => {
-                // Placeholder for TRDS pull.  The real pull will reach
-                // out to the Tenant Rule Distribution Service; for now
-                // we simply log — operators can hot-swap by writing a
-                // new bundle and restarting the module.
-                debug!("LDE rule pull timer fired (hot-reload not yet implemented)");
+                if let Some(client) = trds_client.as_ref() {
+                    let current_version = pipeline_load(&pipeline_cell).bundle_version;
+                    pull_and_install(
+                        client,
+                        &signing_keys,
+                        &config,
+                        &bus,
+                        &pipeline_cell,
+                        current_version,
+                    )
+                    .await;
+                } else {
+                    debug!("LDE rule pull timer fired but no TRDS endpoint configured");
+                }
             }
         }
     }
@@ -787,6 +969,9 @@ mod tests {
             quarantine_dir: tmp.path().join("quarantine"),
             offline_drain_interval: 30,
             offline_drain_batch: 64,
+            trds_endpoint: None,
+            rule_bundle_signing_keys: Vec::new(),
+            trds_pull_timeout_secs: 10,
         }
     }
 
@@ -947,10 +1132,31 @@ mod tests {
     }
 
     #[test]
-    fn test_load_initial_bundle_missing_is_empty() {
+    fn test_load_initial_bundle_missing_falls_back_to_default() {
+        // Phase E2.4: a missing on-disk bundle must fall back to the
+        // embedded default bundle so the default-ON LDE has rules to
+        // evaluate immediately.
         let b = load_initial_bundle(std::path::Path::new("/nonexistent"));
-        assert_eq!(b.version, 0);
-        assert!(b.iocs.strings.is_empty());
+        assert_eq!(b.version, default_bundle::DEFAULT_BUNDLE_VERSION);
+        assert!(!b.iocs.strings.is_empty());
+        assert!(b.behavioral.len() >= 3);
+    }
+
+    #[test]
+    fn test_local_detection_default_is_enabled() {
+        // Phase E2.3: LDE ships default-on.
+        let cfg = LocalDetectionConfig::default();
+        assert!(cfg.enabled, "LDE must be default-on after Phase E2.3");
+    }
+
+    #[test]
+    fn test_local_detection_default_trds_fields() {
+        // Phase E2.1: TRDS endpoint is absent by default; signing keys
+        // are an empty rotation set; the pull timeout has a sane default.
+        let cfg = LocalDetectionConfig::default();
+        assert!(cfg.trds_endpoint.is_none());
+        assert!(cfg.rule_bundle_signing_keys.is_empty());
+        assert!(cfg.trds_pull_timeout_secs >= 1);
     }
 
     #[test]

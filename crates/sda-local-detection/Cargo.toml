@@ -24,6 +24,10 @@ sha2 = { workspace = true }
 rusqlite = { workspace = true }
 rmp-serde = "1"
 async-trait = "0.1"
+reqwest = { workspace = true }
+ed25519-dalek = { workspace = true }
+hex = { workspace = true }
+base64 = "0.22"
 # YARA is a required dependency. We enable the `vendored` feature so
 # `yara-sys` builds libyara from source (bundled 4.5.x), avoiding a
 # runtime / build-time dependency on a system libyara that may be too
