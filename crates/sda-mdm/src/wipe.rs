@@ -95,12 +95,15 @@ pub async fn handle(
         .map(|s| s.key_id.clone())
         .collect();
 
-    // 0. Wait-for-AC gate. The PAL's per-OS `wipe()` impls
-    //    currently ignore `WipeOpts.wait_for_ac` (they only honour
-    //    `crypto_shred_only`), so the deferral has to happen at
-    //    this layer. We deliberately emit a single envelope (no
-    //    `Started` pair) so the audit chain captures one row per
-    //    deferral instead of an orphaned `Started`.
+    // 0. Wait-for-AC gate. The PAL's per-OS `wipe()` impls honour
+    //    `WipeOpts.crypto_shred_only` (skip the factory-reset step
+    //    when set — see `sda_pal::mdm::should_perform_factory_reset`)
+    //    but NOT `wait_for_ac`: once a platform impl is called the
+    //    wipe runs to completion, so the AC deferral has to happen
+    //    at this orchestrator layer, before the irreversible PAL
+    //    call. We deliberately emit a single envelope (no `Started`
+    //    pair) so the audit chain captures one row per deferral
+    //    instead of an orphaned `Started`.
     if args.wait_for_ac && power.is_on_battery() {
         let deferred = MdmWipeResultPayload {
             job_id: job.job_id,

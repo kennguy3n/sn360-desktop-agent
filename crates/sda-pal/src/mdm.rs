@@ -177,6 +177,25 @@ pub struct RawRecoveryKey {
     pub material: Vec<u8>,
 }
 
+/// Whether a [`MdmProvider::wipe`] implementation should perform the
+/// irreversible OS-level factory-reset step (Linux `systemctl reboot`,
+/// macOS `nvram obliterate`, Windows `systemreset.exe /factoryreset`)
+/// after the crypto-shred phase.
+///
+/// `true` when [`WipeOpts::crypto_shred_only`] is `false` — the
+/// operator wants the full wipe. `false` when the operator asked
+/// for a crypto-shred-only wipe and the agent must stop after
+/// destroying the encryption keys.
+///
+/// Centralised so the three platform impls share one policy and one
+/// unit test instead of each carrying its own copy of the guard.
+/// The pre-fix implementation ignored [`WipeOpts::crypto_shred_only`]
+/// entirely, silently escalating every dual-control-approved crypto-
+/// shred-only wipe into a full factory reset.
+pub fn should_perform_factory_reset(opts: &WipeOpts) -> bool {
+    !opts.crypto_shred_only
+}
+
 // =====================================================================
 // Linux implementation
 // =====================================================================
@@ -278,33 +297,46 @@ mod linux_impl {
     }
 
     impl MdmProvider for LinuxMdmProvider {
-        fn wipe(&self, _opts: &WipeOpts) -> Result<WipeOutcome> {
+        fn wipe(&self, opts: &WipeOpts) -> Result<WipeOutcome> {
             let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
             let dev = Self::root_luks_device(&mounts).ok_or_else(|| {
                 MdmError::Unsupported("no LUKS-backed root device detected".into())
             })?;
+            // Crypto-shred runs in both modes — that's the whole point
+            // of `crypto_shred_only`. Destroying the LUKS keyslots
+            // makes any remaining ciphertext unrecoverable even if the
+            // factory-reset step is skipped.
             let crypto_shred_succeeded = Command::new("cryptsetup")
                 .args(["luksErase", "--batch-mode", &dev])
                 .status()
                 .map(|s| s.success())
                 .unwrap_or(false);
-            // Best-effort overwrite of the LUKS header band.
-            let _ = Command::new("dd")
-                .args([
-                    "if=/dev/urandom",
-                    &format!("of={dev}"),
-                    "bs=1M",
-                    "count=10",
-                    "conv=notrunc",
-                ])
-                .status();
-            // Force reboot — succeeds even if the system unit manager
-            // is unhappy because of `--force --force`.
-            let factory_reset_invoked = Command::new("systemctl")
-                .args(["--force", "--force", "reboot"])
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false);
+            let factory_reset_invoked = if super::should_perform_factory_reset(opts) {
+                // Best-effort overwrite of the LUKS header band.
+                let _ = Command::new("dd")
+                    .args([
+                        "if=/dev/urandom",
+                        &format!("of={dev}"),
+                        "bs=1M",
+                        "count=10",
+                        "conv=notrunc",
+                    ])
+                    .status();
+                // Force reboot — succeeds even if the system unit
+                // manager is unhappy because of `--force --force`.
+                Command::new("systemctl")
+                    .args(["--force", "--force", "reboot"])
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false)
+            } else {
+                // `crypto_shred_only` — operator asked us to stop
+                // after the key destruction. Do not touch the LUKS
+                // header band, do not reboot. The control plane will
+                // redrive a full-wipe job separately if it wants
+                // factory reset on top.
+                false
+            };
             Ok(WipeOutcome {
                 crypto_shred_succeeded,
                 factory_reset_invoked,
@@ -513,14 +545,26 @@ mod macos_impl {
     }
 
     impl MdmProvider for MacMdmProvider {
-        fn wipe(&self, _opts: &WipeOpts) -> Result<WipeOutcome> {
+        fn wipe(&self, opts: &WipeOpts) -> Result<WipeOutcome> {
+            // Crypto-shred runs in both modes — removing the
+            // personal-recovery secret destroys the FileVault key
+            // hierarchy regardless of whether we go on to obliterate
+            // NVRAM.
             let _ = Command::new("fdesetup")
                 .args(["removerecovery", "-personal"])
                 .status();
-            let arm_attempt = Command::new("/usr/bin/sudo")
-                .args(["nvram", "obliterate=%01"])
-                .status();
-            let factory_reset_invoked = arm_attempt.map(|s| s.success()).unwrap_or(false);
+            let factory_reset_invoked = if super::should_perform_factory_reset(opts) {
+                // `nvram obliterate=%01` arms the recovery-OS to
+                // factory-reset on next boot. Skip when the operator
+                // asked for crypto-shred only.
+                Command::new("/usr/bin/sudo")
+                    .args(["nvram", "obliterate=%01"])
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false)
+            } else {
+                false
+            };
             Ok(WipeOutcome {
                 crypto_shred_succeeded: true,
                 factory_reset_invoked,
@@ -715,17 +759,27 @@ mod windows_impl {
     }
 
     impl MdmProvider for WindowsMdmProvider {
-        fn wipe(&self, _opts: &WipeOpts) -> Result<WipeOutcome> {
+        fn wipe(&self, opts: &WipeOpts) -> Result<WipeOutcome> {
+            // Crypto-shred runs in both modes — `manage-bde -off`
+            // decrypts the volume by destroying the protectors,
+            // which makes the BitLocker key unrecoverable.
             let off = Command::new("manage-bde")
                 .args(["-off", "C:"])
                 .status()
                 .map(|s| s.success())
                 .unwrap_or(false);
-            let reset = Command::new("systemreset.exe")
-                .args(["/factoryreset", "/quiet"])
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false);
+            let reset = if super::should_perform_factory_reset(opts) {
+                // `systemreset.exe /factoryreset /quiet` is the
+                // irreversible OS-level reset. Skip when the
+                // operator asked for crypto-shred only.
+                Command::new("systemreset.exe")
+                    .args(["/factoryreset", "/quiet"])
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false)
+            } else {
+                false
+            };
             Ok(WipeOutcome {
                 crypto_shred_succeeded: off,
                 factory_reset_invoked: reset,
@@ -1038,6 +1092,59 @@ mod tests {
         let opts = WipeOpts::default();
         assert!(!opts.crypto_shred_only);
         assert!(!opts.wait_for_ac);
+    }
+
+    #[test]
+    fn should_perform_factory_reset_honours_crypto_shred_only() {
+        // Regression test for the bug Devin Review flagged: all
+        // three platform `wipe()` impls named the parameter `_opts`
+        // and ran the irreversible factory-reset step
+        // unconditionally. The policy now lives in this single
+        // helper so all three platforms share it.
+        //
+        // `wait_for_ac` is orthogonal — the orchestrator-layer
+        // `wipe::handle()` consumes it before ever reaching the
+        // PAL, so the helper must ignore it. We pin every
+        // 2x2 combination explicitly so a future regression
+        // surfaces here instead of in an irreversible
+        // operator-facing wipe.
+        let cases = [
+            (
+                WipeOpts {
+                    crypto_shred_only: false,
+                    wait_for_ac: false,
+                },
+                true,
+            ),
+            (
+                WipeOpts {
+                    crypto_shred_only: false,
+                    wait_for_ac: true,
+                },
+                true,
+            ),
+            (
+                WipeOpts {
+                    crypto_shred_only: true,
+                    wait_for_ac: false,
+                },
+                false,
+            ),
+            (
+                WipeOpts {
+                    crypto_shred_only: true,
+                    wait_for_ac: true,
+                },
+                false,
+            ),
+        ];
+        for (opts, want) in cases {
+            assert_eq!(
+                should_perform_factory_reset(&opts),
+                want,
+                "should_perform_factory_reset({opts:?}) mismatch",
+            );
+        }
     }
 
     #[test]
