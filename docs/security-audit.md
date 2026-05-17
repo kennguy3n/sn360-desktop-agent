@@ -455,6 +455,155 @@ or `cargo deny check licenses` reviewer can run a quick checklist:
 | MeshCentral | Apache-2.0 | Reference only — clean-room | `sda-remote-support` | [ADR-001 § Alternatives D](./device-control/ADR-001-functional-port.md#alternatives-considered) |
 | Tactical RMM | Tactical RMM Licence (restricts SaaS / commercial) | **Excluded** — benchmark only, never base | none | [ADR-001 § Alternatives C](./device-control/ADR-001-functional-port.md#alternatives-considered) |
 
+## EDR Parity License Audit
+
+This section is the canonical Phase E0 license review for the
+ShieldNet EDR Parity workstream
+([`docs/edr-parity/`](./edr-parity/)). It satisfies the Phase E0
+exit criterion in
+[`docs/edr-parity/PHASES.md`](./edr-parity/PHASES.md#phase-e0--architecture--schema-2-weeks)
+task E0.5 that "the clean-room license audit is recorded in
+[`docs/security-audit.md`](./security-audit.md) under a new
+'EDR Parity License Audit' subsection."
+
+The decision that frames every entry below is recorded in
+[`docs/edr-parity/PROPOSAL.md` § 4](./edr-parity/PROPOSAL.md):
+
+> **SDA EDR Parity is a clean-room functional re-implementation
+> inspired by EDR concepts. No CrowdStrike Falcon, SentinelOne
+> Singularity, or Microsoft Defender for Endpoint source code is
+> vendored, copied, or translated. All Phase E1–E5 PAL
+> implementations use vendor-documented public APIs only: Linux
+> `cn_proc` netlink connector, audit subsystem, eBPF; Windows ETW
+> providers documented in the Windows Software Development Kit;
+> macOS Endpoint Security framework documented in the macOS
+> Platform SDK.**
+
+The audit follows the same shape as the Device Control License
+Audit subsection above.
+
+### CrowdStrike Falcon (Proprietary — EXCLUDED)
+
+- **Engine.** [CrowdStrike Falcon](https://www.crowdstrike.com/products/endpoint-security/falcon-platform/) —
+  cloud-native EDR / XDR platform.
+- **License.** CrowdStrike commercial — proprietary, **not
+  open-source**.
+- **Posture.** **Excluded.** Barred from this repository per
+  [`docs/edr-parity/PROPOSAL.md` § 4](./edr-parity/PROPOSAL.md).
+- **Rationale.**
+    - **CrowdStrike Falcon is closed-source commercial software.**
+      No CrowdStrike Falcon binary, source file, ETW manifest,
+      decompiled artefact, or licensee-restricted SDK is vendored,
+      copied, translated, or referenced by line in either
+      [`sn360-desktop-agent`](https://github.com/kennguy3n/sn360-desktop-agent)
+      or
+      [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform).
+    - **No CrowdStrike public documentation drove the SDA wire
+      schema.** SDA's EDR event schema (eight new `EventKind`
+      variants — `ProcessCreated`, `ProcessTerminated`,
+      `ImageLoaded`, `NetworkConnection`, `DnsQuery`,
+      `MemoryScanAlert`, `HostIsolationStateChanged`,
+      `IdentityAlert`) is original; the field shapes are derived
+      from the underlying OS APIs (Linux `proc_event`, Windows
+      `Microsoft-Windows-Kernel-Process`, macOS Endpoint Security
+      `es_message_t`), not from CrowdStrike's published telemetry.
+    - **CI license check covers transitive crate exposure.** The
+      `cargo deny check licenses` gate (Phase 7.8 — see
+      [`revised-phase-plan.md`](./revised-phase-plan.md)) reads
+      [`deny.toml`](../deny.toml) which retains a permissive-only
+      Rust crate allow-list, so no proprietary EDR-vendor crate
+      can land silently.
+
+### SentinelOne Singularity (Proprietary — EXCLUDED)
+
+- **Engine.** [SentinelOne Singularity](https://www.sentinelone.com/platform/singularity-platform/) —
+  AI-driven EDR / XDR platform.
+- **License.** SentinelOne commercial — proprietary, **not
+  open-source**.
+- **Posture.** **Excluded.** Same posture as CrowdStrike Falcon.
+- **Rationale.**
+    - **SentinelOne Singularity is closed-source commercial
+      software.** No SentinelOne binary, source file, behavioural
+      AI model, decompiled artefact, or licensee-restricted SDK
+      is vendored or referenced.
+    - **No SentinelOne public documentation drove the SDA
+      behavioural rule DSL.** SDA's behavioural rule DSL (see
+      [`crates/sda-local-detection/src/behavioral.rs`](../crates/sda-local-detection/src/behavioral.rs))
+      is original; the `parent_chain` predicate and the
+      threshold / sequence matchers are derived from the existing
+      Phase D Device Control rule DSL, not from SentinelOne's
+      published rule grammar.
+
+### Microsoft Defender for Endpoint (Proprietary — EXCLUDED)
+
+- **Engine.** [Microsoft Defender for Endpoint](https://www.microsoft.com/en-us/security/business/endpoint-security/microsoft-defender-endpoint) —
+  Microsoft's enterprise EDR component of Microsoft 365 Defender.
+- **License.** Microsoft commercial — proprietary, **not
+  open-source**. The Defender ATP source code is Microsoft
+  internal and not redistributable.
+- **Posture.** **Excluded.** Same posture as CrowdStrike and
+  SentinelOne.
+- **Rationale.**
+    - **Microsoft Defender for Endpoint is closed-source
+      commercial software.** No Defender binary, source file,
+      ATP detection rule, or licensee-restricted SDK is vendored,
+      copied, translated, or referenced.
+    - **SDA only consumes documented Windows public APIs.** The
+      Windows ETW providers SDA subscribes to
+      (`Microsoft-Windows-Kernel-Process`,
+      `Microsoft-Windows-Kernel-Network`,
+      `Microsoft-Windows-DNS-Client`) are documented in the
+      Windows Software Development Kit and are part of the
+      public ETW surface. ETW is a general-purpose Windows
+      tracing facility, not a Defender-specific API. SDA does
+      not import any Defender-specific binary, header, or
+      protocol.
+    - **AMSI integration (Phase E4.7, optional, feature-gated)
+      uses the documented AMSI public API only.** The
+      `IAntimalwareProvider` interface is part of the Windows
+      Software Development Kit; SDA uses it as a documented
+      consumer, not as a Defender source-code reference. See
+      [`docs/edr-parity/PHASES.md` § E4.7](./edr-parity/PHASES.md).
+
+### Reference OS APIs (vendor-documented public surface)
+
+The Phase E1–E3 PAL implementations consume the following
+vendor-documented public APIs. These are not engines under SDA's
+clean-room policy — they are platform primitives.
+
+- **Linux.** `NETLINK_CONNECTOR` + `CN_IDX_PROC` proc events
+  (documented in `Documentation/admin-guide/cn_proc.rst` upstream);
+  `AUDIT_SOCKADDR` / `AUDIT_CONNECT` audit subsystem (documented
+  in `audit-userspace`); `INET_DIAG` netlink (documented in
+  `linux/inet_diag.h`); `/proc/net/{tcp,tcp6,udp,udp6}` and
+  `/proc/<pid>/fd` procfs (documented in `proc(5)`);
+  `nftables` (documented in `man 8 nft`).
+- **Windows.** ETW providers — `Microsoft-Windows-Kernel-Process`,
+  `Microsoft-Windows-Kernel-Network`,
+  `Microsoft-Windows-DNS-Client` (documented in the Windows
+  Software Development Kit); Windows Filtering Platform (WFP)
+  COM API (documented in the WDK); `netsh advfirewall`
+  (documented in Microsoft Learn).
+- **macOS.** Endpoint Security framework — `es_new_client`,
+  `ES_EVENT_TYPE_NOTIFY_EXEC`, `ES_EVENT_TYPE_NOTIFY_FORK`,
+  `ES_EVENT_TYPE_NOTIFY_EXIT`, `ES_EVENT_TYPE_NOTIFY_MMAP`
+  (documented in the macOS Platform SDK); Network Extension
+  framework — `NEFilterDataProvider`, `NEDNSProxyProvider`
+  (documented in the macOS Platform SDK); `pfctl` anchor (BSD
+  pf documented in `pfctl(8)`).
+
+### Summary table (EDR Parity)
+
+| Engine | License | Posture | Crate / module | EDR Parity contact point |
+|---|---|---|---|---|
+| CrowdStrike Falcon | Commercial proprietary | **Excluded** | none | [PROPOSAL.md § 4](./edr-parity/PROPOSAL.md) |
+| SentinelOne Singularity | Commercial proprietary | **Excluded** | none | [PROPOSAL.md § 4](./edr-parity/PROPOSAL.md) |
+| Microsoft Defender for Endpoint | Commercial proprietary | **Excluded** | none | [PROPOSAL.md § 4](./edr-parity/PROPOSAL.md) |
+| Linux `cn_proc` / netlink / audit / eBPF | Vendor-documented public OS API | Consumed | `sda-pal::process_monitor`, `sda-pal::network_monitor` | [ARCHITECTURE.md § 5](./edr-parity/ARCHITECTURE.md) |
+| Windows ETW (`Microsoft-Windows-Kernel-Process`, `…-Kernel-Network`, `…-DNS-Client`) | Vendor-documented public OS API | Consumed | `sda-pal::process_monitor`, `sda-pal::network_monitor`, `sda-pal::dns_monitor` | [ARCHITECTURE.md § 5](./edr-parity/ARCHITECTURE.md) |
+| macOS Endpoint Security framework | Vendor-documented public OS API (entitlement gated) | Consumed | `sda-pal::process_monitor` | [ARCHITECTURE.md § 5](./edr-parity/ARCHITECTURE.md) |
+| `nftables` / `pfctl` / Windows Firewall + WFP | Vendor-documented public OS API | Consumed | `sda-pal::host_isolation` | [ARCHITECTURE.md § 5](./edr-parity/ARCHITECTURE.md) |
+
 ## Reporting a vulnerability
 
 Confirmed vulnerabilities should be emailed to

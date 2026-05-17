@@ -11,6 +11,14 @@
 # - `docs/security-audit.md` § "Device Control License Audit" — the
 #   per-engine licence posture (Fleet MIT / Fleet EE / MakeMeAdmin /
 #   SAP Privileges / Munki / Santa / MeshCentral / Tactical RMM).
+# - `docs/security-audit.md` § "EDR Parity License Audit" — clean-room
+#   EDR posture (no CrowdStrike Falcon / SentinelOne Singularity /
+#   Microsoft Defender for Endpoint source vendored, copied, or
+#   translated). All Phase E1–E5 PAL implementations use vendor-
+#   documented public APIs only (Linux `cn_proc` / netlink / audit /
+#   eBPF, Windows ETW providers, macOS Endpoint Security framework).
+#   See `docs/edr-parity/PROPOSAL.md` § 4 (do-not-port list) and
+#   `docs/edr-parity/PHASES.md` task E0.5.
 #
 # Run locally with:
 #
