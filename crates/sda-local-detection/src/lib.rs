@@ -610,17 +610,37 @@ fn pipeline_store(cell: &PipelineCell, new: Arc<DetectionPipeline>) {
     *cell.write().expect("LDE pipeline RwLock poisoned") = new;
 }
 
-/// Parse the configured hex pubkeys into [`SigningKey`] entries.  Bad
-/// entries are logged-and-dropped rather than fatal so a single typo
-/// can't take the LDE offline.
-fn build_signing_keys(public_hexes: &[String]) -> Vec<SigningKey> {
-    public_hexes
+/// Parse the configured signing-key entries into [`SigningKey`]s.
+///
+/// Each input entry is one of:
+///
+/// 1. `"<key_id>:<hex>"` — explicit rotation id, e.g.
+///    `"edr-2026-q2:5d3e…"`.  The first `:` separates the id from
+///    the 64-character lower-case hex pubkey.  This is the form a
+///    TRDS server publishes against, so production deployments
+///    should always use it.
+/// 2. `"<hex>"` — legacy bare-hex form.  The LDE assigns an
+///    auto-generated id of `"rotation-{i}"` (i = position in the
+///    list).  Envelopes from a TRDS server cannot match these
+///    auto-ids, so this form is only useful for trust bootstrapping
+///    when the rotation namespace is empty.
+///
+/// Bad entries are logged-and-dropped rather than fatal so a single
+/// typo can't take the LDE offline.
+fn build_signing_keys(entries: &[String]) -> Vec<SigningKey> {
+    entries
         .iter()
         .enumerate()
-        .filter_map(|(i, hex)| {
+        .filter_map(|(i, raw)| {
+            let (key_id, public_hex) = match raw.split_once(':') {
+                Some((id, hex)) if !id.is_empty() && !hex.is_empty() => {
+                    (id.to_string(), hex.to_string())
+                }
+                _ => (format!("rotation-{i}"), raw.clone()),
+            };
             let key = SigningKey {
-                key_id: format!("rotation-{i}"),
-                public_hex: hex.clone(),
+                key_id,
+                public_hex,
             };
             match key.verifying_key() {
                 Ok(_) => Some(key),
@@ -781,10 +801,13 @@ async fn run(
     let mut rx: EventReceiver = bus.subscribe();
     status.store(STATUS_RUNNING, Ordering::Relaxed);
 
+    // The first tick of `tokio::time::interval` fires immediately
+    // — we deliberately keep this so the LDE attempts a TRDS pull at
+    // startup, surfacing the freshest rules without waiting a full
+    // pull cycle.  Without an endpoint configured the arm in the
+    // `select!` below is effectively a no-op aside from a debug log.
     let mut rule_pull_timer =
-        tokio::time::interval(Duration::from_secs(config.rule_pull_interval.max(30)));
-    // Consume the immediate first tick — bundle was just loaded.
-    rule_pull_timer.tick().await;
+        tokio::time::interval(Duration::from_secs(config.rule_pull_interval.max(1)));
 
     // Spool-drain timer — attempts to replay any detection payloads
     // that were parked in the offline queue while the server was

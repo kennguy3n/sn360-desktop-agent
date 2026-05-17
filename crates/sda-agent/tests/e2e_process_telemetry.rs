@@ -140,6 +140,9 @@ fn lde_cfg(tmp: &TempDir) -> LocalDetectionConfig {
         quarantine_dir: tmp.path().join("quarantine"),
         offline_drain_interval: 3600,
         offline_drain_batch: 32,
+        trds_endpoint: None,
+        rule_bundle_signing_keys: Vec::new(),
+        trds_pull_timeout_secs: 10,
     }
 }
 
