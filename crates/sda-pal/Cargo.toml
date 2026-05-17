@@ -27,6 +27,9 @@ hex = { workspace = true }
 ring = { workspace = true }
 uuid = { workspace = true }
 sha2 = { workspace = true }
+# Used by host_isolation.rs to parse and normalize allow-list CIDRs
+# (Phase E3.10 of the EDR Parity workstream).
+ipnet = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 nix = { workspace = true }

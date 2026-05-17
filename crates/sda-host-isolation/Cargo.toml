@@ -1,0 +1,27 @@
+[package]
+name = "sda-host-isolation"
+description = "Host isolation module (Phase E3 of EDR Parity) for SDA"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sda-core = { workspace = true }
+sda-event-bus = { workspace = true }
+sda-pal = { workspace = true }
+sda-device-control = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+# Allow-list / control-plane CIDR parsing.
+ipnet = { workspace = true }
+hex = { workspace = true }
+ed25519-dalek = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "test-util", "macros"] }

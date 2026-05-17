@@ -435,6 +435,66 @@ async fn main() -> Result<()> {
         agent.register_module(pm_handle);
     }
 
+    // 12f-ter. Network Monitor module (Phase E3) — Off by default.
+    //          Flipping `network_monitor.enabled = true` lights up
+    //          cross-platform TCP/UDP connection telemetry
+    //          (`EventKind::NetworkConnection`) with PID
+    //          attribution; the LDE feeds the `remote_addr` straight
+    //          into the existing IP IOC bloom.
+    if config.modules.network_monitor.enabled {
+        info!("starting network monitor module");
+        let nm_handle = sda_network_monitor::NetworkMonitorModule::start(
+            &config,
+            agent.event_bus(),
+            agent.shutdown_signal(),
+        );
+        agent.register_module(nm_handle);
+    }
+
+    // 12f-quater. DNS Monitor module (Phase E3) — Off by default.
+    //             Subscribes to the per-OS DNS source
+    //             (systemd-resolved on Linux, ETW on Windows,
+    //             NEDNSProxyProvider on macOS) and emits
+    //             `EventKind::DnsQuery` events. The LDE feeds the
+    //             `query_name` into the string IOC backend and the
+    //             `response_ips` into the IP IOC bloom.
+    if config.modules.dns_monitor.enabled {
+        info!("starting dns monitor module");
+        let dm_handle = sda_network_monitor::DnsMonitorModule::start(
+            &config,
+            agent.event_bus(),
+            agent.shutdown_signal(),
+        );
+        agent.register_module(dm_handle);
+    }
+
+    // 12f-quinquies. Host Isolation module (Phase E3) — Off by
+    //                default. Consumes `IsolateHost` /
+    //                `UnisolateHost` `SignedActionJob`s once the
+    //                Device Control router learns to forward them
+    //                (parity with the MDM dispatcher; that wiring
+    //                lands in a follow-up). The `submitter` is
+    //                bound at the outer scope so the channel stays
+    //                open for the lifetime of `main`.
+    let _host_isolation_submitter: Option<sda_host_isolation::HostIsolationSubmitter> =
+        if config.modules.host_isolation.enabled {
+            info!("starting host isolation module");
+            let identity = sda_device_control::router::AgentIdentity {
+                tenant_id: uuid::Uuid::nil(),
+                device_id: uuid::Uuid::nil(),
+            };
+            let (hi_handle, submitter) = sda_host_isolation::HostIsolationModule::start(
+                &config,
+                identity,
+                agent.event_bus(),
+                agent.shutdown_signal(),
+            );
+            agent.register_module(hi_handle);
+            Some(submitter)
+        } else {
+            None
+        };
+
     // 12g. Start Enhanced Inventory module if enabled
     if config.modules.enhanced_inventory.enabled {
         info!("starting enhanced inventory module");

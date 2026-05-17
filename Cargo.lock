@@ -942,6 +942,9 @@ name = "ipnet"
 version = "2.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d98f6fed1fde3f8c21bc40a1abb88dd75e67924f9cffc3ef95607bad8017f8e2"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "iri-string"
@@ -1731,12 +1734,14 @@ dependencies = [
  "sda-enhanced-inventory",
  "sda-event-bus",
  "sda-fim",
+ "sda-host-isolation",
  "sda-inventory",
  "sda-jit-admin",
  "sda-local-detection",
  "sda-logcollector",
  "sda-management-compat",
  "sda-mdm",
+ "sda-network-monitor",
  "sda-pal",
  "sda-posture",
  "sda-process-monitor",
@@ -1851,6 +1856,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "chrono-tz",
+ "ipnet",
  "sda-comms",
  "sda-core",
  "sda-event-bus",
@@ -1915,6 +1921,27 @@ dependencies = [
  "tokio",
  "tracing",
  "walkdir",
+]
+
+[[package]]
+name = "sda-host-isolation"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "ed25519-dalek",
+ "hex",
+ "ipnet",
+ "sda-core",
+ "sda-device-control",
+ "sda-event-bus",
+ "sda-pal",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -2045,6 +2072,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "sda-network-monitor"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "sda-core",
+ "sda-event-bus",
+ "sda-pal",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "sda-pal"
 version = "0.1.0"
 dependencies = [
@@ -2055,6 +2098,7 @@ dependencies = [
  "ed25519-dalek",
  "gethostname",
  "hex",
+ "ipnet",
  "nix",
  "notify",
  "ring",

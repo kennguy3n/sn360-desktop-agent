@@ -34,6 +34,8 @@ sda-active-response = { workspace = true }
 sda-rootcheck = { workspace = true }
 sda-local-detection = { workspace = true }
 sda-process-monitor = { workspace = true }
+sda-network-monitor = { workspace = true }
+sda-host-isolation = { workspace = true }
 sda-enhanced-inventory = { workspace = true }
 sda-updater = { workspace = true }
 sda-device-control = { workspace = true }
@@ -53,6 +55,7 @@ anyhow = { workspace = true }
 serde_json = { workspace = true }
 gethostname = { workspace = true }
 sha2 = { workspace = true }
+uuid = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 nix = { workspace = true }
