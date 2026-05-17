@@ -24,11 +24,20 @@ Status legend:
 
 ## Current Status
 
-**Phases M1–M3 (agent-side) are Done** — all agent-side code has
-landed in PR [#20](https://github.com/kennguy3n/sn360-desktop-agent/pull/20).
-Server-side tasks (M1.7, M1.8, M2.4, M4.*) remain Not Started.
-The existing SDA test surface — **1075+ unit tests, 14/14 base E2E,
-10/10 security E2E** — remains green.
+**Phases M1–M3 (agent-side) are Done.** All agent-side code has
+landed across PRs [#19](https://github.com/kennguy3n/sn360-desktop-agent/pull/19),
+[#20](https://github.com/kennguy3n/sn360-desktop-agent/pull/20),
+[#21](https://github.com/kennguy3n/sn360-desktop-agent/pull/21),
+and the workspace-membership / docs follow-up that adds
+`crates/sda-mdm` to `[workspace] members`, marks M1.9 / M2.6 / M3.4
+as Done, and refreshes the test-surface counts below. The new
+`sda-mdm` crate is now reached by `cargo test --workspace` and
+`cargo clippy --workspace -- -D warnings`. Server-side tasks (M1.7,
+M1.8, M2.4, M4.*) remain Not Started. The existing SDA test
+surface — **1075+ unit tests, 14/14 base E2E, 10/10 security E2E** —
+remains green, and the new Phase M1–M3 E2E suites add **14** hermetic
+MDM tests on top (`make e2e-mdm` / `e2e-mdm-actions` /
+`e2e-mdm-profile`).
 
 ## Phase summary
 
@@ -68,7 +77,7 @@ the control plane.
 | M1.6  | New `MessageType` variants in `sda-comms` (`MdmRecoveryKeyEscrowed`, `MdmOsUpdateResult`, `MdmAutoRemediationResult`) + explicit `encode_body()` arms + `map_event_to_message` mapping | Done |
 | M1.7  | MDM Findings → Risk Engine recommendations ⚙️ (`services/risk-engine`: `disk_encryption_off`, `firewall_off`, `screen_lock_off`, `recovery_key_not_escrowed`, `os_patch_overdue` rules)         | Not Started |
 | M1.8  | SMI `mdm_compliance` sub-score ⚙️ (`services/smi-engine`: formula `clamp(100 - 10*fde_off - 10*fw_off - 10*sl_off - 5*rk_missing - 5*patch_overdue)`) | Not Started |
-| M1.9  | Phase M1 E2E suite (`make e2e-mdm`) — Linux / macOS / Windows hermetic tests for auto-remediation, recovery key escrow round-trip, OS patch scan + install | In Progress |
+| M1.9  | Phase M1 E2E suite (`make e2e-mdm`) — hermetic tests for auto-remediation, recovery key escrow round-trip, OS patch scan + install, battery-aware deferral, 24h debounce | Done |
 
 ### Phase M1 exit criteria
 
@@ -101,7 +110,7 @@ control-plane Approval Service and the agent's signed-job validator.
 | M2.3  | Lost mode — agent-side locked display + IP-geolocation last-known-location reporting on every successful reconnect; reversible via `ExitLostMode` action | Done |
 | M2.4  | Desktop MDM service ⚙️ (`services/desktop-mdm` wipe / lock / lost-mode command dispatch endpoints) | Not Started |
 | M2.5  | Dual-control approval for wipe actions — Approval Service enforces two distinct approvers; agent's signed-job validator enforces `signatures.len() >= 2` and distinct `approver_user_id` per [ARCHITECTURE § 4.4](./ARCHITECTURE.md#44-signed-job-validation-extensions) | Done |
-| M2.6  | Phase M2 E2E suite — single-signature wipe job is refused; two-signature wipe job crypto-shreds; lock + lost-mode + exit-lost-mode round-trip; last-known-location appears in vitals after reconnect | In Progress |
+| M2.6  | Phase M2 E2E suite (`make e2e-mdm-actions`) — single-signature wipe job is refused; two-signature wipe job crypto-shreds; lock + lost-mode + exit-lost-mode round-trip; last-known-location appears in vitals after reconnect | Done |
 
 ### Phase M2 exit criteria
 
@@ -128,7 +137,7 @@ path with Ed25519 signature coverage.
 | M3.1  | Declarative configuration profile schema — `SignedConfigProfile` type, RFC 8785 canonical-JSON body, Ed25519 signature, `key_id` rotation set | Done |
 | M3.2  | Config profile enforcement — Windows (registry writes under `HKLM\SOFTWARE\Policies\Microsoft\Windows\*`), macOS (`profiles install` legacy + `mdmclient` DDM on Sequoia+), Linux (`dconf write` + polkit drop-in + `pam_pwquality.conf`) | Done |
 | M3.3  | Config profile push via TRDS signed bundle — `policy/mdm/profile.json` slice + filesystem watcher under `/var/lib/sn360-desktop-agent/bundle/policy/mdm/` ⚙️ (TRDS-compiler side in `sn360-security-platform`) | Done (agent-side) |
-| M3.4  | Phase M3 E2E suite — push profile via bundle, verify password policy / screen lock / Bluetooth enforcement on all three platforms; tampered profile rejected at signature check | In Progress |
+| M3.4  | Phase M3 E2E suite (`make e2e-mdm-profile`) — push profile via bundle, verify password policy / screen lock / Bluetooth enforcement; tampered profile rejected at signature check; `MdmConfigProfileApplied` event emitted with correct `profile_id` | Done |
 
 ### Phase M3 exit criteria
 
@@ -171,17 +180,26 @@ unchanged; no new agent code lands in M4.
 
 ## Tests & Benchmarks
 
-Desktop MDM test surface (target):
+Desktop MDM test surface (current):
 
-- **N / N** Phase M1 E2E tests (`make e2e-mdm`) — auto-remediation,
-  recovery key escrow, OS patch.
-- **N / N** Phase M2 E2E tests (`make e2e-mdm-actions`) — wipe (dual
-  control), lock, lost mode.
-- **N / N** Phase M3 E2E tests (`make e2e-mdm-profile`) — config
-  profile push + enforcement.
-- All workspace unit tests pass (`cargo test --workspace`).
-- All `MdmProvider` per-OS implementations covered by
-  platform-gated tests under `crates/sda-mdm/tests/`.
+- **6 / 6** Phase M1 E2E tests (`make e2e-mdm`) — auto-remediation
+  (FDE / firewall / screen-lock), 24h debounce, recovery-key escrow
+  round-trip, OS-patch scan + install, battery-aware deferral.
+- **5 / 5** Phase M2 E2E tests (`make e2e-mdm-actions`) — wipe
+  refused without dual-control, wipe accepted with two distinct
+  approvers, remote lock, lost-mode enter / exit round-trip,
+  `last_known_location` plumbed into `AgentVitals`.
+- **3 / 3** Phase M3 E2E tests (`make e2e-mdm-profile`) — valid
+  signed profile applied (`MdmConfigProfileApplied`), tampered
+  signature rejected, mismatched-key rejected.
+- **65** in-crate unit tests in `crates/sda-mdm/` (auto-remediate:
+  21, wipe: 7, lock: 3, lost-mode: 9, recovery-key: 6, os-patch: 10,
+  config-profile: 8, module: 1) — exercised by `cargo test
+  --workspace`.
+- `MdmProvider` per-OS implementations live in
+  `crates/sda-pal/src/mdm.rs` with helper-function unit tests for the
+  OS-update CLI argument builders (apt-get unattended-upgrade, dnf,
+  zypper, softwareupdate, PSWindowsUpdate).
 
 Existing SDA test surface (1075 unit tests, 14/14 base E2E, 10/10
 security E2E) remains green.
