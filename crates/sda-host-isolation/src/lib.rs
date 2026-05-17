@@ -375,6 +375,25 @@ async fn handle_job(
         return;
     }
 
+    // Step 4: enforce the `control_plane_cidrs` non-empty invariant
+    // documented on `HostIsolationConfig::control_plane_cidrs`
+    // (`crates/sda-core/src/config.rs`).  Isolating with only loopback
+    // + DNS in the allow-list severs the management channel, leaving
+    // the host unable to receive the `UnisolateHost` recovery job
+    // (physical-access-only recovery).  We refuse `IsolateHost`
+    // silently in that case but **not** `UnisolateHost` — unisolation
+    // must always be permitted so an operator who misconfigures the
+    // agent can still recover via a signed unisolate.
+    if matches!(job.action, ActionKind::IsolateHost) && cfg.control_plane_cidrs.is_empty() {
+        warn!(
+            job_id = %job.job_id,
+            "host isolation refused: control_plane_cidrs is empty; isolating without a \
+             control-plane allow-list would sever the management channel"
+        );
+        vitals.refused.fetch_add(1, Ordering::Relaxed);
+        return;
+    }
+
     match validated.args {
         JobArgs::IsolateHost(args) => {
             let extras = match parse_extra_allow_ips(&args.extra_allow_ips) {
@@ -775,6 +794,84 @@ mod tests {
         assert!(!pal.is_isolated().unwrap());
         controller.shutdown();
         let _ = handle.task.await;
+    }
+
+    /// Regression for the Phase E3 review finding: enforcing the
+    /// non-empty `control_plane_cidrs` invariant documented on
+    /// `HostIsolationConfig::control_plane_cidrs`.  Isolating with
+    /// only loopback + DNS in the allow-list severs the management
+    /// channel and leaves the host unreachable for the
+    /// `UnisolateHost` recovery job, so the module MUST refuse the
+    /// `IsolateHost` action silently and never touch the PAL.
+    #[tokio::test]
+    async fn empty_control_plane_cidrs_refuses_isolation_without_touching_pal() {
+        let (bus, _server_rx) = EventBus::new(64, 64);
+        let mut sub = bus.subscribe();
+        let pal: Arc<dyn HostIsolation> = Arc::new(MockHostIsolation::new());
+        let hooks: Arc<dyn JobValidationHooks + Send + Sync> = Arc::new(AcceptHooks);
+        let (controller, signal) = ShutdownController::new();
+        let mut cfg = enabled_cfg();
+        cfg.control_plane_cidrs.clear();
+        let (handle, submitter) =
+            HostIsolationModule::start_with(cfg, identity(), pal.clone(), hooks, bus, signal);
+        submitter.submit(isolate_job(vec![], None)).await.unwrap();
+        let res = tokio::time::timeout(std::time::Duration::from_millis(200), sub.recv()).await;
+        assert!(
+            res.is_err(),
+            "empty control_plane_cidrs must not produce a state change"
+        );
+        assert!(
+            !pal.is_isolated().unwrap(),
+            "empty control_plane_cidrs must not flip the PAL into the isolated state"
+        );
+        controller.shutdown();
+        let _ = handle.task.await;
+    }
+
+    /// Companion regression: the empty-`control_plane_cidrs` guard
+    /// MUST NOT block `UnisolateHost`.  If an operator misconfigures
+    /// the agent (e.g. drops the control-plane CIDRs after a
+    /// previous `IsolateHost` already locked the firewall), the
+    /// recovery path via a signed unisolate must still drain — else
+    /// the box is stuck until physical access.
+    #[tokio::test]
+    async fn empty_control_plane_cidrs_still_allows_unisolation() {
+        let (bus, _server_rx) = EventBus::new(64, 64);
+        let mut sub = bus.subscribe();
+        // Seed the PAL as already isolated so we can observe the
+        // unisolate transition produce a `HostIsolationStateChanged`.
+        let mock = MockHostIsolation::new();
+        mock.isolate(&[]).unwrap();
+        let pal: Arc<dyn HostIsolation> = Arc::new(mock);
+        let hooks: Arc<dyn JobValidationHooks + Send + Sync> = Arc::new(AcceptHooks);
+        let (controller, signal) = ShutdownController::new();
+        let mut cfg = enabled_cfg();
+        cfg.control_plane_cidrs.clear();
+        // Use `start_with` directly + the seeded mock so the run
+        // loop's `pal.is_isolated()` reads `true` and the unisolate
+        // transition fires.
+        let (handle, submitter) =
+            HostIsolationModule::start_with(cfg, identity(), pal.clone(), hooks, bus, signal);
+        submitter.submit(unisolate_job()).await.unwrap();
+        let ev = tokio::time::timeout(std::time::Duration::from_secs(2), sub.recv())
+            .await
+            .expect("unisolate must drain even when control_plane_cidrs is empty")
+            .unwrap();
+        assert!(matches!(
+            ev.kind,
+            EventKind::HostIsolationStateChanged { .. }
+        ));
+        if let EventKind::HostIsolationStateChanged { ref payload } = ev.kind {
+            let p: HostIsolationStateChangedPayload = serde_json::from_str(payload).unwrap();
+            assert!(!p.isolated, "unisolate must succeed and clear state");
+            assert_eq!(p.action, "unisolate_host");
+        }
+        controller.shutdown();
+        let _ = handle.task.await;
+        assert!(
+            !pal.is_isolated().unwrap(),
+            "PAL must be unisolated after the recovery job"
+        );
     }
 
     #[tokio::test]
