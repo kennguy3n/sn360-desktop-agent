@@ -102,6 +102,36 @@ pub fn config_to_opts(cfg: &OsPatchConfig) -> OsUpdateOpts {
     }
 }
 
+/// Map the wire-format reboot-policy string carried on
+/// `InstallOsUpdateArgs` to the PAL enum.
+///
+/// Wire values `"never" | "if_required" | "force"` (per
+/// `docs/desktop-mdm/ARCHITECTURE.md` § 4.2 and validated by
+/// `sda_device_control::signed_job::JobArgs::parse`) translate to:
+///
+/// * `"never"` → [`RebootPolicy::Never`] — agent surfaces
+///   `reboot_required` to the user but never triggers a reboot.
+/// * `"if_required"` → [`RebootPolicy::OnIdle`] — only when the
+///   underlying PAL report says a reboot is needed AND the user has
+///   been idle for a while.
+/// * `"force"` → [`RebootPolicy::OnMaintenanceWindow`] — reboot at
+///   the next maintenance window without waiting for idle. This is
+///   the closest PAL match for "operator wants this to take effect
+///   ASAP without surprising the user mid-task".
+///
+/// Any unrecognised value falls back to `Never` so a future protocol
+/// drift cannot cause an unintended reboot. The router has already
+/// rejected unknown values upstream, so the fallback is purely
+/// defence in depth. Visible for testing.
+pub fn reboot_policy_from_wire(s: &str) -> RebootPolicy {
+    match s {
+        "never" => RebootPolicy::Never,
+        "if_required" => RebootPolicy::OnIdle,
+        "force" => RebootPolicy::OnMaintenanceWindow,
+        _ => RebootPolicy::Never,
+    }
+}
+
 /// Run one maintenance-window tick.
 ///
 /// Returns the published payload. Errors from the PAL fold into a
@@ -132,6 +162,43 @@ pub async fn tick(
     }
 
     let opts = config_to_opts(cfg);
+    run_install_and_publish(provider, bus, opts, job_id, started_at).await
+}
+
+/// Run an operator-initiated `InstallOsUpdate` job.
+///
+/// Unlike [`tick`], this entrypoint:
+///
+/// * Uses the [`OsUpdateOpts`] supplied by the caller (the dispatch
+///   path maps `InstallOsUpdateArgs` into them) instead of reading
+///   from [`OsPatchConfig`]. The control plane has decided the
+///   per-job semantics; the local config is irrelevant.
+/// * Skips the `defer_on_battery` check. The control plane has
+///   already weighed power state on its side (it issued the job),
+///   so the agent honours it immediately even on battery.
+///
+/// Returns the published payload. PAL errors fold into a `Failure`
+/// payload so the audit chain always captures a record.
+pub async fn tick_explicit(
+    opts: OsUpdateOpts,
+    provider: &dyn MdmProvider,
+    bus: &EventBus,
+) -> MdmOsUpdateResultPayload {
+    let started_at = Utc::now();
+    let job_id = Uuid::new_v4();
+    run_install_and_publish(provider, bus, opts, job_id, started_at).await
+}
+
+/// Shared body for [`tick`] and [`tick_explicit`]: call the PAL,
+/// fold success/failure into a [`MdmOsUpdateResultPayload`], publish
+/// it on the bus, and return it.
+async fn run_install_and_publish(
+    provider: &dyn MdmProvider,
+    bus: &EventBus,
+    opts: OsUpdateOpts,
+    job_id: Uuid,
+    started_at: DateTime<Utc>,
+) -> MdmOsUpdateResultPayload {
     let result = provider.install_os_updates(&opts);
     let finished_at = Utc::now();
     let payload = match result {

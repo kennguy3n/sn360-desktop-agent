@@ -31,6 +31,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::module::MODULE_SOURCE;
+use crate::os_patch::PowerStateProvider;
 
 /// Wire payload published on [`EventKind::MdmWipeResult`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -61,17 +62,28 @@ pub enum WipeStatus {
     Started,
     Success,
     Failure,
+    /// The job asked for `wait_for_ac` and the device is currently
+    /// on battery. No PAL call was made and the wipe is NOT queued
+    /// — the control plane is expected to redrive the job once the
+    /// device is back on AC. We emit one envelope (no `Started`
+    /// pair) so the audit chain captures the deferral decision.
+    DeferredOnBattery,
 }
 
 /// Run a `RemoteWipe` job end-to-end.
 ///
 /// `wait_for_ac` and `crypto_shred_only` come from the parsed args.
+/// `power` is consulted only when `args.wait_for_ac` is `true` —
+/// the handler short-circuits with a `DeferredOnBattery` envelope
+/// when the device is currently on battery, so the PAL is never
+/// asked to wipe a laptop that might lose power partway through.
 /// Returns the *final* payload (the `Started` envelope is published
 /// internally before the irreversible PAL call).
 pub async fn handle(
     job: &SignedActionJob,
     args: &RemoteWipeArgs,
     provider: &dyn MdmProvider,
+    power: &dyn PowerStateProvider,
     bus: &EventBus,
 ) -> MdmWipeResultPayload {
     let started_at = Utc::now();
@@ -82,6 +94,32 @@ pub async fn handle(
         .iter()
         .map(|s| s.key_id.clone())
         .collect();
+
+    // 0. Wait-for-AC gate. The PAL's per-OS `wipe()` impls
+    //    currently ignore `WipeOpts.wait_for_ac` (they only honour
+    //    `crypto_shred_only`), so the deferral has to happen at
+    //    this layer. We deliberately emit a single envelope (no
+    //    `Started` pair) so the audit chain captures one row per
+    //    deferral instead of an orphaned `Started`.
+    if args.wait_for_ac && power.is_on_battery() {
+        let deferred = MdmWipeResultPayload {
+            job_id: job.job_id,
+            status: WipeStatus::DeferredOnBattery,
+            started_at,
+            finished_at: Some(Utc::now()),
+            reason: args.reason.clone(),
+            crypto_shred_only,
+            primary_key_id,
+            additional_key_ids,
+            error: None,
+        };
+        publish(bus, &deferred).await;
+        info!(
+            job_id = %job.job_id,
+            "mdm: wipe deferred — wait_for_ac requested and device is on battery"
+        );
+        return deferred;
+    }
 
     // 1. Evidence-before-action: emit Started before the PAL call.
     let started = MdmWipeResultPayload {
@@ -162,6 +200,19 @@ mod tests {
     };
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
+
+    struct OnAc;
+    impl PowerStateProvider for OnAc {
+        fn is_on_battery(&self) -> bool {
+            false
+        }
+    }
+    struct OnBattery;
+    impl PowerStateProvider for OnBattery {
+        fn is_on_battery(&self) -> bool {
+            true
+        }
+    }
 
     fn job_with_two_sigs() -> SignedActionJob {
         SignedActionJob {
@@ -252,7 +303,7 @@ mod tests {
             crypto_shred_only: false,
             wait_for_ac: false,
         };
-        let payload = handle(&job, &args, &provider, &bus).await;
+        let payload = handle(&job, &args, &provider, &OnAc, &bus).await;
         assert_eq!(payload.status, WipeStatus::Success);
         assert_eq!(payload.additional_key_ids, vec!["secondary-key"]);
 
@@ -284,7 +335,7 @@ mod tests {
             crypto_shred_only: true,
             wait_for_ac: false,
         };
-        let _ = handle(&job, &args, &provider, &bus).await;
+        let _ = handle(&job, &args, &provider, &OnAc, &bus).await;
         assert!(shred.load(Ordering::Relaxed));
     }
 
@@ -302,8 +353,80 @@ mod tests {
             crypto_shred_only: false,
             wait_for_ac: false,
         };
-        let payload = handle(&job, &args, &provider, &bus).await;
+        let payload = handle(&job, &args, &provider, &OnAc, &bus).await;
         assert_eq!(payload.status, WipeStatus::Failure);
         assert!(payload.error.is_some());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn handle_defers_when_wait_for_ac_and_on_battery() {
+        // Regression test for the wait_for_ac bug Devin Review
+        // flagged as #15: per-OS PAL `wipe()` impls ignored
+        // `WipeOpts.wait_for_ac`. The handler now short-circuits
+        // at this layer.
+        let (bus, _srv) = EventBus::new(8, 8);
+        let wipes = Arc::new(AtomicUsize::new(0));
+        let provider = MockProvider {
+            fail: false,
+            wipes: wipes.clone(),
+            last_shred_only: Arc::new(AtomicBool::new(false)),
+        };
+        let job = job_with_two_sigs();
+        let args = RemoteWipeArgs {
+            reason: "lost".into(),
+            crypto_shred_only: false,
+            wait_for_ac: true,
+        };
+        let payload = handle(&job, &args, &provider, &OnBattery, &bus).await;
+        assert_eq!(payload.status, WipeStatus::DeferredOnBattery);
+        assert!(payload.finished_at.is_some());
+        assert!(payload.error.is_none());
+        assert_eq!(
+            wipes.load(Ordering::Relaxed),
+            0,
+            "PAL wipe must not be called when deferring on battery"
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn handle_proceeds_when_wait_for_ac_but_on_ac() {
+        let (bus, _srv) = EventBus::new(8, 8);
+        let wipes = Arc::new(AtomicUsize::new(0));
+        let provider = MockProvider {
+            fail: false,
+            wipes: wipes.clone(),
+            last_shred_only: Arc::new(AtomicBool::new(false)),
+        };
+        let job = job_with_two_sigs();
+        let args = RemoteWipeArgs {
+            reason: "lost".into(),
+            crypto_shred_only: false,
+            wait_for_ac: true,
+        };
+        let payload = handle(&job, &args, &provider, &OnAc, &bus).await;
+        assert_eq!(payload.status, WipeStatus::Success);
+        assert_eq!(wipes.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn handle_proceeds_when_on_battery_but_wait_for_ac_false() {
+        // Without `wait_for_ac`, the handler must call the PAL
+        // regardless of power state.
+        let (bus, _srv) = EventBus::new(8, 8);
+        let wipes = Arc::new(AtomicUsize::new(0));
+        let provider = MockProvider {
+            fail: false,
+            wipes: wipes.clone(),
+            last_shred_only: Arc::new(AtomicBool::new(false)),
+        };
+        let job = job_with_two_sigs();
+        let args = RemoteWipeArgs {
+            reason: "lost".into(),
+            crypto_shred_only: false,
+            wait_for_ac: false,
+        };
+        let payload = handle(&job, &args, &provider, &OnBattery, &bus).await;
+        assert_eq!(payload.status, WipeStatus::Success);
+        assert_eq!(wipes.load(Ordering::Relaxed), 1);
     }
 }

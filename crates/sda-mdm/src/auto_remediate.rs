@@ -32,7 +32,7 @@ use ed25519_dalek::{Signer, SigningKey};
 use rand_core::{OsRng, RngCore};
 use sda_core::config::AutoRemediateConfig;
 use sda_event_bus::{Event, EventBus, EventKind, Priority};
-use sda_pal::mdm::MdmProvider;
+use sda_pal::mdm::{MdmError, MdmProvider};
 use sda_pal::posture::{PostureSnapshot, PostureToggle};
 use sda_posture::snapshot::PosturePayload;
 use serde::{Deserialize, Serialize};
@@ -41,6 +41,19 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::module::MODULE_SOURCE;
+
+/// Backoff window before retrying a *failed* PAL remediation. The
+/// success-debounce (`remediation_debounce_secs`, default 24 h) is
+/// for the steady state where remediation worked. When the PAL
+/// returns a transient `Command` / `Io` error we still want to
+/// retry, but not on every posture snapshot (default 300 s) — that
+/// would generate one Failure event + one fallback finding per
+/// snapshot tick, swamping the bus and the control plane's
+/// incident pipeline. One hour is the same upper bound the agent
+/// uses for posture-rule re-evaluation in
+/// `docs/desktop-mdm/ARCHITECTURE.md` § 3.6, so a single failure
+/// surfaces ~24x per day instead of ~288x.
+const FAILURE_DEBOUNCE_SECS: u64 = 3600;
 
 /// Wire payload published on
 /// [`EventKind::MdmAutoRemediationResult`]. Stable on-the-wire
@@ -72,13 +85,26 @@ pub enum RemediateStatus {
     /// Attempt completed successfully.
     Success,
     /// Attempt was skipped because the same kind was successfully
-    /// remediated within the debounce window.
+    /// remediated within the debounce window, OR a prior attempt
+    /// failed within the (shorter) failure-backoff window.
     Debounced,
     /// Attempt was skipped because the corresponding
     /// `auto_remediate.*` config flag is `false`.
     Disabled,
-    /// The PAL call returned an error.
+    /// The PAL call returned an error other than `Unsupported`.
+    /// The supervisor will retry after [`FAILURE_DEBOUNCE_SECS`].
     Failure,
+    /// The PAL returned [`MdmError::Unsupported`] — the underlying
+    /// capability is not available on this host (e.g. Linux
+    /// `enable_disk_encryption` on a non-LUKS layout). Retrying
+    /// is futile and would just spam the bus, so the supervisor
+    /// records this status and refuses to attempt again until the
+    /// agent restarts. Crucially, the supervisor does NOT publish
+    /// a fallback `DeviceControlFinding` for this status — the
+    /// device is in a `capability_gap` state, not a `failure`
+    /// state, and the LDE / posture rule pack should treat it
+    /// differently.
+    Unsupported,
 }
 
 /// In-memory ephemeral key used to sign auto-remediation evidence.
@@ -122,6 +148,26 @@ impl EphemeralKey {
     }
 }
 
+/// Per-kind debounce entry — `Success` and `Failure` outcomes use
+/// different backoff windows so a single transient PAL failure
+/// doesn't degenerate into a retry storm on the next posture
+/// snapshot.
+#[derive(Debug, Clone, Copy)]
+enum DebounceEntry {
+    /// Last attempt succeeded at this instant; suppress retries
+    /// until `remediation_debounce_secs` has elapsed.
+    Success(Instant),
+    /// Last attempt failed (non-Unsupported) at this instant;
+    /// suppress retries until [`FAILURE_DEBOUNCE_SECS`] has
+    /// elapsed.
+    Failure(Instant),
+    /// PAL returned `Unsupported` — the capability is permanently
+    /// unavailable on this host, so further retries are pointless.
+    /// Cleared only by an agent restart (i.e. a new
+    /// `AutoRemediator` instance).
+    Unsupported,
+}
+
 /// Auto-remediation supervisor — owns the debounce table, the
 /// ephemeral key, and the PAL handle.
 pub struct AutoRemediator {
@@ -129,7 +175,7 @@ pub struct AutoRemediator {
     provider: Arc<dyn MdmProvider>,
     bus: EventBus,
     key: EphemeralKey,
-    debounce: Mutex<HashMap<RemediateKind, Instant>>,
+    debounce: Mutex<HashMap<RemediateKind, DebounceEntry>>,
 }
 
 impl AutoRemediator {
@@ -224,6 +270,9 @@ impl AutoRemediator {
             // Audit-trail event: same rationale as the `Disabled`
             // branch — the control plane needs to see that the
             // debounce window suppressed a duplicate attempt.
+            // This now covers three suppression paths: a recent
+            // success (24 h), a recent failure (1 h), and a prior
+            // `Unsupported` PAL response (until restart).
             let payload = self.payload(
                 kind,
                 RemediateStatus::Debounced,
@@ -243,7 +292,7 @@ impl AutoRemediator {
         let finished_at = Utc::now();
         match result {
             Ok(()) => {
-                self.mark_remediated(kind).await;
+                self.mark_success(kind).await;
                 let payload = self.payload(
                     kind,
                     RemediateStatus::Success,
@@ -254,9 +303,36 @@ impl AutoRemediator {
                 info!(?kind, "mdm: auto-remediation succeeded");
                 self.publish_result(payload).await;
             }
+            Err(MdmError::Unsupported(reason)) => {
+                // The PAL has told us this host can't ever
+                // perform this remediation (e.g. Linux LUKS on a
+                // non-LUKS root). Record it permanently so we
+                // don't re-attempt every 300 s, and skip the
+                // fallback `DeviceControlFinding` — Unsupported is
+                // a capability gap, not a remediation failure.
+                self.mark_unsupported(kind).await;
+                let payload = self.payload(
+                    kind,
+                    RemediateStatus::Unsupported,
+                    started_at,
+                    finished_at,
+                    Some(reason.clone()),
+                );
+                warn!(
+                    ?kind,
+                    reason = %reason,
+                    "mdm: auto-remediation skipped — PAL reports capability unavailable"
+                );
+                self.publish_result(payload).await;
+            }
             Err(e) => {
                 let msg = e.to_string();
                 warn!(?kind, error = %msg, "mdm: auto-remediation failed");
+                // Record the failure timestamp so the next posture
+                // snapshot in the FAILURE_DEBOUNCE_SECS window
+                // short-circuits to a `Debounced` envelope
+                // instead of re-running the failing PAL call.
+                self.mark_failure(kind).await;
                 let payload = self.payload(
                     kind,
                     RemediateStatus::Failure,
@@ -273,14 +349,35 @@ impl AutoRemediator {
     async fn is_debounced(&self, kind: RemediateKind) -> bool {
         let guard = self.debounce.lock().await;
         match guard.get(&kind) {
-            Some(t) => t.elapsed() < Duration::from_secs(self.cfg.remediation_debounce_secs),
+            Some(DebounceEntry::Success(t)) => {
+                t.elapsed() < Duration::from_secs(self.cfg.remediation_debounce_secs)
+            }
+            Some(DebounceEntry::Failure(t)) => {
+                t.elapsed() < Duration::from_secs(FAILURE_DEBOUNCE_SECS)
+            }
+            Some(DebounceEntry::Unsupported) => true,
             None => false,
         }
     }
 
-    async fn mark_remediated(&self, kind: RemediateKind) {
+    async fn mark_success(&self, kind: RemediateKind) {
         let mut guard = self.debounce.lock().await;
-        guard.insert(kind, Instant::now());
+        guard.insert(kind, DebounceEntry::Success(Instant::now()));
+    }
+
+    async fn mark_failure(&self, kind: RemediateKind) {
+        let mut guard = self.debounce.lock().await;
+        // Don't downgrade a permanent `Unsupported` to a
+        // (re-attemptable) `Failure` if a later error is observed.
+        if matches!(guard.get(&kind), Some(DebounceEntry::Unsupported)) {
+            return;
+        }
+        guard.insert(kind, DebounceEntry::Failure(Instant::now()));
+    }
+
+    async fn mark_unsupported(&self, kind: RemediateKind) {
+        let mut guard = self.debounce.lock().await;
+        guard.insert(kind, DebounceEntry::Unsupported);
     }
 
     fn payload(
@@ -428,6 +525,11 @@ mod tests {
         fw_calls: AtomicU32,
         sl_calls: AtomicU32,
         fail_on: Option<RemediateKind>,
+        /// When set, the matching PAL method returns
+        /// [`MdmError::Unsupported`] instead of a generic
+        /// `Command` error. Used by the auto-remediator
+        /// tests covering Devin Review finding #19.
+        unsupported_on: Option<RemediateKind>,
     }
 
     impl MdmProvider for MockProvider {
@@ -451,6 +553,9 @@ mod tests {
         }
         fn enable_disk_encryption(&self) -> sda_pal::mdm::Result<EncryptionOutcome> {
             self.disk_calls.fetch_add(1, Ordering::Relaxed);
+            if self.unsupported_on == Some(RemediateKind::DiskEncryption) {
+                return Err(MdmError::Unsupported("non-LUKS root layout".into()));
+            }
             if self.fail_on == Some(RemediateKind::DiskEncryption) {
                 return Err(MdmError::Command("luks unavailable".into()));
             }
@@ -462,6 +567,9 @@ mod tests {
         }
         fn enable_firewall(&self) -> sda_pal::mdm::Result<()> {
             self.fw_calls.fetch_add(1, Ordering::Relaxed);
+            if self.unsupported_on == Some(RemediateKind::Firewall) {
+                return Err(MdmError::Unsupported("no firewall backend".into()));
+            }
             if self.fail_on == Some(RemediateKind::Firewall) {
                 return Err(MdmError::Command("nft missing".into()));
             }
@@ -469,6 +577,9 @@ mod tests {
         }
         fn set_screen_lock(&self, _t: u32) -> sda_pal::mdm::Result<()> {
             self.sl_calls.fetch_add(1, Ordering::Relaxed);
+            if self.unsupported_on == Some(RemediateKind::ScreenLock) {
+                return Err(MdmError::Unsupported("no compositor".into()));
+            }
             if self.fail_on == Some(RemediateKind::ScreenLock) {
                 return Err(MdmError::Command("dconf failed".into()));
             }
@@ -570,6 +681,120 @@ mod tests {
         }
         assert!(saw_result, "should publish MdmAutoRemediationResult");
         assert!(saw_finding, "should publish fallback DeviceControlFinding");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn failure_debounce_prevents_immediate_retry() {
+        // Regression test for Devin Review finding #14: before this
+        // fix, a PAL failure recorded NO debounce entry, so the next
+        // posture snapshot (default 300 s) would re-invoke the
+        // failing PAL call and re-emit the Failure event + fallback
+        // finding pair forever. The fix records a Failure timestamp
+        // and short-circuits to a Debounced envelope until
+        // FAILURE_DEBOUNCE_SECS has elapsed.
+        let (bus, _server_rx) = EventBus::new(64, 64);
+        let provider = Arc::new(MockProvider {
+            fail_on: Some(RemediateKind::Firewall),
+            ..Default::default()
+        });
+        let sup = AutoRemediator::new(config_with_debounce(86_400), provider.clone(), bus.clone());
+
+        let mut snap = snapshot(true);
+        snap.disk_encryption = PostureToggle::On;
+        snap.screen_lock_enabled = PostureToggle::On;
+
+        // First observation: failing PAL call runs once.
+        sup.observe(&snap).await;
+        assert_eq!(provider.fw_calls.load(Ordering::Relaxed), 1);
+
+        // Second observation immediately after: must be debounced
+        // by the failure entry, NOT re-invoke the PAL.
+        sup.observe(&snap).await;
+        assert_eq!(
+            provider.fw_calls.load(Ordering::Relaxed),
+            1,
+            "PAL must NOT be re-invoked within the failure-debounce window"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn unsupported_pal_skips_fallback_finding_and_blocks_retry() {
+        // Regression test for Devin Review finding #19: when the
+        // PAL returns Unsupported (e.g. Linux LUKS on non-LUKS
+        // root), the supervisor must NOT publish a fallback
+        // DeviceControlFinding (it's a capability gap, not a
+        // failure) and must NOT retry on subsequent snapshots.
+        let (bus, _server_rx) = EventBus::new(64, 64);
+        let mut local_sub = bus.subscribe();
+        let provider = Arc::new(MockProvider {
+            unsupported_on: Some(RemediateKind::DiskEncryption),
+            ..Default::default()
+        });
+        let sup = AutoRemediator::new(config_with_debounce(86_400), provider.clone(), bus.clone());
+
+        let mut snap = snapshot(true);
+        snap.firewall_enabled = PostureToggle::On;
+        snap.screen_lock_enabled = PostureToggle::On;
+
+        // First observation: PAL returns Unsupported, no finding.
+        sup.observe(&snap).await;
+        assert_eq!(provider.disk_calls.load(Ordering::Relaxed), 1);
+
+        // Drain the local bus and verify:
+        //  - one MdmAutoRemediationResult with status=unsupported
+        //  - NO DeviceControlFinding
+        let mut saw_unsupported = false;
+        let mut saw_finding = false;
+        for _ in 0..6 {
+            match tokio::time::timeout(Duration::from_millis(50), local_sub.recv()).await {
+                Ok(Some(ev)) => match ev.kind {
+                    EventKind::MdmAutoRemediationResult { payload }
+                        if payload.contains("\"status\":\"unsupported\"") =>
+                    {
+                        saw_unsupported = true;
+                    }
+                    EventKind::DeviceControlFinding { .. } => {
+                        saw_finding = true;
+                    }
+                    _ => {}
+                },
+                _ => break,
+            }
+        }
+        assert!(
+            saw_unsupported,
+            "Unsupported result envelope must be published"
+        );
+        assert!(
+            !saw_finding,
+            "Unsupported PAL response must NOT publish a fallback DeviceControlFinding"
+        );
+
+        // Second observation: must be debounced permanently — the
+        // PAL must not be re-invoked.
+        sup.observe(&snap).await;
+        assert_eq!(
+            provider.disk_calls.load(Ordering::Relaxed),
+            1,
+            "Unsupported entry must block all future retries"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn unsupported_status_serialises_to_wire() {
+        let p = MdmAutoRemediationResultPayload {
+            job_id: Uuid::nil(),
+            kind: RemediateKind::DiskEncryption,
+            status: RemediateStatus::Unsupported,
+            started_at: chrono::Utc::now(),
+            finished_at: chrono::Utc::now(),
+            signing_key_fingerprint: "deadbeef".into(),
+            error: Some("non-LUKS root".into()),
+        };
+        let s = serde_json::to_string(&p).unwrap();
+        assert!(s.contains("\"status\":\"unsupported\""));
+        let back: MdmAutoRemediationResultPayload = serde_json::from_str(&s).unwrap();
+        assert_eq!(back, p);
     }
 
     #[test]

@@ -383,7 +383,20 @@ impl MdmModule {
         let args = job.parse_args()?;
         match (job.action, &args) {
             (ActionKind::RemoteWipe, JobArgs::RemoteWipe(a)) => {
-                let _ = wipe::handle(job, a, self.provider.as_ref(), &self.bus).await;
+                // Pass the supervisor's power state so the wipe
+                // handler can honour `wait_for_ac` — if the device
+                // is on battery and the job opted into the AC gate,
+                // the handler short-circuits with a
+                // `DeferredOnBattery` audit envelope rather than
+                // touching the PAL.
+                let _ = wipe::handle(
+                    job,
+                    a,
+                    self.provider.as_ref(),
+                    self.power.as_ref(),
+                    &self.bus,
+                )
+                .await;
             }
             (ActionKind::RemoteLock, JobArgs::RemoteLock(a)) => {
                 let _ = lock::handle(job.job_id, a, self.provider.as_ref(), &self.bus).await;
@@ -426,23 +439,64 @@ impl MdmModule {
                     warn!("mdm: EscrowRecoveryKey job dropped — no enrollment identity");
                 }
             }
-            (ActionKind::InstallOsUpdate, JobArgs::InstallOsUpdate(_)) => {
-                let _ = os_patch::tick(
-                    &self.cfg.os_patch,
-                    self.provider.as_ref(),
-                    self.power.as_ref(),
-                    &self.bus,
-                )
-                .await;
+            (ActionKind::InstallOsUpdate, JobArgs::InstallOsUpdate(a)) => {
+                // Operator-initiated `InstallOsUpdate` overrides the
+                // local `OsPatchConfig` entirely — the control plane
+                // has already decided per-job semantics, so the
+                // device's stored auto-install toggles and battery-
+                // deferral preference are irrelevant. We translate
+                // the wire args directly into `OsUpdateOpts` and
+                // call `tick_explicit` (which skips the battery
+                // gate; see `os_patch.rs`).
+                let opts = sda_pal::mdm::OsUpdateOpts {
+                    include_security: a.include_security,
+                    include_feature: a.include_feature,
+                    reboot_policy: os_patch::reboot_policy_from_wire(a.reboot_policy.as_str()),
+                };
+                let _ = os_patch::tick_explicit(opts, self.provider.as_ref(), &self.bus).await;
             }
-            (ActionKind::ApplyConfigProfile, JobArgs::ApplyConfigProfile(_)) => {
+            (ActionKind::ApplyConfigProfile, JobArgs::ApplyConfigProfile(a)) => {
+                // Defend against TOCTOU between bundle write and
+                // job dispatch: even if the profile signature
+                // verifies, the on-disk bytes must match the
+                // SHA-256 the control plane committed in the job
+                // payload. Otherwise an attacker who can drop a
+                // *separately* validly-signed profile (different
+                // `profile_id`) into the bundle path between the
+                // job being signed and the agent dispatching it
+                // could trick the agent into applying the wrong
+                // policy. The cross-check turns that into a
+                // ConfigProfileTampered finding.
                 let path = self.cfg.bundle_path.clone();
                 let profile = config_profile::load_and_verify(
                     path.as_path(),
                     self.pinned_profile_keys.as_slice(),
                 )?;
-                config_profile::apply_and_publish(&profile, self.provider.as_ref(), &self.bus)
-                    .await;
+                if profile.profile_id() != a.profile_id || profile.sha256 != a.profile_sha256 {
+                    warn!(
+                        expected_id = %a.profile_id,
+                        got_id = %profile.profile_id(),
+                        expected_sha = %a.profile_sha256,
+                        got_sha = %profile.sha256,
+                        "mdm: ApplyConfigProfile job args do not match on-disk profile"
+                    );
+                    let reason = if profile.profile_id() != a.profile_id {
+                        format!(
+                            "profile_id mismatch: job=`{}` disk=`{}`",
+                            a.profile_id,
+                            profile.profile_id()
+                        )
+                    } else {
+                        format!(
+                            "profile_sha256 mismatch: job=`{}` disk=`{}`",
+                            a.profile_sha256, profile.sha256
+                        )
+                    };
+                    config_profile::publish_tampered(&self.bus, path.as_path(), &reason).await;
+                } else {
+                    config_profile::apply_and_publish(&profile, self.provider.as_ref(), &self.bus)
+                        .await;
+                }
             }
             (ActionKind::EnableDiskEncryption, JobArgs::EnableDiskEncryption(_)) => {
                 if let Err(e) = self.provider.enable_disk_encryption() {

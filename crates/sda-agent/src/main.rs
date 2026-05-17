@@ -477,6 +477,16 @@ async fn main() -> Result<()> {
     //           watcher, one-shot recovery-key escrow, and parks the
     //           wipe/lock/lost-mode/config-profile dispatch path until a
     //           SignedActionJob arrives from the Device Control router.
+    //
+    // The shared `LastKnownLocationStore` is built BEFORE both the MDM
+    // module and the agent-vitals heartbeat (position 12m below) so the
+    // two can rendezvous on the same instance: the lost-mode reporter
+    // writes IP-geolocation readings into it, the heartbeat reads back
+    // from it when assembling the next `AgentVitals` payload. Without
+    // this rendezvous the heartbeat's `last_known_location` field would
+    // always be `None` in production even while the reporter is
+    // actively writing — the bug Devin Review flagged as #11.
+    let mdm_location_store = sda_core::location::LastKnownLocationStore::new();
     if config.modules.mdm.enabled {
         info!("starting desktop MDM module");
         let mdm_provider: std::sync::Arc<dyn sda_pal::mdm::MdmProvider> =
@@ -484,26 +494,35 @@ async fn main() -> Result<()> {
         let mdm_power: sda_mdm::module::SharedPowerState = std::sync::Arc::new(
             sda_mdm::os_patch::WatchPowerStateProvider::new(power_rx.clone()),
         );
-        let mdm_module = std::sync::Arc::new(sda_mdm::MdmModule::new(
+        let mdm_geolocator: std::sync::Arc<dyn sda_mdm::lost_mode::IpGeolocator> =
+            std::sync::Arc::new(sda_mdm::lost_mode::NoopGeolocator);
+        let mdm_module = std::sync::Arc::new(sda_mdm::MdmModule::with_geolocator(
             config.modules.mdm.clone(),
             mdm_provider,
             agent.event_bus(),
             Vec::new(), // pinned profile signing keys — populated by TRDS bundle push
             mdm_power,
             None, // recovery escrow identity — populated after enrollment handshake
+            mdm_location_store.clone(),
+            mdm_geolocator,
         ));
-        // Hold the sender so a future Device Control router refactor
-        // can hand validated MDM-flavour SignedActionJobs into the
-        // dispatcher. The handle is intentionally retained on the
-        // agent main even though no caller forwards into it yet —
-        // dropping it would close the channel and silently disable
-        // the dispatcher.
+        // Hold the action_tx sender so the agent main can hand
+        // router-accepted MDM jobs into the dispatcher once the
+        // Device Control router learns to forward MDM-flavour jobs.
+        //
+        // We do NOT need to retain this purely to keep the channel
+        // open — the dispatcher task spawned inside `start()` holds
+        // its own `Arc<MdmModule>` (which keeps the internal
+        // `action_tx` alive). The reason we keep the external sender
+        // is so a future router refactor can `.clone()` it without
+        // needing to fish the `Arc<MdmModule>` back out of the
+        // module registry.
         let _mdm_action_tx = mdm_module.action_sender();
         let mdm_handle = mdm_module.clone().start(agent.shutdown_signal());
         agent.register_module(mdm_handle);
         // Keep the Arc alive past this scope so `dispatch` stays
-        // reachable for the rest of agent runtime. Once the router
-        // is wired the sender will live here too.
+        // callable from outside the dispatcher task (e.g. by the
+        // future router) without round-tripping through the channel.
         let _mdm_module_handle = mdm_module;
     }
 
@@ -673,12 +692,20 @@ async fn main() -> Result<()> {
     //      pilots.
     if config.modules.device_control.enabled || config.modules.agent_vitals.enabled {
         info!("starting agent vitals module");
+        // Hand the heartbeat the same `LastKnownLocationStore` the
+        // Desktop MDM module's lost-mode reporter writes into so the
+        // `AgentVitals` payload carries the latest IP-geolocation
+        // reading (per ARCHITECTURE.md § 3.7). The store is created
+        // unconditionally up top so the heartbeat can still read it
+        // even when `modules.mdm.enabled = false` (in which case the
+        // reading will be `None` until the MDM module is enabled).
         let av_handle = sda_agent_vitals::VitalsModule::start(
             config.modules.agent_vitals.interval_secs,
             sda_agent_vitals::VitalsCounters::new(),
             agent.event_bus(),
             agent.shutdown_signal(),
             power_rx.clone(),
+            Some(mdm_location_store.clone()),
         );
         agent.register_module(av_handle);
     }

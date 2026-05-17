@@ -516,6 +516,59 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn publish_tampered_emits_finding_and_applied_pair() {
+        // Regression test for Devin Review finding #16. The
+        // dispatch path in `MdmModule::dispatch` cross-checks the
+        // job's `profile_id` and `profile_sha256` against the
+        // on-disk profile and routes mismatches through
+        // `publish_tampered`. This test verifies the function
+        // emits exactly the two envelopes the LDE rule pack
+        // depends on: a `MdmConfigProfileApplied` with
+        // `status=tampered` and a sibling `DeviceControlFinding`
+        // carrying `kind=config_profile_tampered`.
+        let (bus, _) = EventBus::new(8, 8);
+        let mut local_sub = bus.subscribe();
+        let reason = "profile_sha256 mismatch: job=`aa` disk=`bb`";
+        let payload =
+            publish_tampered(&bus, std::path::Path::new("/etc/sda/profile.json"), reason).await;
+        assert_eq!(payload.status, ConfigProfileStatus::Tampered);
+        assert_eq!(payload.profile_id, Uuid::nil());
+        assert_eq!(payload.profile_sha256, "");
+        assert_eq!(payload.error.as_deref(), Some(reason));
+
+        // Drain the local bus and inspect the EventKind variants.
+        let mut saw_applied = false;
+        let mut saw_finding = false;
+        for _ in 0..4 {
+            match tokio::time::timeout(std::time::Duration::from_millis(50), local_sub.recv()).await
+            {
+                Ok(Some(ev)) => match ev.kind {
+                    EventKind::MdmConfigProfileApplied { payload } => {
+                        assert!(payload.contains("\"status\":\"tampered\""));
+                        assert!(payload.contains(reason));
+                        saw_applied = true;
+                    }
+                    EventKind::DeviceControlFinding { payload } => {
+                        assert!(payload.contains("config_profile_tampered"));
+                        assert!(payload.contains("/etc/sda/profile.json"));
+                        saw_finding = true;
+                    }
+                    _ => {}
+                },
+                _ => break,
+            }
+        }
+        assert!(
+            saw_applied,
+            "tampered path must publish MdmConfigProfileApplied(status=tampered)"
+        );
+        assert!(
+            saw_finding,
+            "tampered path must also publish a DeviceControlFinding(kind=config_profile_tampered)"
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn apply_and_publish_success_records_applied_status() {
         let (bus, _) = EventBus::new(8, 8);
         let provider = MockProvider {

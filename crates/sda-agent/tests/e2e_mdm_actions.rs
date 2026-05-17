@@ -50,6 +50,7 @@ use sda_mdm::lost_mode::{
     self as mdm_lost_mode, IpGeolocator, LocationReporterHandle, LostModeStatus,
     MdmLostModeEnteredPayload, MdmLostModeExitedPayload,
 };
+use sda_mdm::os_patch::PowerStateProvider;
 use sda_mdm::wipe::{self as mdm_wipe, MdmWipeResultPayload, WipeStatus};
 use sda_pal::mdm::{
     EncryptionOutcome, MdmError, MdmProvider, OsUpdateOpts, OsUpdateOutcome, RawRecoveryKey,
@@ -117,6 +118,19 @@ impl MdmProvider for RecordingProvider {
     fn exit_lost_mode(&self) -> MdmResult<()> {
         self.exit_lost_calls.fetch_add(1, Ordering::SeqCst);
         Ok(())
+    }
+}
+
+/// Power-state stub used by [`mdm_wipe::handle`]. Tests choose
+/// between on-AC and on-battery to exercise the `wait_for_ac`
+/// gate that Devin Review finding #15 introduced.
+struct StubPower {
+    on_battery: bool,
+}
+
+impl PowerStateProvider for StubPower {
+    fn is_on_battery(&self) -> bool {
+        self.on_battery
     }
 }
 
@@ -274,7 +288,15 @@ async fn wipe_dual_signature_validates_and_invokes_pal() {
         crypto_shred_only: false,
         wait_for_ac: false,
     };
-    let done = mdm_wipe::handle(&job, &args, provider.as_ref() as &dyn MdmProvider, &bus).await;
+    let power = StubPower { on_battery: false };
+    let done = mdm_wipe::handle(
+        &job,
+        &args,
+        provider.as_ref() as &dyn MdmProvider,
+        &power as &dyn PowerStateProvider,
+        &bus,
+    )
+    .await;
     assert_eq!(done.status, WipeStatus::Success);
     assert!(done.error.is_none());
     assert_eq!(done.additional_key_ids, vec!["sn360-control-2026-05-bob"]);
