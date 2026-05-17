@@ -408,7 +408,20 @@ async fn handle_event(pipeline: &DetectionPipeline, bus: &EventBus, event: &Even
                     .trim()
                     .to_string()
             };
-            ("process", entity, primary_text, None, None, Vec::new())
+            // Distinct source tags for each process event kind so
+            // behavioural rules (notably ProcessChain) can pin
+            // themselves to ProcessCreated explicitly — see Phase
+            // E5 review note: ProcessChain rules must not fire on
+            // ProcessTerminated / ImageLoaded payloads even though
+            // they share the same underlying domain.
+            (
+                "process_created",
+                entity,
+                primary_text,
+                None,
+                None,
+                Vec::new(),
+            )
         }
         EventKind::ProcessTerminated { payload } => {
             let parsed: serde_json::Value = serde_json::from_str(payload).unwrap_or_default();
@@ -423,7 +436,7 @@ async fn handle_event(pipeline: &DetectionPipeline, bus: &EventBus, event: &Even
                 .map(|c| c.to_string())
                 .unwrap_or_else(|| "?".into());
             (
-                "process",
+                "process_terminated",
                 name.clone(),
                 format!("terminated exit_code={exit_code}"),
                 None,
@@ -443,7 +456,7 @@ async fn handle_event(pipeline: &DetectionPipeline, bus: &EventBus, event: &Even
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
             (
-                "process",
+                "process_image_loaded",
                 image_path.clone(),
                 image_path,
                 None,
@@ -790,6 +803,24 @@ async fn run(
     // startup, surfacing the freshest rules without waiting a full
     // pull cycle.  Without an endpoint configured the arm in the
     // `select!` below is effectively a no-op aside from a debug log.
+    //
+    // The hard floor is 1 second so the e2e hot-reload suite can
+    // converge quickly (`e2e_lde_hotreload.rs` configures
+    // `rule_pull_interval: 1`).  We separately warn at startup when
+    // the configured value drops below `RULE_PULL_INTERVAL_WARN_SECS`
+    // so an operator who fat-fingers `1` in production sees that
+    // the agent is about to hammer their TRDS endpoint.
+    const RULE_PULL_INTERVAL_WARN_SECS: u64 = 10;
+    if config.rule_pull_interval < RULE_PULL_INTERVAL_WARN_SECS {
+        warn!(
+            configured = config.rule_pull_interval,
+            recommended_floor = RULE_PULL_INTERVAL_WARN_SECS,
+            "modules.local_detection.rule_pull_interval is below the recommended \
+             floor; the LDE will poll the TRDS endpoint very aggressively. This is \
+             intentional for the e2e hot-reload suite but should not be used in \
+             production. Consider setting rule_pull_interval >= 30."
+        );
+    }
     let mut rule_pull_timer =
         tokio::time::interval(Duration::from_secs(config.rule_pull_interval.max(1)));
 

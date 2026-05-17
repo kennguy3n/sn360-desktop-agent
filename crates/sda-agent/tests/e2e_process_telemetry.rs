@@ -190,7 +190,11 @@ fn office_chain_rule() -> BehavioralRule {
         id: "edr-chain-office-powershell".into(),
         severity: SEV_HIGH.into(),
         description: "Office process spawned PowerShell".into(),
-        event_source: "process".into(),
+        // Phase E review: pin ProcessChain rules to the
+        // `process_created` source tag so they cannot fire on
+        // ProcessTerminated / ImageLoaded events that share the
+        // same underlying domain.
+        event_source: "process_created".into(),
         kind: BehavioralRuleKind::ProcessChain {
             name_regex: r"^powershell(\.exe)?$".into(),
             parent_chain_regex: r".*(winword|excel|outlook)(\.exe)?.*".into(),
@@ -203,7 +207,7 @@ fn wmi_rundll_rule() -> BehavioralRule {
         id: "edr-chain-wmiprvse-rundll32".into(),
         severity: SEV_HIGH.into(),
         description: "WMI Provider Host spawned rundll32".into(),
-        event_source: "process".into(),
+        event_source: "process_created".into(),
         kind: BehavioralRuleKind::ProcessChain {
             name_regex: r"^rundll32(\.exe)?$".into(),
             parent_chain_regex: r".*wmiprvse(\.exe)?.*".into(),

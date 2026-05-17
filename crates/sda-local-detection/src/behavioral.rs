@@ -331,7 +331,10 @@ mod tests {
             id: id.into(),
             severity: SEV_HIGH.into(),
             description: desc.into(),
-            event_source: "process".into(),
+            // Phase E review: ProcessChain rules are pinned to the
+            // `process_created` source so they cannot fire on
+            // ProcessTerminated / ImageLoaded events.
+            event_source: "process_created".into(),
             kind: BehavioralRuleKind::ProcessChain {
                 name_regex: name_re.into(),
                 parent_chain_regex: chain_re.into(),
@@ -529,7 +532,7 @@ mod tests {
         );
         let mut eng = BehavioralEngine::new(vec![rule], 100, 3600);
         let hits = eng.evaluate(&BehavioralEvent {
-            source: "process",
+            source: "process_created",
             entity: r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
             text: "explorer.exe > winword.exe > cmd.exe > powershell.exe -enc ...",
         });
@@ -547,7 +550,7 @@ mod tests {
         );
         let mut eng = BehavioralEngine::new(vec![rule], 100, 3600);
         let hits = eng.evaluate(&BehavioralEvent {
-            source: "process",
+            source: "process_created",
             entity: r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
             text: "explorer.exe > cmd.exe > powershell.exe",
         });
@@ -564,7 +567,7 @@ mod tests {
         );
         let mut eng = BehavioralEngine::new(vec![rule], 100, 3600);
         let hits = eng.evaluate(&BehavioralEvent {
-            source: "process",
+            source: "process_created",
             entity: r"C:\Windows\System32\rundll32.exe",
             text: "svchost.exe > wmiprvse.exe > rundll32.exe some.dll,entry",
         });
@@ -599,11 +602,65 @@ mod tests {
         );
         let mut eng = BehavioralEngine::new(vec![rule], 100, 3600);
         let hits = eng.evaluate(&BehavioralEvent {
-            source: "process",
+            source: "process_created",
             entity: "powershell.exe",
             text: "powershell.exe -enc ...",
         });
         assert!(hits.is_empty(), "empty chain should not match chain regex");
+    }
+
+    /// Regression for the Phase E review: ProcessChain rules MUST
+    /// NOT fire on `ProcessTerminated` or `ImageLoaded` events even
+    /// though the underlying domain ("process") is shared.  We
+    /// enforce this by source-tag separation in `handle_event`; this
+    /// test pins the invariant in the engine's tests.
+    #[test]
+    fn test_process_chain_ignores_terminated_and_image_loaded_sources() {
+        let rule = process_chain_rule(
+            "edr-chain-001",
+            r"^powershell(\.exe)?$",
+            r".*winword(\.exe)?.*",
+            "Office app spawned PowerShell",
+        );
+        let mut eng = BehavioralEngine::new(vec![rule], 100, 3600);
+
+        // Synthetic ProcessTerminated payload: leaf is "terminated"
+        // so the name regex would not match even if we forgot the
+        // source pin; the source pin is the primary guard.
+        let terminated = eng.evaluate(&BehavioralEvent {
+            source: "process_terminated",
+            entity: "powershell.exe",
+            text: "explorer.exe > winword.exe > powershell.exe terminated exit_code=0",
+        });
+        assert!(
+            terminated.is_empty(),
+            "ProcessChain rule must not fire on process_terminated source"
+        );
+
+        // Synthetic ImageLoaded payload — same shape, different
+        // source tag.  The engine should ignore the event entirely.
+        let image_loaded = eng.evaluate(&BehavioralEvent {
+            source: "process_image_loaded",
+            entity: r"C:\Windows\System32\powershell.exe",
+            text: "explorer.exe > winword.exe > powershell.exe",
+        });
+        assert!(
+            image_loaded.is_empty(),
+            "ProcessChain rule must not fire on process_image_loaded source"
+        );
+
+        // Sanity: the same chain DOES fire when the source is the
+        // pinned `process_created`.
+        let created = eng.evaluate(&BehavioralEvent {
+            source: "process_created",
+            entity: r"C:\Windows\System32\powershell.exe",
+            text: "explorer.exe > winword.exe > powershell.exe",
+        });
+        assert_eq!(
+            created.len(),
+            1,
+            "ProcessChain rule must fire on process_created source"
+        );
     }
 
     #[test]

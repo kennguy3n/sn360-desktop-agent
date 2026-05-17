@@ -473,24 +473,57 @@ async fn main() -> Result<()> {
     //                `UnisolateHost` `SignedActionJob`s once the
     //                Device Control router learns to forward them
     //                (parity with the MDM dispatcher; that wiring
-    //                lands in a follow-up). The `submitter` is
-    //                bound at the outer scope so the channel stays
-    //                open for the lifetime of `main`.
+    //                lands in a follow-up).
+    //
+    //                **Safety guard:** the router validates jobs
+    //                against this agent's `(tenant_id, device_id)`
+    //                pair, and the `Phase1Stub` hooks reject every
+    //                signature with `UnknownKeyId` until the real
+    //                KeyStore lands. Until the follow-up wires
+    //                enrolled identity + a production key store
+    //                into this call site, *every* inbound job
+    //                would be silently refused. Rather than start
+    //                a non-functional module that looks healthy to
+    //                an operator, we log a `warn!` and skip
+    //                registration when the identity is nil — this
+    //                is the agent-side echo of `host_isolation`
+    //                being a follow-up-gated feature.
+    //
+    //                The `submitter` is bound at the outer scope
+    //                so the channel stays open for the lifetime of
+    //                `main` even when the module is not started.
     let _host_isolation_submitter: Option<sda_host_isolation::HostIsolationSubmitter> =
         if config.modules.host_isolation.enabled {
-            info!("starting host isolation module");
+            // TODO(edr-parity follow-up): replace these nil UUIDs
+            // with the real enrolled `(tenant_id, device_id)` from
+            // the agent's enrollment state once the SignedActionJob
+            // dispatcher is wired through Device Control.
             let identity = sda_device_control::router::AgentIdentity {
                 tenant_id: uuid::Uuid::nil(),
                 device_id: uuid::Uuid::nil(),
             };
-            let (hi_handle, submitter) = sda_host_isolation::HostIsolationModule::start(
-                &config,
-                identity,
-                agent.event_bus(),
-                agent.shutdown_signal(),
-            );
-            agent.register_module(hi_handle);
-            Some(submitter)
+            if identity.tenant_id.is_nil() || identity.device_id.is_nil() {
+                warn!(
+                    tenant_id = %identity.tenant_id,
+                    device_id = %identity.device_id,
+                    "host_isolation.enabled=true but enrolled identity has not been \
+                     wired through Device Control yet; every inbound SignedActionJob \
+                     would be refused by the router. Skipping module start. \
+                     Track sn360-security-platform follow-up E3.13 / E3.14 for the \
+                     wiring change that lifts this guard."
+                );
+                None
+            } else {
+                info!("starting host isolation module");
+                let (hi_handle, submitter) = sda_host_isolation::HostIsolationModule::start(
+                    &config,
+                    identity,
+                    agent.event_bus(),
+                    agent.shutdown_signal(),
+                );
+                agent.register_module(hi_handle);
+                Some(submitter)
+            }
         } else {
             None
         };

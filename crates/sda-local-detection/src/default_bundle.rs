@@ -55,7 +55,11 @@ pub fn default_bundle() -> RuleBundle {
                 id: "edr-process-chain-001".into(),
                 severity: SEV_HIGH.into(),
                 description: "Office application spawned PowerShell / cmd".into(),
-                event_source: "process".into(),
+                // Pinned to `process_created` so the rule cannot
+                // false-positive on ProcessTerminated / ImageLoaded
+                // events (which share the same domain in
+                // `handle_event` but emit different source tags).
+                event_source: "process_created".into(),
                 kind: BehavioralRuleKind::ProcessChain {
                     name_regex: r"^(powershell|cmd)\.exe$".into(),
                     parent_chain_regex: r".*(winword|excel|outlook|powerpnt)\.exe.*".into(),
@@ -65,7 +69,7 @@ pub fn default_bundle() -> RuleBundle {
                 id: "edr-process-chain-002".into(),
                 severity: SEV_HIGH.into(),
                 description: "wmiprvse.exe spawned rundll32.exe".into(),
-                event_source: "process".into(),
+                event_source: "process_created".into(),
                 kind: BehavioralRuleKind::ProcessChain {
                     name_regex: r"^rundll32\.exe$".into(),
                     parent_chain_regex: r".*wmiprvse\.exe.*".into(),
@@ -75,7 +79,7 @@ pub fn default_bundle() -> RuleBundle {
                 id: "edr-process-chain-003".into(),
                 severity: SEV_HIGH.into(),
                 description: "lsass.exe accessed by non-system process".into(),
-                event_source: "process".into(),
+                event_source: "process_created".into(),
                 kind: BehavioralRuleKind::ProcessChain {
                     // Note: this fires on `lsass.exe` *creation* from an
                     // unexpected parent — full handle-open detection

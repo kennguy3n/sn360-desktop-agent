@@ -279,6 +279,23 @@ async fn run(
     let last_state = Arc::new(Mutex::new(pal.is_isolated().unwrap_or(false)));
     let hooks_dyn = DynHooks(hooks);
 
+    // Concurrency invariant: `handle_job` is `.await`-driven inline
+    // inside this `select!` loop, and the only `rx.recv()` consumer
+    // is right here.  That means at most one job is in flight at any
+    // moment: `pal.isolate()`, the `last_state` lock acquisition, and
+    // the `emit_state_changed` publish all run serially per-job.
+    //
+    // Without that serialization the "only on actual transitions"
+    // invariant could be violated — two concurrent `IsolateHost`
+    // jobs could both invoke `pal.isolate()` before either took the
+    // `last_state` mutex, then both observe `*g == false`, and emit
+    // two `HostIsolationStateChanged` events for what is logically a
+    // single transition.  The mpsc + `tokio::select!` arrangement
+    // makes that race unreachable in the current architecture; if a
+    // future refactor introduces a worker pool or multiplexes jobs
+    // over multiple tasks, the invariant must be re-proved (likely
+    // by moving the PAL call inside the `last_state` critical
+    // section).
     loop {
         tokio::select! {
             biased;

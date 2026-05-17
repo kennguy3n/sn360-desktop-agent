@@ -153,11 +153,26 @@ modules:
 ```yaml
 modules:
   local_detection:
-    enabled: true
+    enabled: true                       # default since EDR Parity E2.3 — see Migration
     rule_bundle_path: /var/lib/sn360-desktop-agent/rules.mp
     yara_rules_dir: /var/lib/sn360-desktop-agent/yara
     offline_queue_capacity: 10000
+    rule_pull_interval: 60              # seconds between TRDS pulls (default: 60)
+    trds_endpoint: null                 # optional — when null, the embedded baseline bundle is used
+    rule_bundle_signing_keys: []        # hex-encoded Ed25519 public keys for TRDS bundle verification
 ```
+
+`enabled` defaults to `true` — agents that omit this section will
+run the Local Detection Engine against the embedded baseline
+bundle (three behavioural process-chain rules + a small set of
+synthetic IOCs from `crates/sda-local-detection/src/default_bundle.rs`)
+on startup. To preserve the pre-EDR-Parity default-off behaviour,
+explicitly set `modules.local_detection.enabled: false`.
+
+`rule_pull_interval` is enforced with a soft floor of 1 second so
+the e2e hot-reload suite can converge quickly; in production we
+recommend ≥ 30 seconds. The agent emits a `warn!` at startup when
+the configured value is below the recommended floor.
 
 ### `modules.enhanced_inventory`
 
