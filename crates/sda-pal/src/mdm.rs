@@ -196,6 +196,202 @@ pub fn should_perform_factory_reset(opts: &WipeOpts) -> bool {
     !opts.crypto_shred_only
 }
 
+/// Whether the control plane has asked for security-only updates.
+///
+/// `true` iff the operator explicitly opted into
+/// `include_security && !include_feature` — the default MDM
+/// configuration. Every other combination falls through to
+/// `false` ("don't restrict — install whatever the package
+/// manager's default upgrade target would install"):
+///
+///   * `(true, true)`  ⇒ `false` — install everything
+///   * `(false, true)` ⇒ `false` — "features without security" is
+///     not expressible on macOS `softwareupdate`, Windows
+///     PSWindowsUpdate, or `dnf-automatic`; we treat it as
+///     "install everything" rather than try to subtract security
+///     advisories (overshoots into security on those backends —
+///     documented as a Phase-M1 limitation in
+///     `docs/desktop-mdm/PROGRESS.md`).
+///   * `(false, false)` ⇒ `false` — gated upstream by
+///     [`crate::config::OsPatchConfig::should_run_now`]; if it
+///     leaks through we install everything rather than restrict.
+///
+/// Centralised so every package-manager helper
+/// ([`unattended_upgrade_args`], [`dnf_upgrade_args`],
+/// [`zypper_args`], [`softwareupdate_args`],
+/// [`pswindowsupdate_script`]) uses the same decision axis. The
+/// pre-fix implementation only wired this axis into
+/// `unattended-upgrade` — zypper, dnf-automatic, and Windows fully
+/// ignored [`OsUpdateOpts`], and macOS ignored
+/// [`OsUpdateOpts::include_security`].
+pub fn security_only_mode(opts: &OsUpdateOpts) -> bool {
+    opts.include_security && !opts.include_feature
+}
+
+/// Build the arg list passed to `unattended-upgrade` on
+/// Debian/Ubuntu.
+///
+/// See [`security_only_mode`] for the decision axis. When the
+/// operator asked for security-only updates we add
+/// `--security-only`; otherwise we let `unattended-upgrade` install
+/// the default target (everything it would normally pick up).
+///
+/// Lives at module root (rather than inside `linux_impl`) so the
+/// decision-tree unit test runs on every CI matrix entry, not just
+/// Linux. `allow(dead_code)` because the lib build on non-Linux
+/// targets doesn't compile `linux_impl`, so the helper looks
+/// orphaned there — the cross-platform test in [`mod tests`]
+/// still exercises it.
+#[allow(dead_code)]
+pub(crate) fn unattended_upgrade_args(opts: &OsUpdateOpts) -> Vec<&'static str> {
+    let mut args = vec!["--debug", "-v"];
+    if security_only_mode(opts) {
+        args.push("--security-only");
+    }
+    args
+}
+
+/// Build the arg list passed to `dnf upgrade` on Fedora / RHEL /
+/// CentOS Stream / Rocky / Alma.
+///
+/// Direct `dnf` is preferred over `dnf-automatic` because
+/// `dnf-automatic`'s update scope is configured system-wide in
+/// `/etc/dnf/automatic.conf` rather than per-invocation, so we
+/// can't honour [`OsUpdateOpts`] through it (see
+/// [`dnf_automatic_args`] for the degenerate fallback). When
+/// [`security_only_mode`] is `true` we add `--security`, which
+/// restricts the upgrade transaction to advisories whose
+/// `Type` is `security` per the `updateinfo.xml` repodata. When
+/// `false` we let `dnf upgrade` install all available updates.
+///
+/// `--refresh` forces a `dnf makecache` so we operate on fresh
+/// metadata — the auto-remediation cadence is daily, and the
+/// extra HTTP round-trip is cheap compared to installing stale
+/// security advisories.
+///
+/// `allow(dead_code)` for the same reason as
+/// [`unattended_upgrade_args`] — not used by non-Linux lib builds.
+#[allow(dead_code)]
+pub(crate) fn dnf_upgrade_args(opts: &OsUpdateOpts) -> Vec<&'static str> {
+    let mut args = vec!["upgrade", "--refresh", "-y"];
+    if security_only_mode(opts) {
+        args.push("--security");
+    }
+    args
+}
+
+/// Build the arg list passed to `dnf-automatic`.
+///
+/// Degenerate fallback for hosts that have `dnf-automatic`
+/// installed but not the regular `dnf` CLI binary (rare —
+/// `dnf-automatic` is itself a wrapper around `dnf`). The scope
+/// of what `dnf-automatic --installupdates` installs is determined
+/// by `/etc/dnf/automatic.conf::upgrade_type` and **cannot be
+/// overridden per invocation**.
+///
+/// We therefore return the same args regardless of
+/// [`OsUpdateOpts`] and rely on the host's pre-existing
+/// configuration. Operators who need per-invocation control should
+/// install the `dnf` CLI (which we'll prefer in
+/// [`linux_impl::LinuxMdmProvider::detect_update_tool`]) or set
+/// `upgrade_type = security` in `/etc/dnf/automatic.conf` to match
+/// the agent's default contract.
+///
+/// `allow(dead_code)` for the same reason as
+/// [`unattended_upgrade_args`] — not used by non-Linux lib builds.
+#[allow(dead_code)]
+pub(crate) fn dnf_automatic_args(_opts: &OsUpdateOpts) -> Vec<&'static str> {
+    vec!["--installupdates"]
+}
+
+/// Build the arg list passed to `zypper` on SUSE / openSUSE.
+///
+/// When [`security_only_mode`] is `true` we run `zypper patch -y
+/// --category security`, which restricts the patch transaction to
+/// SUSE advisories whose category is `security`. When `false` we
+/// run `zypper update -y` to install all available package
+/// version upgrades (overshoots into security — `update` will
+/// pick up packages that also carry pending security patches).
+///
+/// The split between `patch` (advisory-driven) and `update`
+/// (version-driven) is SUSE-idiomatic and matches the symmetry of
+/// the other backends:
+///
+///   * security-only mode ⇒ advisory-driven, category-restricted
+///   * everything mode    ⇒ version-driven, unrestricted
+///
+/// `allow(dead_code)` for the same reason as
+/// [`unattended_upgrade_args`] — not used by non-Linux lib builds.
+#[allow(dead_code)]
+pub(crate) fn zypper_args(opts: &OsUpdateOpts) -> Vec<&'static str> {
+    if security_only_mode(opts) {
+        vec!["patch", "-y", "--category", "security"]
+    } else {
+        vec!["update", "-y"]
+    }
+}
+
+/// Build the arg list passed to macOS `softwareupdate`.
+///
+/// `softwareupdate` exposes two install scopes:
+///   * `--recommended` — Apple-flagged "recommended" updates
+///     (predominantly security / OS-level rollups)
+///   * `--all`         — every available update, recommended + others
+///
+/// There is no `--security-only` analogue, so `--recommended` is
+/// the closest semantic match when [`security_only_mode`] is
+/// `true`. The `(false, true)` "features without security" case
+/// is not expressible — see [`security_only_mode`] for the
+/// rationale.
+///
+/// `allow(dead_code)` because the lib build on non-macOS targets
+/// doesn't compile `macos_impl`, so the helper looks orphaned
+/// there — the cross-platform test in [`mod tests`] still
+/// exercises it.
+#[allow(dead_code)]
+pub(crate) fn softwareupdate_args(opts: &OsUpdateOpts) -> Vec<&'static str> {
+    if security_only_mode(opts) {
+        vec!["--install", "--recommended"]
+    } else {
+        vec!["--install", "--all"]
+    }
+}
+
+/// Build the PowerShell script passed to `powershell -Command`
+/// for `PSWindowsUpdate`-driven OS patching.
+///
+/// PSWindowsUpdate accepts a `-Category` parameter that filters
+/// the install transaction to a list of MSU update categories.
+/// When [`security_only_mode`] is `true` we pass
+/// `-Category 'Security Updates','Critical Updates','Definition Updates'`
+/// — the canonical set that covers (a) Windows Update for
+/// Business-classified security advisories, (b) MSRC-classified
+/// critical patches, and (c) Defender signature refreshes. When
+/// `false` we omit `-Category` and let PSWindowsUpdate install
+/// every available update.
+///
+/// `-AcceptAll` skips per-update interactive prompts;
+/// `-AutoReboot:$false` defers the reboot decision back to the
+/// agent (the orchestrator honours [`OsUpdateOpts::reboot_policy`]
+/// at a higher layer in `sda-mdm::os_patch`).
+///
+/// `allow(dead_code)` because the lib build on non-Windows targets
+/// doesn't compile `windows_impl`, so the helper looks orphaned
+/// there — the cross-platform test in [`mod tests`] still
+/// exercises it.
+#[allow(dead_code)]
+pub(crate) fn pswindowsupdate_script(opts: &OsUpdateOpts) -> String {
+    let mut script = String::from(
+        "if (-not (Get-Module -ListAvailable PSWindowsUpdate)) { \
+            Install-Module PSWindowsUpdate -Scope CurrentUser -Force -ErrorAction SilentlyContinue \
+        }; Install-WindowsUpdate -AcceptAll -AutoReboot:$false",
+    );
+    if security_only_mode(opts) {
+        script.push_str(" -Category 'Security Updates','Critical Updates','Definition Updates'");
+    }
+    script
+}
+
 // =====================================================================
 // Linux implementation
 // =====================================================================
@@ -249,50 +445,31 @@ mod linux_impl {
             None
         }
 
-        /// Best-effort detection of which package manager update tool
-        /// is available on this host. Returns the first match in
-        /// preference order: `unattended-upgrade`, `dnf-automatic`,
-        /// `zypper`. Used by [`Self::install_os_updates`].
+        /// Best-effort detection of which package manager update
+        /// tool is available on this host. Returns the first match
+        /// in preference order:
+        ///
+        ///   1. `unattended-upgrade` — Debian / Ubuntu.
+        ///   2. `dnf` — Fedora / RHEL / CentOS Stream / Rocky / Alma.
+        ///      Preferred over `dnf-automatic` because direct `dnf`
+        ///      honours [`OsUpdateOpts`] per-invocation, whereas
+        ///      `dnf-automatic`'s update scope is configured
+        ///      system-wide in `/etc/dnf/automatic.conf`.
+        ///   3. `dnf-automatic` — fallback when the regular `dnf`
+        ///      CLI is not installed.
+        ///   4. `zypper` — SUSE / openSUSE.
+        ///
+        /// Used by [`Self::install_os_updates`].
         pub(crate) fn detect_update_tool() -> Option<&'static str> {
             [
                 "/usr/bin/unattended-upgrade",
                 "/usr/sbin/unattended-upgrade",
+                "/usr/bin/dnf",
                 "/usr/bin/dnf-automatic",
                 "/usr/bin/zypper",
             ]
             .into_iter()
             .find(|tool| std::path::Path::new(tool).exists())
-        }
-
-        /// Build the arg list passed to the detected update tool.
-        ///
-        /// Split out from [`Self::install_os_updates`] so we can
-        /// unit-test the `--security-only` / `--all` decision tree
-        /// without spawning a real process.
-        ///
-        /// Semantics (matches the macOS `softwareupdate` shape at
-        /// `MacMdmProvider::install_os_updates`):
-        ///
-        ///   * `include_feature = true` ⇒ install everything, no
-        ///     restrictor flag.
-        ///   * `include_security = true && include_feature = false`
-        ///     (the default) ⇒ restrict to security patches only via
-        ///     `--security-only`.
-        ///   * `include_security = false && include_feature = false`
-        ///     ⇒ shouldn't reach the PAL (gated upstream by
-        ///     [`OsPatchConfig`]); we treat it as "nothing requested,
-        ///     don't restrict" for forward-safety.
-        ///
-        /// The previous implementation inverted the guard
-        /// (`!include_security && !include_feature`), which silently
-        /// installed feature updates on every Linux device running
-        /// the default MDM config. Fixed in this commit.
-        pub(crate) fn unattended_upgrade_args(opts: &OsUpdateOpts) -> Vec<&'static str> {
-            let mut args = vec!["--debug", "-v"];
-            if opts.include_security && !opts.include_feature {
-                args.push("--security-only");
-            }
-            args
         }
     }
 
@@ -384,12 +561,20 @@ mod linux_impl {
             let tool = Self::detect_update_tool()
                 .ok_or_else(|| MdmError::Unsupported("no supported OS update tool".into()))?;
             let mut cmd = Command::new(tool);
+            // Order matters: `dnf-automatic` ends with `automatic`
+            // (not `dnf`) so the `ends_with("dnf-automatic")` arm
+            // must come **before** `ends_with("/dnf")`. We use the
+            // leading-slash form on `dnf` so a future
+            // `/usr/bin/dnf-noop` symlink can't accidentally hit
+            // the regular-`dnf` arm.
             if tool.ends_with("zypper") {
-                cmd.args(["patch", "-y"]);
+                cmd.args(super::zypper_args(opts));
             } else if tool.ends_with("dnf-automatic") {
-                cmd.arg("--installupdates");
+                cmd.args(super::dnf_automatic_args(opts));
+            } else if tool.ends_with("/dnf") {
+                cmd.args(super::dnf_upgrade_args(opts));
             } else {
-                cmd.args(Self::unattended_upgrade_args(opts));
+                cmd.args(super::unattended_upgrade_args(opts));
             }
             let out = cmd.output().map_err(MdmError::Io)?;
             let log = [&out.stdout[..], &out.stderr[..]].concat();
@@ -604,12 +789,7 @@ mod macos_impl {
 
         fn install_os_updates(&self, opts: &OsUpdateOpts) -> Result<OsUpdateOutcome> {
             let mut cmd = Command::new("softwareupdate");
-            cmd.arg("--install");
-            if opts.include_feature {
-                cmd.arg("--all");
-            } else {
-                cmd.arg("--recommended");
-            }
+            cmd.args(super::softwareupdate_args(opts));
             let out = cmd.output().map_err(MdmError::Io)?;
             let log = [&out.stdout[..], &out.stderr[..]].concat();
             let mut hasher = sha2_sha256();
@@ -830,12 +1010,10 @@ mod windows_impl {
             })
         }
 
-        fn install_os_updates(&self, _opts: &OsUpdateOpts) -> Result<OsUpdateOutcome> {
-            let script = "if (-not (Get-Module -ListAvailable PSWindowsUpdate)) { \
-                Install-Module PSWindowsUpdate -Scope CurrentUser -Force -ErrorAction SilentlyContinue \
-            }; Install-WindowsUpdate -AcceptAll -AutoReboot:$false";
+        fn install_os_updates(&self, opts: &OsUpdateOpts) -> Result<OsUpdateOutcome> {
+            let script = super::pswindowsupdate_script(opts);
             let out = Command::new("powershell")
-                .args(["-NoProfile", "-Command", script])
+                .args(["-NoProfile", "-Command", &script])
                 .output()
                 .map_err(MdmError::Io)?;
             let log = [&out.stdout[..], &out.stderr[..]].concat();
@@ -1274,6 +1452,219 @@ mod tests {
         assert!(log_indicates_reboot("Please restart your computer."));
         assert!(!log_indicates_reboot("All packages up to date."));
     }
+
+    /// Helper for the per-backend decision-tree tests below — the
+    /// four `(include_security, include_feature)` combinations
+    /// that every PAL update helper must handle, with the
+    /// canonical-config row first so test failures surface the
+    /// default-MDM-config regression most prominently.
+    fn os_update_opts_cases() -> [(bool, bool); 4] {
+        [
+            // Default MDM config — the operator wants security-only.
+            (true, false),
+            // Operator opted into feature updates as well — install
+            // everything.
+            (true, true),
+            // Degenerate "feature only, no security" — we treat it
+            // as "install everything" because none of the supported
+            // package managers can express "features minus security"
+            // per-invocation.
+            (false, true),
+            // Degenerate "nothing requested" — gated upstream by
+            // [`OsPatchConfig::should_run_now`]; if it leaks through
+            // we install everything rather than restrict.
+            (false, false),
+        ]
+    }
+
+    fn mk_opts(include_security: bool, include_feature: bool) -> OsUpdateOpts {
+        OsUpdateOpts {
+            include_security,
+            include_feature,
+            reboot_policy: RebootPolicy::Never,
+        }
+    }
+
+    /// Pins the central decision axis used by every PAL update
+    /// helper. Any future refactor that flips one of these four
+    /// rows is a wire-contract change — the control plane's
+    /// default MDM config relies on the `(true, false) ⇒ true`
+    /// row to scope auto-remediation to security advisories.
+    #[test]
+    fn security_only_mode_decision_tree() {
+        for (include_security, include_feature) in os_update_opts_cases() {
+            let opts = mk_opts(include_security, include_feature);
+            let expected = include_security && !include_feature;
+            assert_eq!(
+                security_only_mode(&opts),
+                expected,
+                "security_only_mode mismatch for (include_security={include_security}, include_feature={include_feature})"
+            );
+        }
+    }
+
+    /// Regression coverage for the inverted guard caught by Devin
+    /// Review on commit `437ffc8` — under the default MDM config
+    /// (`include_security=true, include_feature=false`) the
+    /// pre-fix `!sec && !feat` test evaluated to `false`, so feature
+    /// updates were silently installed on every Linux device.
+    ///
+    /// Lives in the cross-platform `mod tests` (rather than
+    /// `linux_tests`) so the decision-tree pin runs on the macOS
+    /// and Windows CI matrix entries too — the helper itself is
+    /// pure and OS-agnostic.
+    #[test]
+    fn unattended_upgrade_args_decision_tree() {
+        for (include_security, include_feature) in os_update_opts_cases() {
+            let opts = mk_opts(include_security, include_feature);
+            let args = unattended_upgrade_args(&opts);
+            assert!(
+                args.starts_with(&["--debug", "-v"]),
+                "args missing --debug -v prefix: {args:?}"
+            );
+            let has_security_only = args.contains(&"--security-only");
+            let want_security_only = include_security && !include_feature;
+            assert_eq!(
+                has_security_only, want_security_only,
+                "unattended_upgrade_args --security-only mismatch for (include_security={include_security}, include_feature={include_feature}): {args:?}"
+            );
+        }
+    }
+
+    /// Pins the `dnf upgrade --security` decision tree. `--refresh`
+    /// and `-y` are unconditional; `--security` only appears when
+    /// [`security_only_mode`] is `true`.
+    #[test]
+    fn dnf_upgrade_args_decision_tree() {
+        for (include_security, include_feature) in os_update_opts_cases() {
+            let opts = mk_opts(include_security, include_feature);
+            let args = dnf_upgrade_args(&opts);
+            assert!(
+                args.starts_with(&["upgrade", "--refresh", "-y"]),
+                "args missing common prefix: {args:?}"
+            );
+            let has_security = args.contains(&"--security");
+            let want_security = include_security && !include_feature;
+            assert_eq!(
+                has_security, want_security,
+                "dnf_upgrade_args --security mismatch for (include_security={include_security}, include_feature={include_feature}): {args:?}"
+            );
+        }
+    }
+
+    /// `dnf-automatic` cannot honour [`OsUpdateOpts`] per
+    /// invocation — its update scope is configured system-wide in
+    /// `/etc/dnf/automatic.conf::upgrade_type`. The helper
+    /// therefore returns the same args regardless of the four
+    /// input combinations. This test pins that limitation so a
+    /// future contributor who adds a flag here also has to update
+    /// the comment in [`dnf_automatic_args`] explaining why it's
+    /// possible.
+    #[test]
+    fn dnf_automatic_args_is_invariant_under_opts() {
+        let mut seen = std::collections::HashSet::new();
+        for (include_security, include_feature) in os_update_opts_cases() {
+            let opts = mk_opts(include_security, include_feature);
+            let args = dnf_automatic_args(&opts);
+            assert_eq!(
+                args,
+                vec!["--installupdates"],
+                "dnf_automatic_args returned unexpected args for (include_security={include_security}, include_feature={include_feature}): {args:?}"
+            );
+            seen.insert(args);
+        }
+        assert_eq!(
+            seen.len(),
+            1,
+            "dnf_automatic_args is documented as invariant under OsUpdateOpts but produced multiple outputs"
+        );
+    }
+
+    /// Pins the `zypper patch` vs `zypper update` split.
+    ///   * security-only mode ⇒ `patch -y --category security`
+    ///   * everything mode    ⇒ `update -y`
+    #[test]
+    fn zypper_args_decision_tree() {
+        for (include_security, include_feature) in os_update_opts_cases() {
+            let opts = mk_opts(include_security, include_feature);
+            let args = zypper_args(&opts);
+            let want_security_only = include_security && !include_feature;
+            if want_security_only {
+                assert_eq!(
+                    args,
+                    vec!["patch", "-y", "--category", "security"],
+                    "zypper_args wrong for security-only mode (include_security={include_security}, include_feature={include_feature})"
+                );
+            } else {
+                assert_eq!(
+                    args,
+                    vec!["update", "-y"],
+                    "zypper_args wrong for everything mode (include_security={include_security}, include_feature={include_feature})"
+                );
+            }
+        }
+    }
+
+    /// Pins the macOS `softwareupdate --recommended` vs
+    /// `softwareupdate --all` split. `softwareupdate` has no
+    /// `--security-only` analogue, so `--recommended` is the
+    /// closest semantic match for security-only mode.
+    #[test]
+    fn softwareupdate_args_decision_tree() {
+        for (include_security, include_feature) in os_update_opts_cases() {
+            let opts = mk_opts(include_security, include_feature);
+            let args = softwareupdate_args(&opts);
+            assert_eq!(args[0], "--install");
+            let want_security_only = include_security && !include_feature;
+            if want_security_only {
+                assert_eq!(
+                    args,
+                    vec!["--install", "--recommended"],
+                    "softwareupdate_args wrong for security-only mode (include_security={include_security}, include_feature={include_feature})"
+                );
+            } else {
+                assert_eq!(
+                    args,
+                    vec!["--install", "--all"],
+                    "softwareupdate_args wrong for everything mode (include_security={include_security}, include_feature={include_feature})"
+                );
+            }
+        }
+    }
+
+    /// Pins the PSWindowsUpdate `-Category` decision tree:
+    ///   * security-only mode ⇒ `-Category 'Security Updates','Critical Updates','Definition Updates'`
+    ///   * everything mode    ⇒ no `-Category` (install everything)
+    #[test]
+    fn pswindowsupdate_script_decision_tree() {
+        for (include_security, include_feature) in os_update_opts_cases() {
+            let opts = mk_opts(include_security, include_feature);
+            let script = pswindowsupdate_script(&opts);
+            // Common shape is always present.
+            assert!(
+                script.contains("Install-WindowsUpdate -AcceptAll -AutoReboot:$false"),
+                "pswindowsupdate_script missing Install-WindowsUpdate shape: {script:?}"
+            );
+            assert!(
+                script.contains("PSWindowsUpdate"),
+                "pswindowsupdate_script missing PSWindowsUpdate module: {script:?}"
+            );
+            let has_category = script.contains("-Category");
+            let want_category = include_security && !include_feature;
+            assert_eq!(
+                has_category, want_category,
+                "pswindowsupdate_script -Category mismatch for (include_security={include_security}, include_feature={include_feature}): {script:?}"
+            );
+            if want_category {
+                assert!(
+                    script.contains(
+                        "-Category 'Security Updates','Critical Updates','Definition Updates'"
+                    ),
+                    "pswindowsupdate_script wrong -Category list for security-only mode: {script:?}"
+                );
+            }
+        }
+    }
 }
 
 #[cfg(all(test, target_os = "linux"))]
@@ -1341,60 +1732,6 @@ mod linux_tests {
         let p = LinuxMdmProvider::new();
         let r = p.enable_disk_encryption();
         assert!(matches!(r, Err(MdmError::Unsupported(_))));
-    }
-
-    /// Asserts the `--security-only` decision tree for
-    /// `unattended-upgrade` is correct across all four
-    /// `(include_security, include_feature)` combinations.
-    ///
-    /// Regression coverage for the inverted guard caught by Devin
-    /// Review on commit 437ffc8 — under the default MDM config
-    /// (`include_security=true, include_feature=false`) the old
-    /// `!sec && !feat` test evaluated to `false`, so feature updates
-    /// were silently installed on every Linux device.
-    #[test]
-    fn linux_unattended_upgrade_args_decision_tree() {
-        // (include_security, include_feature, expected_extra_flag)
-        let cases: &[(bool, bool, Option<&str>)] = &[
-            // Default MDM config — must restrict to security only.
-            (true, false, Some("--security-only")),
-            // Operator opted into feature updates — install
-            // everything, no restrictor.
-            (true, true, None),
-            // Degenerate "feature only, no security" — install
-            // everything, no restrictor (`unattended-upgrade` has no
-            // `--feature-only`).
-            (false, true, None),
-            // Degenerate "nothing requested" — gated upstream by
-            // `OsPatchConfig`, but if it leaks through we install
-            // everything rather than restrict.
-            (false, false, None),
-        ];
-        for &(include_security, include_feature, expected) in cases {
-            let opts = OsUpdateOpts {
-                include_security,
-                include_feature,
-                reboot_policy: RebootPolicy::Never,
-            };
-            let args = LinuxMdmProvider::unattended_upgrade_args(&opts);
-            // Common prefix is always present.
-            assert!(
-                args.starts_with(&["--debug", "-v"]),
-                "args missing --debug -v prefix: {args:?}"
-            );
-            let has_security_only = args.contains(&"--security-only");
-            match expected {
-                Some("--security-only") => assert!(
-                    has_security_only,
-                    "expected --security-only for (include_security={include_security}, include_feature={include_feature}), got {args:?}"
-                ),
-                None => assert!(
-                    !has_security_only,
-                    "did NOT expect --security-only for (include_security={include_security}, include_feature={include_feature}), got {args:?}"
-                ),
-                _ => unreachable!(),
-            }
-        }
     }
 }
 
