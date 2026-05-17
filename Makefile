@@ -22,7 +22,7 @@ TARGETS := \
 
 .PHONY: build release test lint fmt clippy all-targets clean e2e e2e-compat e2e-macos e2e-windows security-e2e \
         e2e-device-control e2e-software e2e-jit-admin e2e-app-control e2e-remote-support \
-        e2e-device-policy \
+        e2e-device-policy e2e-mdm e2e-mdm-actions e2e-mdm-profile \
         e2e-management-compat benchmark-ci deb rpm pkg msi \
         test-unit test-integration test-e2e-all test-full test-pr
 
@@ -52,7 +52,7 @@ test-integration:
 	$(CARGO) test --workspace --exclude sda-agent
 	$(CARGO) test --package sda-agent --bins
 
-# All 7 hermetic Device Control E2E suites in one shot.
+# All hermetic Device Control + Desktop MDM E2E suites in one shot.
 test-e2e-all:
 	$(CARGO) test --package sda-agent --test e2e_device_control -- --nocapture
 	$(CARGO) test --package sda-agent --test e2e_software -- --nocapture
@@ -61,6 +61,9 @@ test-e2e-all:
 	$(CARGO) test --package sda-agent --test e2e_remote_support -- --nocapture
 	$(CARGO) test --package sda-agent --test e2e_management_compat -- --nocapture
 	$(CARGO) test --package sda-agent --test e2e_device_policy -- --nocapture
+	$(CARGO) test --package sda-agent --test e2e_mdm -- --nocapture
+	$(CARGO) test --package sda-agent --test e2e_mdm_actions -- --nocapture
+	$(CARGO) test --package sda-agent --test e2e_mdm_profile -- --nocapture
 
 # Full: everything — unit + integration + all E2E + shell E2E + benchmarks.
 test-full: test-integration test-e2e-all e2e e2e-compat security-e2e benchmark-ci
@@ -168,6 +171,30 @@ e2e-management-compat:
 # crates/sda-agent/tests/e2e_device_policy.rs.
 e2e-device-policy:
 	$(CARGO) test --package sda-agent --test e2e_device_policy -- --nocapture
+
+# Phase M1 Desktop MDM E2E suite (auto-remediation, recovery key
+# escrow round-trip, OS patch scan + install, battery-aware
+# deferral, 24h debounce). Hermetic — uses mock MdmProvider. Lives
+# in crates/sda-agent/tests/e2e_mdm.rs.
+e2e-mdm:
+	$(CARGO) test --package sda-agent --test e2e_mdm -- --nocapture
+
+# Phase M2 Desktop MDM action E2E suite (single-signature wipe is
+# refused; two-signature wipe is accepted; remote lock; lost-mode
+# enter/exit round-trip; AgentVitals.last_known_location after
+# reconnect). Hermetic — uses mock MdmProvider. Lives in
+# crates/sda-agent/tests/e2e_mdm_actions.rs.
+e2e-mdm-actions:
+	$(CARGO) test --package sda-agent --test e2e_mdm_actions -- --nocapture
+
+# Phase M3 Desktop MDM declarative configuration profile E2E suite
+# (push signed profile via bundle, verify password policy /
+# screen-lock / Bluetooth enforcement; tampered profile rejected at
+# signature check; MdmConfigProfileApplied event emitted with
+# correct profile_id). Hermetic — uses mock MdmProvider. Lives in
+# crates/sda-agent/tests/e2e_mdm_profile.rs.
+e2e-mdm-profile:
+	$(CARGO) test --package sda-agent --test e2e_mdm_profile -- --nocapture
 
 clean:
 	$(CARGO) clean

@@ -471,6 +471,62 @@ async fn main() -> Result<()> {
         }
     }
 
+    // 12i-bis. ShieldNet Desktop MDM module (Phase M1–M3).
+    //           ON by default (`modules.mdm.enabled = true`).
+    //           Spawns the auto-remediation supervisor, config-profile
+    //           watcher, one-shot recovery-key escrow, and parks the
+    //           wipe/lock/lost-mode/config-profile dispatch path until a
+    //           SignedActionJob arrives from the Device Control router.
+    //
+    // The shared `LastKnownLocationStore` is built BEFORE both the MDM
+    // module and the agent-vitals heartbeat (position 12m below) so the
+    // two can rendezvous on the same instance: the lost-mode reporter
+    // writes IP-geolocation readings into it, the heartbeat reads back
+    // from it when assembling the next `AgentVitals` payload. Without
+    // this rendezvous the heartbeat's `last_known_location` field would
+    // always be `None` in production even while the reporter is
+    // actively writing — the bug Devin Review flagged as #11.
+    let mdm_location_store = sda_core::location::LastKnownLocationStore::new();
+    if config.modules.mdm.enabled {
+        info!("starting desktop MDM module");
+        let mdm_provider: std::sync::Arc<dyn sda_pal::mdm::MdmProvider> =
+            std::sync::Arc::from(sda_pal::mdm::default_mdm_provider());
+        let mdm_power: sda_mdm::module::SharedPowerState = std::sync::Arc::new(
+            sda_mdm::os_patch::WatchPowerStateProvider::new(power_rx.clone()),
+        );
+        let mdm_geolocator: std::sync::Arc<dyn sda_mdm::lost_mode::IpGeolocator> =
+            std::sync::Arc::new(sda_mdm::lost_mode::NoopGeolocator);
+        let mdm_module = std::sync::Arc::new(sda_mdm::MdmModule::with_geolocator(
+            config.modules.mdm.clone(),
+            mdm_provider,
+            agent.event_bus(),
+            Vec::new(), // pinned profile signing keys — populated by TRDS bundle push
+            mdm_power,
+            None, // recovery escrow identity — populated after enrollment handshake
+            mdm_location_store.clone(),
+            mdm_geolocator,
+        ));
+        // `start()` consumes one clone of the `Arc<MdmModule>` and
+        // spawns an internal dispatcher task that holds its own
+        // clone of the same `Arc` (the `dispatch_self` capture in
+        // `sda_mdm::module`). That dispatcher-side `Arc` is what
+        // keeps the module — and the `mpsc` sender / receiver pair
+        // returned by `action_sender()` — alive for the lifetime
+        // of the agent. The local `mdm_module` `Arc` here is
+        // therefore free to drop at end of this scope; we do not
+        // need a `let _keep_alive = mdm_module;` shim.
+        //
+        // Once the Device Control router learns to forward
+        // MDM-flavour jobs to `MdmModule::dispatch`, the router
+        // wiring will live here too: it'll need `mdm_module
+        // .action_sender()` (or a wrapper that holds the sender
+        // through the router's lifecycle). That code path is not
+        // yet implemented — the inbound dispatch arms in
+        // `MdmModule::dispatch` are reachable but not reached.
+        let mdm_handle = mdm_module.start(agent.shutdown_signal());
+        agent.register_module(mdm_handle);
+    }
+
     // 12j. Query (osquery sidecar) module — Phase 1 MVP.
     //      Default is disabled. The supervisor probes the configured
     //      osquery binary, runs scheduled queries, and emits
@@ -637,12 +693,20 @@ async fn main() -> Result<()> {
     //      pilots.
     if config.modules.device_control.enabled || config.modules.agent_vitals.enabled {
         info!("starting agent vitals module");
+        // Hand the heartbeat the same `LastKnownLocationStore` the
+        // Desktop MDM module's lost-mode reporter writes into so the
+        // `AgentVitals` payload carries the latest IP-geolocation
+        // reading (per ARCHITECTURE.md § 3.7). The store is created
+        // unconditionally up top so the heartbeat can still read it
+        // even when `modules.mdm.enabled = false` (in which case the
+        // reading will be `None` until the MDM module is enabled).
         let av_handle = sda_agent_vitals::VitalsModule::start(
             config.modules.agent_vitals.interval_secs,
             sda_agent_vitals::VitalsCounters::new(),
             agent.event_bus(),
             agent.shutdown_signal(),
             power_rx.clone(),
+            Some(mdm_location_store.clone()),
         );
         agent.register_module(av_handle);
     }
@@ -802,6 +866,28 @@ fn map_event_to_message(agent_id: &str, kind: &EventKind) -> Option<WazuhMessage
         EventKind::EvidenceRecord { payload } => (MessageType::EvidenceRecord, payload.clone()),
         EventKind::UsbDevicePolicyDecision { payload } => {
             (MessageType::UsbDevicePolicyDecision, payload.clone())
+        }
+
+        // --- Desktop MDM event mapping (Phase M1–M3) ---
+        EventKind::MdmWipeResult { payload } => (MessageType::MdmWipeResult, payload.clone()),
+        EventKind::MdmLockResult { payload } => (MessageType::MdmLockResult, payload.clone()),
+        EventKind::MdmLostModeEntered { payload } => {
+            (MessageType::MdmLostModeEntered, payload.clone())
+        }
+        EventKind::MdmLostModeExited { payload } => {
+            (MessageType::MdmLostModeExited, payload.clone())
+        }
+        EventKind::MdmRecoveryKeyEscrowed { payload } => {
+            (MessageType::MdmRecoveryKeyEscrowed, payload.clone())
+        }
+        EventKind::MdmOsUpdateResult { payload } => {
+            (MessageType::MdmOsUpdateResult, payload.clone())
+        }
+        EventKind::MdmConfigProfileApplied { payload } => {
+            (MessageType::MdmConfigProfileApplied, payload.clone())
+        }
+        EventKind::MdmAutoRemediationResult { payload } => {
+            (MessageType::MdmAutoRemediationResult, payload.clone())
         }
 
         // Lifecycle / internal events are not forwarded.

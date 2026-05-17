@@ -1,0 +1,32 @@
+[package]
+name = "sda-mdm"
+description = "ShieldNet Desktop MDM module — auto-remediation, recovery-key escrow, OS patching, remote wipe/lock/lost-mode, declarative config profiles (Phase M1–M3)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sda-core = { workspace = true }
+sda-pal = { workspace = true }
+sda-event-bus = { workspace = true }
+sda-comms = { workspace = true }
+sda-device-control = { workspace = true }
+sda-posture = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+ed25519-dalek = { workspace = true, features = ["rand_core"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+ring = { workspace = true }
+hex = { workspace = true }
+sha2 = { workspace = true }
+notify = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "test-util", "macros"] }
+tempfile = { workspace = true }

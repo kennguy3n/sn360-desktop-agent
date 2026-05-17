@@ -117,6 +117,7 @@ fn test_job(action: ActionKind, args: serde_json::Value) -> SignedActionJob {
         signature: vec![0; 64],
         key_id: "sn360-control-2026-05".into(),
         correlation_id: None,
+        additional_signatures: Vec::new(),
     }
 }
 

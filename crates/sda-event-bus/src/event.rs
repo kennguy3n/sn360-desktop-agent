@@ -207,6 +207,34 @@ pub enum EventKind {
     /// "device": { ... }, "matched_policy": { ... } }` envelope
     /// produced by `sda_device_control::usb_policy::Decision::to_event_payload`.
     UsbDevicePolicyDecision { payload: String },
+
+    // --- Desktop MDM events (Phase M1–M3) ---
+    //
+    // Each variant carries an already-serialised canonical JSON
+    // payload describing the result of an MDM action. The agent's
+    // `sda-mdm` crate is the only producer; consumers (sda-comms,
+    // sda-event-bus subscribers in tests) treat the payload as
+    // opaque. Wire schemas live in
+    // `docs/desktop-mdm/ARCHITECTURE.md` § 4.
+    /// Result of a `RemoteWipe` action — status (started/success/
+    /// failure) + timing. High priority.
+    MdmWipeResult { payload: String },
+    /// Result of a `RemoteLock` action.
+    MdmLockResult { payload: String },
+    /// `EnterLostMode` action completed.
+    MdmLostModeEntered { payload: String },
+    /// `ExitLostMode` action completed.
+    MdmLostModeExited { payload: String },
+    /// Recovery key escrow succeeded — payload carries the encrypted
+    /// `RecoveryKeyPayload` envelope.
+    MdmRecoveryKeyEscrowed { payload: String },
+    /// Result of an `InstallOsUpdate` action.
+    MdmOsUpdateResult { payload: String },
+    /// A signed config profile was applied.
+    MdmConfigProfileApplied { payload: String },
+    /// Auto-remediation supervisor finished a self-signed local job
+    /// (success or failure).
+    MdmAutoRemediationResult { payload: String },
 }
 
 /// An event that flows through the event bus.

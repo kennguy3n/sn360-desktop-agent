@@ -149,6 +149,14 @@ pub(crate) fn validate_evidence_shape(
         FindingKind::VulnerabilityMatch => &["cve", "package", "version"],
         FindingKind::AdminDrift => &["drift_kind", "user"],
         FindingKind::DeviceControlBundleVerificationFailure => &["reason"],
+        // --- Desktop MDM findings (Phase M1–M3) ---
+        FindingKind::DiskEncryptionOff => &["detected_at"],
+        FindingKind::FirewallOff => &["detected_at"],
+        FindingKind::ScreenLockOff => &["detected_at"],
+        FindingKind::OsPatchOverdue => &["missing_count"],
+        FindingKind::RecoveryKeyNotEscrowed => &["detected_at"],
+        FindingKind::DeviceLost => &["reported_at"],
+        FindingKind::ConfigProfileTampered => &["profile_id", "reason"],
         FindingKind::Other => &[],
     };
     for &key in required {
@@ -176,6 +184,35 @@ pub fn render_plain_english(kind: FindingKind, evidence: &serde_json::Value) -> 
         v.get(key)?.as_i64()
     }
     match kind {
+        // --- Desktop MDM findings (Phase M1–M3) ---
+        FindingKind::DiskEncryptionOff => {
+            "Disk encryption is OFF — enable BitLocker / FileVault / LUKS.".to_string()
+        }
+        FindingKind::FirewallOff => {
+            "Host firewall is OFF — enable Windows Defender Firewall / pf / nftables.".to_string()
+        }
+        FindingKind::ScreenLockOff => {
+            "Screen lock is disabled — enforce automatic lock on idle.".to_string()
+        }
+        FindingKind::OsPatchOverdue => {
+            let missing = n(evidence, "missing_count").unwrap_or(0);
+            format!(
+                "{missing} OS security patch{} overdue — install during next maintenance window.",
+                if missing == 1 { " is" } else { "es are" }
+            )
+        }
+        FindingKind::RecoveryKeyNotEscrowed => {
+            "Disk-encryption recovery key has not been escrowed to the control plane.".to_string()
+        }
+        FindingKind::DeviceLost => {
+            "Device reported as lost — remote lock / lost-mode active.".to_string()
+        }
+        FindingKind::ConfigProfileTampered => {
+            let id = s(evidence, "profile_id").unwrap_or("(unknown)");
+            format!(
+                "Config profile {id} failed signature verification — previous profile retained."
+            )
+        }
         FindingKind::PermanentAdmin => {
             let count = evidence
                 .get("admins")

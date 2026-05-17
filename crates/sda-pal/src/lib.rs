@@ -6,6 +6,7 @@
 pub mod admin_manager;
 pub mod app_control;
 pub mod fs_watcher;
+pub mod mdm;
 pub mod package_manager;
 pub mod posture;
 pub mod power;

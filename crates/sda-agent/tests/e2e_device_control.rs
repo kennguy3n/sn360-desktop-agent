@@ -115,6 +115,7 @@ fn happy_signed_job(action: ActionKind, args: serde_json::Value) -> SignedAction
         signature: vec![0; 64],
         key_id: "sn360-control-2026-05".into(),
         correlation_id: None,
+        additional_signatures: Vec::new(),
     }
 }
 
@@ -329,6 +330,7 @@ async fn agent_vitals_heartbeat_emits_agent_vitals() {
         agent_version: "e2e-test".into(),
         uptime_secs: 42,
         last_seen: Utc::now(),
+        last_known_location: None,
     };
     let collector = StaticCollector { snap: snap.clone() };
 
@@ -363,6 +365,7 @@ async fn agent_vitals_heartbeat_defers_on_critical_battery() {
         agent_version: "e2e-test".into(),
         uptime_secs: 0,
         last_seen: Utc::now(),
+        last_known_location: None,
     };
     let collector = StaticCollector { snap };
     let outcome = run_tick(&bus, &collector, PowerProfile::CriticalBattery).await;

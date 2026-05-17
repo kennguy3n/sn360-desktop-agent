@@ -36,7 +36,7 @@ use crate::canonicalize::canonicalize;
 use crate::evidence::{
     build_signed_evidence_record, EvidenceChain, EvidenceContext, EvidenceRecord,
 };
-use crate::signed_job::{JobArgs, SignedActionJob, SignedJobError};
+use crate::signed_job::{AdditionalSignature, JobArgs, SignedActionJob, SignedJobError};
 use crate::types::{ActionKind, ActionStatus, AgentVersion, JobRefused, Platform};
 use crate::windows::{MaintenanceWindowPolicy, WindowDecision};
 
@@ -68,6 +68,40 @@ pub trait JobValidationHooks {
     /// Step 9: confirm we are inside the configured maintenance
     /// window (and not in a quiet-hours block).
     fn in_window(&self, now: DateTime<Utc>) -> bool;
+
+    /// Step 11 (dual-control): verify *one* additional approver
+    /// signature against the same canonical pre-image as the
+    /// primary signature. Default impl returns
+    /// `Err(JobRefused::BadSignature)` so hooks that have not
+    /// opted-in cannot accidentally accept multi-signature jobs.
+    /// See ARCHITECTURE.md § 4.4 of `docs/desktop-mdm/`.
+    fn verify_additional_signature(
+        &self,
+        _job: &SignedActionJob,
+        _sig: &AdditionalSignature,
+    ) -> Result<(), JobRefused> {
+        Err(JobRefused::BadSignature)
+    }
+
+    /// Step 11 (dual-control): map a signing `key_id` onto the
+    /// **approver identity** the key represents. The router uses
+    /// this to enforce "all signatures on a dual-control job must
+    /// come from distinct approvers". Returns `None` when the
+    /// `key_id` is unknown or carries no approver mapping (e.g.
+    /// the agent-local ephemeral key).
+    fn approver_user_id(&self, _key_id: &str) -> Option<Uuid> {
+        None
+    }
+
+    /// Step 12 (local ephemeral key): true iff `key_id` is the
+    /// agent-local ephemeral signing key generated at startup by
+    /// the auto-remediation supervisor. Such a key is allowed to
+    /// sign **only** a narrow allow-list of self-remediation
+    /// actions; everything else is refused with
+    /// `LocalKeyNotAuthorisedForAction`.
+    fn is_local_ephemeral_key(&self, _key_id: &str) -> bool {
+        false
+    }
 }
 
 /// Phase 1 placeholder hooks — see module docs.
@@ -165,6 +199,90 @@ pub fn validate<H: JobValidationHooks>(
         SignedJobError::SchemaVersionUnsupported(_) => JobRefused::SchemaParseError,
         SignedJobError::InvalidWindow => JobRefused::SchemaParseError,
     })?;
+
+    // Step 11 — dual-control gate for `RemoteWipe`
+    // (ARCHITECTURE.md § 4.4 of `docs/desktop-mdm/`).
+    //
+    // The agent MUST refuse a wipe unless the inbound job carries
+    // at least *two distinct approver signatures*. The primary
+    // signature lives inline on `SignedActionJob.signature` /
+    // `key_id`; additional approvers ride on
+    // `SignedActionJob.additional_signatures`. We:
+    //
+    //   * require `additional_signatures.len() >= 1` (one primary
+    //     + one additional = two total),
+    //   * verify each additional signature against the same
+    //     canonical pre-image,
+    //   * resolve every `key_id` (primary + additional) to an
+    //     approver identity and require all of them to be distinct.
+    //
+    // Any failure on this path collapses onto a single refusal
+    // reason — `WipeRequiresDualControl` — so the operator UI
+    // surfaces one clean message no matter which sub-check tripped.
+    //
+    // **Threat-model scope.** This gate is deliberately limited to
+    // `RemoteWipe`. `RemoteLock` and `EnterLostMode` are also
+    // operator-initiated and disruptive, but they are **reversible**
+    // (an admin can unlock or exit lost mode on the next
+    // round-trip) and they do not destroy data. Per
+    // `docs/desktop-mdm/ARCHITECTURE.md` § 4.4, only an
+    // irreversible / data-destructive primitive earns the
+    // round-trip cost of dual control. The accepted residual risk
+    // is that a single compromised approver key can lock or
+    // lost-mode-flag any enrolled device until a second approver
+    // reverses it — that exposure is the cost of keeping the
+    // lock/lost-mode operator workflow snappy. If/when the threat
+    // model tightens this list (e.g. JIT-admin grant revocation
+    // becomes destructive), the new actions should be added here,
+    // not silently allowed to flow through with a single
+    // signature.
+    if job.action == ActionKind::RemoteWipe {
+        if job.additional_signatures.is_empty() {
+            return Err(JobRefused::WipeRequiresDualControl);
+        }
+        let primary_approver = hooks
+            .approver_user_id(&job.key_id)
+            .ok_or(JobRefused::WipeRequiresDualControl)?;
+        let mut approvers: Vec<Uuid> = Vec::with_capacity(1 + job.additional_signatures.len());
+        approvers.push(primary_approver);
+        for sig in &job.additional_signatures {
+            hooks
+                .verify_additional_signature(job, sig)
+                .map_err(|_| JobRefused::WipeRequiresDualControl)?;
+            let id = hooks
+                .approver_user_id(&sig.key_id)
+                .ok_or(JobRefused::WipeRequiresDualControl)?;
+            approvers.push(id);
+        }
+        let total = approvers.len();
+        approvers.sort_unstable();
+        approvers.dedup();
+        if approvers.len() != total {
+            return Err(JobRefused::WipeRequiresDualControl);
+        }
+    }
+
+    // Step 12 — agent-local ephemeral key allow-list.
+    //
+    // The auto-remediation supervisor (see
+    // `crates/sda-mdm/src/auto_remediate.rs`) signs self-issued
+    // jobs with an in-memory ephemeral Ed25519 key. Such jobs are
+    // legitimate — the agent is fixing its own posture — but the
+    // ephemeral key MUST NOT be able to authorise anything beyond
+    // the three posture-fix actions, and it must never carry a
+    // `recommendation_id` (that field is reserved for control-plane
+    // recommendations, which never originate locally).
+    if hooks.is_local_ephemeral_key(&job.key_id) {
+        let allowed = matches!(
+            job.action,
+            ActionKind::EnableDiskEncryption
+                | ActionKind::EnableFirewall
+                | ActionKind::SetScreenLock
+        );
+        if !allowed || job.recommendation_id.is_some() {
+            return Err(JobRefused::LocalKeyNotAuthorisedForAction);
+        }
+    }
 
     Ok(ValidatedJob { args })
 }
@@ -459,6 +577,10 @@ fn refusal_human_readable(reason: JobRefused) -> &'static str {
         JobRefused::ArgsParseError => "args_parse_error",
         JobRefused::PreconditionFailed => "precondition_failed",
         JobRefused::NotImplemented => "not_implemented",
+        // Desktop MDM (Phase M1–M3) — dual-control + local-key
+        // refusals. See `crates/sda-device-control/src/types.rs`.
+        JobRefused::WipeRequiresDualControl => "wipe_requires_dual_control",
+        JobRefused::LocalKeyNotAuthorisedForAction => "local_key_not_authorised_for_action",
     }
 }
 
@@ -529,6 +651,7 @@ mod tests {
             signature: vec![0; 64],
             key_id: "sn360-control-2026-05".into(),
             correlation_id: None,
+            additional_signatures: Vec::new(),
         }
     }
 
@@ -684,6 +807,253 @@ mod tests {
         // ArgsTooLarge surfaces from validate_structure, which the
         // router maps onto SchemaParseError per the docstring above.
         assert_eq!(r.unwrap_err(), JobRefused::SchemaParseError);
+    }
+
+    // -- step 11 (dual-control) + step 12 (local-ephemeral-key) ---
+
+    /// Approver-aware hooks for Phase M2 router tests. Three knobs:
+    ///   * `approvers` maps `key_id` to an approver `Uuid`. Unknown
+    ///     `key_id` resolves to `None` (so step 11 refuses with
+    ///     `WipeRequiresDualControl`).
+    ///   * `local_keys` is the set of `key_id`s the router should
+    ///     treat as agent-local ephemeral keys (step 12).
+    ///   * `additional_ok` controls whether `verify_additional_signature`
+    ///     succeeds (true) or fails with `BadSignature` (false). Tests
+    ///     use this to exercise the "additional signature did not
+    ///     verify" branch independently of the distinct-approver
+    ///     branch.
+    struct DualControlHooks {
+        approvers: std::collections::HashMap<String, Uuid>,
+        local_keys: std::collections::HashSet<String>,
+        additional_ok: bool,
+    }
+
+    impl DualControlHooks {
+        fn new() -> Self {
+            Self {
+                approvers: std::collections::HashMap::new(),
+                local_keys: std::collections::HashSet::new(),
+                additional_ok: true,
+            }
+        }
+        fn with_approver(mut self, key_id: &str, approver: Uuid) -> Self {
+            self.approvers.insert(key_id.into(), approver);
+            self
+        }
+        fn with_local_key(mut self, key_id: &str) -> Self {
+            self.local_keys.insert(key_id.into());
+            self
+        }
+        fn additional_invalid(mut self) -> Self {
+            self.additional_ok = false;
+            self
+        }
+    }
+
+    impl JobValidationHooks for DualControlHooks {
+        fn verify_signature(&self, _job: &SignedActionJob) -> Result<(), JobRefused> {
+            Ok(())
+        }
+        fn action_permitted(&self, _action: ActionKind) -> bool {
+            true
+        }
+        fn in_window(&self, _now: DateTime<Utc>) -> bool {
+            true
+        }
+        fn verify_additional_signature(
+            &self,
+            _job: &SignedActionJob,
+            _sig: &AdditionalSignature,
+        ) -> Result<(), JobRefused> {
+            if self.additional_ok {
+                Ok(())
+            } else {
+                Err(JobRefused::BadSignature)
+            }
+        }
+        fn approver_user_id(&self, key_id: &str) -> Option<Uuid> {
+            self.approvers.get(key_id).copied()
+        }
+        fn is_local_ephemeral_key(&self, key_id: &str) -> bool {
+            self.local_keys.contains(key_id)
+        }
+    }
+
+    fn wipe_job() -> SignedActionJob {
+        job_for(
+            ActionKind::RemoteWipe,
+            json!({
+                "reason": "lost device",
+                "crypto_shred_only": false,
+                "wait_for_ac": false
+            }),
+        )
+    }
+
+    #[test]
+    fn step_11_remote_wipe_single_signature_is_refused() {
+        // Only the primary signature is present — dual-control
+        // demands at least one *additional* approver signature.
+        let alice = Uuid::from_u128(0x_a11ce);
+        let hooks = DualControlHooks::new().with_approver("sn360-control-2026-05", alice);
+        let r = validate(&wipe_job(), &identity(), now_in_window(), &hooks);
+        assert_eq!(r.unwrap_err(), JobRefused::WipeRequiresDualControl);
+    }
+
+    #[test]
+    fn step_11_remote_wipe_two_distinct_approvers_accepted() {
+        let alice = Uuid::from_u128(0x_a11ce);
+        let bob = Uuid::from_u128(0x_b0b);
+        let mut j = wipe_job();
+        j.additional_signatures.push(AdditionalSignature {
+            signature: vec![1; 64],
+            key_id: "sn360-control-2026-05-bob".into(),
+        });
+        let hooks = DualControlHooks::new()
+            .with_approver("sn360-control-2026-05", alice)
+            .with_approver("sn360-control-2026-05-bob", bob);
+        let v = validate(&j, &identity(), now_in_window(), &hooks).expect("dual-control wipe");
+        match v.args {
+            JobArgs::RemoteWipe(_) => {}
+            _ => panic!("wrong args variant"),
+        }
+    }
+
+    #[test]
+    fn step_11_remote_wipe_same_approver_twice_refused() {
+        // Both signing keys belong to the same approver — distinct-
+        // approver gate must reject.
+        let alice = Uuid::from_u128(0x_a11ce);
+        let mut j = wipe_job();
+        j.additional_signatures.push(AdditionalSignature {
+            signature: vec![1; 64],
+            key_id: "sn360-control-2026-05-alice-2".into(),
+        });
+        let hooks = DualControlHooks::new()
+            .with_approver("sn360-control-2026-05", alice)
+            .with_approver("sn360-control-2026-05-alice-2", alice);
+        let r = validate(&j, &identity(), now_in_window(), &hooks);
+        assert_eq!(r.unwrap_err(), JobRefused::WipeRequiresDualControl);
+    }
+
+    #[test]
+    fn step_11_remote_wipe_additional_signature_invalid_refused() {
+        let alice = Uuid::from_u128(0x_a11ce);
+        let bob = Uuid::from_u128(0x_b0b);
+        let mut j = wipe_job();
+        j.additional_signatures.push(AdditionalSignature {
+            signature: vec![1; 64],
+            key_id: "sn360-control-2026-05-bob".into(),
+        });
+        let hooks = DualControlHooks::new()
+            .additional_invalid()
+            .with_approver("sn360-control-2026-05", alice)
+            .with_approver("sn360-control-2026-05-bob", bob);
+        let r = validate(&j, &identity(), now_in_window(), &hooks);
+        // BadSignature on an additional signature must surface as
+        // WipeRequiresDualControl, not the bare BadSignature reason.
+        assert_eq!(r.unwrap_err(), JobRefused::WipeRequiresDualControl);
+    }
+
+    #[test]
+    fn step_11_remote_wipe_unknown_approver_refused() {
+        // The router knows the primary signature is valid (step 4),
+        // but it cannot resolve the additional signer's key_id to
+        // an approver — so it must refuse rather than silently
+        // accept a one-approver dual-control job.
+        let alice = Uuid::from_u128(0x_a11ce);
+        let mut j = wipe_job();
+        j.additional_signatures.push(AdditionalSignature {
+            signature: vec![1; 64],
+            key_id: "rogue-key".into(),
+        });
+        let hooks = DualControlHooks::new().with_approver("sn360-control-2026-05", alice);
+        let r = validate(&j, &identity(), now_in_window(), &hooks);
+        assert_eq!(r.unwrap_err(), JobRefused::WipeRequiresDualControl);
+    }
+
+    #[test]
+    fn step_12_local_ephemeral_key_allowed_actions_accepted() {
+        // The auto-remediation supervisor signs three posture-fix
+        // actions with the local ephemeral key. All three must pass
+        // step 12.
+        let hooks = DualControlHooks::new().with_local_key("sn360-local-ephemeral");
+        for action in [
+            ActionKind::EnableDiskEncryption,
+            ActionKind::EnableFirewall,
+            ActionKind::SetScreenLock,
+        ] {
+            let args = match action {
+                ActionKind::SetScreenLock => json!({"timeout_secs": 300}),
+                _ => json!({}),
+            };
+            let mut j = job_for(action, args);
+            j.key_id = "sn360-local-ephemeral".into();
+            let v = validate(&j, &identity(), now_in_window(), &hooks)
+                .unwrap_or_else(|e| panic!("{action:?}: {e:?}"));
+            // sanity-check the parsed args variant
+            match (&v.args, action) {
+                (JobArgs::EnableDiskEncryption(_), ActionKind::EnableDiskEncryption) => {}
+                (JobArgs::EnableFirewall(_), ActionKind::EnableFirewall) => {}
+                (JobArgs::SetScreenLock(_), ActionKind::SetScreenLock) => {}
+                _ => panic!("wrong args variant for {action:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn step_12_local_ephemeral_key_disallowed_action_refused() {
+        // A local-ephemeral-key-signed `RemoteLock` is *not* in the
+        // allow-list — even though step 4 (signature) would pass.
+        let hooks = DualControlHooks::new().with_local_key("sn360-local-ephemeral");
+        let mut j = job_for(ActionKind::RemoteLock, json!({"message": "lock it"}));
+        j.key_id = "sn360-local-ephemeral".into();
+        let r = validate(&j, &identity(), now_in_window(), &hooks);
+        assert_eq!(r.unwrap_err(), JobRefused::LocalKeyNotAuthorisedForAction);
+    }
+
+    #[test]
+    fn step_12_local_ephemeral_key_with_recommendation_id_refused() {
+        // The local ephemeral key never carries a recommendation_id
+        // — that field is reserved for control-plane jobs. Setting
+        // one alongside a local-key signature must refuse.
+        let hooks = DualControlHooks::new().with_local_key("sn360-local-ephemeral");
+        let mut j = job_for(ActionKind::EnableFirewall, json!({}));
+        j.key_id = "sn360-local-ephemeral".into();
+        j.recommendation_id = Some(Uuid::from_u128(42));
+        let r = validate(&j, &identity(), now_in_window(), &hooks);
+        assert_eq!(r.unwrap_err(), JobRefused::LocalKeyNotAuthorisedForAction);
+    }
+
+    #[test]
+    fn default_hooks_reject_additional_signatures_with_bad_signature() {
+        // The trait's default `verify_additional_signature` impl
+        // returns `BadSignature`. Routers that have not opted in to
+        // dual-control must therefore refuse multi-signature jobs
+        // by default — the router maps that onto
+        // `WipeRequiresDualControl`.
+        struct OnlyPrimary;
+        impl JobValidationHooks for OnlyPrimary {
+            fn verify_signature(&self, _job: &SignedActionJob) -> Result<(), JobRefused> {
+                Ok(())
+            }
+            fn action_permitted(&self, _action: ActionKind) -> bool {
+                true
+            }
+            fn in_window(&self, _now: DateTime<Utc>) -> bool {
+                true
+            }
+            fn approver_user_id(&self, _key_id: &str) -> Option<Uuid> {
+                Some(Uuid::from_u128(7))
+            }
+        }
+        let mut j = wipe_job();
+        j.additional_signatures.push(AdditionalSignature {
+            signature: vec![1; 64],
+            key_id: "second".into(),
+        });
+        let r = validate(&j, &identity(), now_in_window(), &OnlyPrimary);
+        assert_eq!(r.unwrap_err(), JobRefused::WipeRequiresDualControl);
     }
 
     // -- process_job / evidence-chain emission tests (task 1.13) ---

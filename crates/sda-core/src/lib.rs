@@ -5,12 +5,14 @@
 
 pub mod agent;
 pub mod config;
+pub mod location;
 pub mod module;
 pub mod power;
 pub mod signal;
 
 pub use agent::Agent;
 pub use config::AgentConfig;
+pub use location::{LastKnownLocation, LastKnownLocationStore};
 pub use module::{AgentModule, ModuleHealth, ModuleStatus};
 pub use power::{
     channel as power_profile_channel, spawn_power_profile_task, PowerProfile, PowerProfileReceiver,

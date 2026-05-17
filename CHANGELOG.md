@@ -10,6 +10,44 @@ minor bump.
 
 ### Added
 
+- **ShieldNet Desktop MDM — Phases M1–M3 (agent-side).**
+  New `crates/sda-mdm` crate provides the agent-side surface for
+  the Desktop MDM workstream (default **on**). Phase M1 lands the
+  `MdmProvider` PAL trait with Windows / macOS / Linux back-ends
+  (`crates/sda-pal/src/mdm.rs`), the auto-remediation supervisor
+  with 24h debounce (`auto_remediate.rs`), one-time-per-boot
+  recovery-key escrow with ChaCha20-Poly1305 + per-device
+  HKDF-SHA256 wrapping key + Ed25519 evidence signing
+  (`recovery_key.rs`), and battery-aware OS-patch orchestration
+  (`os_patch.rs`). Phase M2 lands the dual-control remote wipe
+  handler (`wipe.rs`), remote lock (`lock.rs`), and the lost-mode
+  enter/exit flow with an IP-geolocation reporter that attaches
+  `last_known_location` to `AgentVitals` (`lost_mode.rs`,
+  `crates/sda-core/src/location.rs`,
+  `crates/sda-agent-vitals/`). Phase M3 lands the Ed25519-verified
+  declarative configuration profile schema, `notify`-based bundle
+  watcher, and `ConfigProfileTampered` finding (`config_profile.rs`).
+  New `FindingKind` variants (`DiskEncryptionOff`, `FirewallOff`,
+  `ScreenLockOff`, `OsPatchOverdue`, `RecoveryKeyNotEscrowed`,
+  `DeviceLost`, `ConfigProfileTampered`), new `ActionKind`
+  variants (`RemoteWipe`, `RemoteLock`, `EnterLostMode`,
+  `ExitLostMode`, `EscrowRecoveryKey`, `InstallOsUpdate`,
+  `ApplyConfigProfile`, `EnableDiskEncryption`, `EnableFirewall`,
+  `SetScreenLock`), new `MessageType` variants
+  (`MdmWipeResult`, `MdmLockResult`, `MdmLostModeEntered`,
+  `MdmLostModeExited`, `MdmRecoveryKeyEscrowed`,
+  `MdmOsUpdateResult`, `MdmConfigProfileApplied`,
+  `MdmAutoRemediationResult`), and new `JobRefused` variants
+  (`WipeRequiresDualControl`, `LocalKeyNotAuthorisedForAction`)
+  ride the existing alert / evidence pipeline unchanged. The
+  signed-job validator in `sda-device-control` gains step 11
+  (dual-control wipe enforcement: `signatures.len() >= 2` with
+  distinct approvers) and step 12 (local-ephemeral-key allow-list:
+  only `EnableDiskEncryption` / `EnableFirewall` / `SetScreenLock`
+  with `recommendation_id == None`). The `MdmConfig` schema
+  defaults `enabled = true` and `auto_remediate.*: true` — this is
+  intentionally different from Device Control's default-off
+  posture. PR [#20](https://github.com/kennguy3n/sn360-desktop-agent/pull/20).
 - **Rootcheck content-based inspection (P1.4).**
   New `crates/sda-rootcheck/src/content_checks.rs` module reads
   `/etc/ld.so.preload`, `/etc/crontab`, and `/etc/hosts` and flags

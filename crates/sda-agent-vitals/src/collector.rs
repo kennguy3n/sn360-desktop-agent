@@ -28,6 +28,7 @@
 //! deterministic `MockCollector` without poking real syscalls.
 
 use chrono::{DateTime, Utc};
+use sda_core::location::{LastKnownLocation, LastKnownLocationStore};
 use serde::{Deserialize, Serialize};
 
 /// Snapshot of the agent's vitals at a single instant.
@@ -47,6 +48,14 @@ pub struct VitalsSnapshot {
     pub uptime_secs: u64,
     /// UTC timestamp the snapshot was taken at.
     pub last_seen: DateTime<Utc>,
+    /// Best-effort IP-geolocation set by the Desktop MDM
+    /// `lost_mode` reporter (Phase M2.3). `None` on devices that have
+    /// never entered lost mode. Serialised onto the
+    /// [`sda_event_bus::EventKind::AgentVitals`] payload only when
+    /// present so the existing wire schema is unchanged for devices
+    /// that never went lost.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_known_location: Option<LastKnownLocation>,
 }
 
 /// Trait describing how the heartbeat task collects a fresh
@@ -65,6 +74,11 @@ pub struct DefaultCollector {
     queue_depth: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     watchdog_faults: std::sync::Arc<std::sync::atomic::AtomicU64>,
     agent_version: String,
+    /// Optional cross-module last-known-location store. The Desktop
+    /// MDM `lost_mode` reporter writes into this; we read from it
+    /// when assembling each snapshot so the next AgentVitals payload
+    /// carries the freshest position (Phase M2.3).
+    location_store: Option<LastKnownLocationStore>,
 }
 
 impl DefaultCollector {
@@ -81,12 +95,23 @@ impl DefaultCollector {
             queue_depth,
             watchdog_faults,
             agent_version: env!("CARGO_PKG_VERSION").to_string(),
+            location_store: None,
         }
+    }
+
+    /// Attach the shared [`LastKnownLocationStore`] used by the
+    /// Desktop MDM `lost_mode` reporter. After this is called every
+    /// snapshot is populated with the current value from the store
+    /// (or `None` if no location has been reported yet).
+    pub fn with_location_store(mut self, store: LastKnownLocationStore) -> Self {
+        self.location_store = Some(store);
+        self
     }
 }
 
 impl Collector for DefaultCollector {
     fn collect(&self) -> VitalsSnapshot {
+        let last_known_location = self.location_store.as_ref().and_then(|s| s.get());
         VitalsSnapshot {
             rss_kb: read_rss_kb(),
             cpu_percent: read_cpu_percent(),
@@ -97,6 +122,7 @@ impl Collector for DefaultCollector {
             agent_version: self.agent_version.clone(),
             uptime_secs: self.started_at.elapsed().as_secs(),
             last_seen: Utc::now(),
+            last_known_location,
         }
     }
 }
@@ -199,10 +225,54 @@ mod tests {
             agent_version: "0.1.0".into(),
             uptime_secs: 99,
             last_seen: Utc::now(),
+            last_known_location: None,
         };
         let s = serde_json::to_string(&snap).unwrap();
         let back: VitalsSnapshot = serde_json::from_str(&s).unwrap();
         assert_eq!(back, snap);
+    }
+
+    #[test]
+    fn snapshot_round_trips_with_location() {
+        let loc = LastKnownLocation {
+            lat: 37.7749,
+            lon: -122.4194,
+            accuracy_m: 25.0,
+            reported_at: Utc::now(),
+        };
+        let snap = VitalsSnapshot {
+            rss_kb: 1,
+            cpu_percent: 0.0,
+            queue_depth: 0,
+            watchdog_faults: 0,
+            agent_version: "test".into(),
+            uptime_secs: 0,
+            last_seen: Utc::now(),
+            last_known_location: Some(loc),
+        };
+        let s = serde_json::to_string(&snap).unwrap();
+        let back: VitalsSnapshot = serde_json::from_str(&s).unwrap();
+        assert_eq!(back, snap);
+    }
+
+    #[test]
+    fn default_collector_reads_location_store() {
+        let queue_depth = Arc::new(AtomicUsize::new(0));
+        let watchdog_faults = Arc::new(AtomicU64::new(0));
+        let store = LastKnownLocationStore::new();
+        let loc = LastKnownLocation {
+            lat: 1.0,
+            lon: 2.0,
+            accuracy_m: 50.0,
+            reported_at: Utc::now(),
+        };
+        store.set(loc);
+
+        let c = DefaultCollector::new(queue_depth, watchdog_faults).with_location_store(store);
+        let snap = c.collect();
+        let got = snap.last_known_location.expect("location should be set");
+        assert_eq!(got.lat, 1.0);
+        assert_eq!(got.lon, 2.0);
     }
 
     #[cfg(target_os = "linux")]
@@ -225,6 +295,7 @@ mod tests {
             agent_version: "test".into(),
             uptime_secs: 5,
             last_seen: Utc::now(),
+            last_known_location: None,
         };
         let c = MockCollector {
             fixed: snap.clone(),

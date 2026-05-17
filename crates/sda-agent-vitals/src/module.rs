@@ -22,6 +22,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize};
 use std::sync::Arc;
 use std::time::Duration;
 
+use sda_core::location::LastKnownLocationStore;
 use sda_core::module::ModuleHandle;
 use sda_core::signal::ShutdownSignal;
 use sda_core::{PowerProfile, PowerProfileReceiver};
@@ -61,15 +62,28 @@ impl VitalsModule {
     /// override it. `counters` carries the live queue-depth and
     /// watchdog-fault atomics; the agent supervisor keeps the same
     /// atomics on its side and updates them as it observes the bus.
+    ///
+    /// `location_store` is the shared
+    /// [`LastKnownLocationStore`] the Desktop MDM lost-mode reporter
+    /// writes into. Pass the same instance you handed to
+    /// [`sda_mdm::MdmModule::with_geolocator`] so the heartbeat can
+    /// attach the latest IP-geolocation reading to its
+    /// `AgentVitals` payload. Pass `None` if the MDM module is not
+    /// running (the heartbeat then publishes
+    /// `last_known_location = None`).
     pub fn start(
         interval_secs: u64,
         counters: VitalsCounters,
         bus: EventBus,
         mut shutdown: ShutdownSignal,
         mut power_rx: PowerProfileReceiver,
+        location_store: Option<LastKnownLocationStore>,
     ) -> ModuleHandle {
         let configured = Duration::from_secs(interval_secs.max(1));
-        let collector = DefaultCollector::new(counters.queue_depth, counters.watchdog_faults);
+        let mut collector = DefaultCollector::new(counters.queue_depth, counters.watchdog_faults);
+        if let Some(store) = location_store {
+            collector = collector.with_location_store(store);
+        }
 
         info!(
             interval_secs = configured.as_secs(),
@@ -166,6 +180,7 @@ mod tests {
             bus,
             signal,
             pwr_rx,
+            None,
         );
         assert_eq!(handle.name, "agent_vitals");
         controller.shutdown();
@@ -178,7 +193,7 @@ mod tests {
         let (controller, signal) = ShutdownController::new();
         let (_pwr_tx, pwr_rx) = power_profile_channel(PowerProfile::CriticalBattery);
         let counters = VitalsCounters::new();
-        let handle = VitalsModule::start(1, counters, bus, signal, pwr_rx);
+        let handle = VitalsModule::start(1, counters, bus, signal, pwr_rx, None);
         // No timer running, but shutdown still wakes the loop.
         controller.shutdown();
         handle.task.await.unwrap().unwrap();

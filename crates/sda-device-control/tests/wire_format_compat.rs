@@ -183,6 +183,7 @@ fn signed_action_job_json_shape_matches_platform_projection() {
         signature: vec![0u8; 64],
         key_id: "ed25519:platform-2026-05".into(),
         correlation_id: None,
+        additional_signatures: Vec::new(),
     };
     let v: Value = serde_json::from_str(&serde_json::to_string(&job).unwrap()).unwrap();
     assert_json_object_keys(&v, SIGNED_JOB_REQUIRED_GO_KEYS, "SignedActionJob");

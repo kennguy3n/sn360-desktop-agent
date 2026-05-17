@@ -258,6 +258,15 @@ pub struct ModulesConfig {
     pub remote_support: RemoteSupportConfig,
     #[serde(default)]
     pub agent_vitals: AgentVitalsConfig,
+
+    // --- Desktop MDM module (Phase M1–M3) ---
+    //
+    // Unlike every other Phase-1+ module, MDM defaults to `enabled =
+    // true` per `docs/desktop-mdm/ARCHITECTURE.md` § 5. Operators that
+    // need to disable it must explicitly set `modules.mdm.enabled =
+    // false` in their config.
+    #[serde(default)]
+    pub mdm: MdmConfig,
 }
 
 /// FIM-specific configuration.
@@ -1797,6 +1806,351 @@ fn default_app_control_mode() -> String {
 /// supervisor truncates anything longer.
 fn default_remote_support_max_session_minutes() -> u32 {
     30
+}
+
+// -------------------------------------------------------------------------
+// ShieldNet Desktop MDM (Phase M1–M3) — configuration schema.
+//
+// Mirrors `docs/desktop-mdm/ARCHITECTURE.md` § 5 verbatim. The
+// distinguishing property versus every other Phase-1+ module config
+// is that `MdmConfig::default()` produces `enabled = true` with every
+// `auto_remediate.*` flag also `true`. This is the documented
+// "defaults-on" posture per ARCHITECTURE.md § 5.
+// -------------------------------------------------------------------------
+
+/// Top-level Desktop MDM configuration. **Defaults to ON.**
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MdmConfig {
+    /// Master enable switch. Defaults to `true` — see the module
+    /// docstring for the rationale.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Auto-remediation supervisor settings (Phase M1.2). Drives the
+    /// posture-snapshot subscriber that self-signs local jobs when
+    /// FDE / firewall / screen-lock are off.
+    #[serde(default)]
+    pub auto_remediate: AutoRemediateConfig,
+
+    /// OS patch orchestration settings (Phase M1.4).
+    #[serde(default)]
+    pub os_patch: OsPatchConfig,
+
+    /// Recovery-key escrow settings (Phase M1.3).
+    #[serde(default)]
+    pub recovery_key_escrow: RecoveryKeyEscrowConfig,
+
+    /// Lost-mode settings (Phase M2.3).
+    #[serde(default)]
+    pub lost_mode: LostModeConfig,
+
+    /// Declarative configuration profiles (Phase M3).
+    #[serde(default)]
+    pub config_profiles: ConfigProfilesConfig,
+
+    /// Filesystem path of the TRDS-pushed signed config profile
+    /// bundle. The Phase M3 watcher mounts a `notify` watcher here
+    /// and re-applies the profile on every successful signature
+    /// verification.
+    #[serde(default = "default_mdm_bundle_path")]
+    pub bundle_path: PathBuf,
+}
+
+impl Default for MdmConfig {
+    /// MDM is the **only** Phase-1+ module whose default is
+    /// `enabled = true` with every `auto_remediate.*` flag also
+    /// `true`. This intentionally diverges from every sibling
+    /// module (Device Control, Software, Posture, Query, JIT-admin,
+    /// App Control, etc.), all of which default to `enabled =
+    /// false`.
+    ///
+    /// **Rationale:** the three default-on remediations (disk
+    /// encryption, host firewall, screen lock) are the
+    /// industry-baseline posture controls that no production fleet
+    /// should ship without. Defaulting them off would make
+    /// "upgraded but mis-configured" fleets indistinguishable from
+    /// "intentionally lax" ones, and the operator has no audit
+    /// signal that the agent _could_ have remediated but did not.
+    /// Per `docs/desktop-mdm/ARCHITECTURE.md` § 5 the design
+    /// requires a single explicit opt-out by tenants who do not
+    /// want this behaviour.
+    ///
+    /// **Upgrade path:** existing deployments that upgrade to the
+    /// build containing the MDM module will immediately begin
+    /// auto-remediating FDE / firewall / screen-lock posture on
+    /// every enrolled device. Tenants who do _not_ want this MUST
+    /// add `modules.mdm.enabled = false` (or set individual
+    /// `modules.mdm.auto_remediate.*` flags to `false`) to their
+    /// rendered config **before** rolling the upgrade. The agent
+    /// honours the YAML override on first load — there is no
+    /// hidden gate beyond the standard config-merge path in
+    /// `AgentConfig::from_yaml_file`.
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            auto_remediate: AutoRemediateConfig::default(),
+            os_patch: OsPatchConfig::default(),
+            recovery_key_escrow: RecoveryKeyEscrowConfig::default(),
+            lost_mode: LostModeConfig::default(),
+            config_profiles: ConfigProfilesConfig::default(),
+            bundle_path: default_mdm_bundle_path(),
+        }
+    }
+}
+
+/// Auto-remediation supervisor configuration. All three remediation
+/// flags default to `true`; the debounce window defaults to 24 h.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoRemediateConfig {
+    /// Auto-enable disk encryption when posture reports it as off.
+    #[serde(default = "default_true")]
+    pub disk_encryption: bool,
+    /// Auto-enable the host firewall when posture reports it as off.
+    #[serde(default = "default_true")]
+    pub firewall: bool,
+    /// Auto-enable screen-lock when posture reports it as off.
+    #[serde(default = "default_true")]
+    pub screen_lock: bool,
+    /// Screen-lock idle timeout in seconds (default 300 s).
+    #[serde(default = "default_screen_lock_timeout_secs")]
+    pub screen_lock_timeout_secs: u32,
+    /// Debounce window for repeated auto-remediation attempts of the
+    /// same kind. Defaults to 86 400 s (24 h) per ARCHITECTURE.md.
+    #[serde(default = "default_remediation_debounce_secs")]
+    pub remediation_debounce_secs: u64,
+}
+
+impl Default for AutoRemediateConfig {
+    fn default() -> Self {
+        Self {
+            disk_encryption: true,
+            firewall: true,
+            screen_lock: true,
+            screen_lock_timeout_secs: default_screen_lock_timeout_secs(),
+            remediation_debounce_secs: default_remediation_debounce_secs(),
+        }
+    }
+}
+
+/// OS patch orchestration configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OsPatchConfig {
+    /// Master enable switch. Defaults to `true`.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Auto-install security updates (default `true`).
+    #[serde(default = "default_true")]
+    pub auto_install_security: bool,
+    /// Auto-install all updates including feature updates
+    /// (default `false`).
+    #[serde(default)]
+    pub auto_install_all: bool,
+    /// Defer patch jobs while on battery (default `true`).
+    #[serde(default = "default_true")]
+    pub defer_on_battery: bool,
+}
+
+impl Default for OsPatchConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            auto_install_security: true,
+            auto_install_all: false,
+            defer_on_battery: true,
+        }
+    }
+}
+
+/// Recovery-key escrow configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecoveryKeyEscrowConfig {
+    /// Master enable switch.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Escrow at most once per boot (default `true`). The agent
+    /// re-runs the escrow only if the underlying recovery key
+    /// rotates.
+    #[serde(default = "default_true")]
+    pub one_time_per_boot: bool,
+}
+
+impl Default for RecoveryKeyEscrowConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            one_time_per_boot: true,
+        }
+    }
+}
+
+/// Lost-mode configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LostModeConfig {
+    /// Message shown on the locked screen while lost mode is active.
+    /// Supports `{tenant_name}` / `{tenant_email}` substitutions at
+    /// runtime.
+    #[serde(default = "default_lost_mode_message")]
+    pub message: String,
+    /// Interval in seconds between background location reports.
+    /// Defaults to 300 s.
+    #[serde(default = "default_lost_mode_report_interval_secs")]
+    pub report_location_interval_secs: u64,
+}
+
+impl Default for LostModeConfig {
+    fn default() -> Self {
+        Self {
+            message: default_lost_mode_message(),
+            report_location_interval_secs: default_lost_mode_report_interval_secs(),
+        }
+    }
+}
+
+/// Declarative configuration profile defaults. These are applied
+/// when no signed profile has been pushed yet.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ConfigProfilesConfig {
+    /// Password policy (length, complexity, max age, lockout).
+    #[serde(default)]
+    pub password_policy: PasswordPolicyConfig,
+    /// Screen-lock policy.
+    #[serde(default)]
+    pub screen_lock: ScreenLockPolicyConfig,
+    /// Bluetooth policy. One of `"allow"`, `"audit"`, `"block"`.
+    #[serde(default = "default_bluetooth_policy")]
+    pub bluetooth: String,
+    /// Camera policy. One of `"allow"`, `"audit"`, `"block"`.
+    #[serde(default = "default_camera_policy")]
+    pub camera: String,
+    /// Wi-Fi policy.
+    #[serde(default)]
+    pub wifi: WifiPolicyConfig,
+}
+
+/// Password policy configuration applied via `pwpolicy` /
+/// `pam_pwquality.conf` / `secedit`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PasswordPolicyConfig {
+    /// Minimum password length (default 8).
+    #[serde(default = "default_password_min_length")]
+    pub min_length: u8,
+    /// Whether complex passwords (mixed case + digit + symbol) are
+    /// required (default `true`).
+    #[serde(default = "default_true")]
+    pub require_complexity: bool,
+    /// Maximum password age in days (default 90).
+    #[serde(default = "default_password_max_age_days")]
+    pub max_age_days: u32,
+    /// Maximum failed attempts before lockout (default 5).
+    #[serde(default = "default_password_max_attempts")]
+    pub max_attempts: u8,
+    /// Lockout duration in minutes (default 15).
+    #[serde(default = "default_password_lockout_minutes")]
+    pub lockout_minutes: u32,
+}
+
+impl Default for PasswordPolicyConfig {
+    fn default() -> Self {
+        Self {
+            min_length: default_password_min_length(),
+            require_complexity: true,
+            max_age_days: default_password_max_age_days(),
+            max_attempts: default_password_max_attempts(),
+            lockout_minutes: default_password_lockout_minutes(),
+        }
+    }
+}
+
+/// Screen-lock policy configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScreenLockPolicyConfig {
+    /// Idle timeout in seconds before the screen locks (default 300).
+    #[serde(default = "default_screen_lock_timeout_secs_long")]
+    pub timeout_secs: u32,
+    /// Whether a password is required on resume (default `true`).
+    #[serde(default = "default_true")]
+    pub require_password_on_resume: bool,
+}
+
+impl Default for ScreenLockPolicyConfig {
+    fn default() -> Self {
+        Self {
+            timeout_secs: default_screen_lock_timeout_secs_long(),
+            require_password_on_resume: true,
+        }
+    }
+}
+
+/// Wi-Fi policy configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WifiPolicyConfig {
+    /// List of allowed SSIDs. An empty list means no restriction.
+    #[serde(default)]
+    pub allowed_ssids: Vec<String>,
+    /// Block open (unencrypted) networks regardless of SSID list.
+    #[serde(default)]
+    pub block_open_networks: bool,
+}
+
+// --- MDM default value helpers ---
+
+fn default_screen_lock_timeout_secs() -> u32 {
+    300
+}
+
+fn default_screen_lock_timeout_secs_long() -> u32 {
+    300
+}
+
+fn default_remediation_debounce_secs() -> u64 {
+    86_400
+}
+
+fn default_lost_mode_message() -> String {
+    "This device belongs to {tenant_name}. Please contact {tenant_email}.".to_string()
+}
+
+fn default_lost_mode_report_interval_secs() -> u64 {
+    300
+}
+
+fn default_bluetooth_policy() -> String {
+    "audit".to_string()
+}
+
+fn default_camera_policy() -> String {
+    "allow".to_string()
+}
+
+fn default_password_min_length() -> u8 {
+    8
+}
+
+fn default_password_max_age_days() -> u32 {
+    90
+}
+
+fn default_password_max_attempts() -> u8 {
+    5
+}
+
+fn default_password_lockout_minutes() -> u32 {
+    15
+}
+
+fn default_mdm_bundle_path() -> PathBuf {
+    #[cfg(unix)]
+    {
+        PathBuf::from("/var/lib/sn360-desktop-agent/bundle/policy/mdm/profile.json")
+    }
+    #[cfg(windows)]
+    {
+        PathBuf::from(r"C:\ProgramData\SN360DesktopAgent\bundle\policy\mdm\profile.json")
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        PathBuf::new()
+    }
 }
 
 impl AgentConfig {
