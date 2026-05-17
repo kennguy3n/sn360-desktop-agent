@@ -185,6 +185,59 @@ modules:
     scan_interval_secs: 10           # tick cadence per scanner
 ```
 
+### `modules.host_isolation`
+
+```yaml
+modules:
+  host_isolation:
+    enabled: false                   # default — opt-in network containment
+    control_plane_cidrs:             # required when enabled: agent refuses to isolate
+      - 10.20.0.0/16                 # if this list is empty (would sever ctrl-plane)
+      - 203.0.113.0/24
+    always_allow_dns: true           # default: true — system DNS resolvers stay reachable
+    always_allow_loopback: true      # informational — loopback is ALWAYS allowed by the PAL
+```
+
+> ⚠️ **Phase E3 startup gate.** Setting `host_isolation.enabled: true`
+> is currently a **no-op at startup**: the host-isolation module is
+> only constructed when the agent has a real enrolled tenant +
+> device identity, and the wiring that threads that identity through
+> the Device Control router lands with Phase E3 tasks
+> [E3.13](./edr-parity/PHASES.md#e313) (server-side identity push)
+> and [E3.14](./edr-parity/PHASES.md#e314) (agent-side router
+> binding).  Until both server-side tasks ship, the agent logs a
+> `warn!` at startup explaining that host isolation is configured
+> but inactive, and every `IsolateHost` / `UnisolateHost` job from
+> the control plane will be refused at the router layer.
+> Operators can safely enable the config flag ahead of the server
+> rollout — the agent will pick up the live path automatically once
+> the identity wiring is in place.
+
+`control_plane_cidrs` MUST be non-empty whenever `enabled: true`.
+The host-isolation module refuses `IsolateHost` jobs (and bumps
+`vitals.refused`) when the list is empty so the management
+channel cannot be accidentally severed by an isolation job — see
+[`empty_control_plane_cidrs_refuses_isolation_without_touching_pal`](../crates/sda-host-isolation/src/lib.rs)
+for the regression test.  `UnisolateHost` is NOT blocked by this
+guard so recovery from a misconfigured isolation is always
+possible.
+
+`always_allow_dns: true` (the default) instructs the agent to
+discover the host's system DNS resolvers and union them into the
+allow-list so name resolution survives isolation.  On Linux this
+parses `/etc/resolv.conf` (IPv6 scope ids stripped); on Windows
+and macOS the platform helper lands with the Phase E3 per-OS
+production follow-ups, and operators should pass DNS resolver
+IPs explicitly via the job's `extra_allow_ips` or via
+`control_plane_cidrs` until then.
+
+`always_allow_loopback` is informational only — `127.0.0.0/8`
+and `::1/128` are appended to every allow-list by
+`sda_pal::host_isolation::normalize_allow_ips` regardless of the
+flag's value.  Leaving the flag at its `true` default makes that
+guarantee visible in config; setting it to `false` does not
+disable loopback access.
+
 ## `updater`
 
 ```yaml

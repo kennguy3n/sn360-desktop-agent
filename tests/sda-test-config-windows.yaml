@@ -37,5 +37,11 @@ modules:
       - block_ip
       - kill_process
       - disable_account
+  # `local_detection.enabled` defaults to `true` since EDR Parity
+  # Phase E2.3 — pinned explicitly so this fixture cannot silently
+  # flip on a future default change and so it documents the LDE
+  # baseline-bundle behaviour for Windows operators.
+  local_detection:
+    enabled: true
 logging:
   level: "debug"

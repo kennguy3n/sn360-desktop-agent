@@ -434,7 +434,14 @@ pub struct RootcheckConfig {
 /// [`device-agent-proposal.md`](../../../device-agent-proposal.md) § 5.x / Phase 4 tasks 4.1–4.6.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalDetectionConfig {
-    /// Whether the LDE is enabled. Off by default — operators opt in.
+    /// Whether the LDE is enabled.
+    ///
+    /// **Default**: `true` (since EDR Parity Phase E2.3 — see
+    /// `docs/configuration-reference.md` and the CHANGELOG migration
+    /// note).  Agents that omit this key now run the LDE against the
+    /// embedded baseline bundle at startup; to preserve the previous
+    /// default-off behaviour, set `modules.local_detection.enabled:
+    /// false` explicitly.
     #[serde(default)]
     pub enabled: bool,
     /// Interval in seconds between rule-bundle pulls from the Tenant

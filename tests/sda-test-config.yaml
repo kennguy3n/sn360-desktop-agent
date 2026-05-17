@@ -61,5 +61,12 @@ modules:
       enabled: true
       interval: 10
       on_demand: true
+  # `local_detection.enabled` defaults to `true` since EDR Parity
+  # Phase E2.3 (the embedded baseline bundle ships with the agent).
+  # Pinned explicitly here so this test fixture cannot silently flip
+  # if the default ever changes again and so it serves as a config
+  # example for operators.  See docs/configuration-reference.md.
+  local_detection:
+    enabled: true
 logging:
   level: "debug"

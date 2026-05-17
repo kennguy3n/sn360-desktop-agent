@@ -56,10 +56,26 @@ pub type Result<T> = std::result::Result<T, HostIsolationError>;
 /// Cross-platform host isolation PAL trait.
 ///
 /// Implementations MUST be idempotent: calling `isolate` twice
-/// with the same `allow_ips` is a no-op the second time, calling
-/// `unisolate` when not isolated is a no-op, and `is_isolated`
-/// always reports the truth from the firewall state — never from
-/// a cached flag.
+/// with the same `allow_ips` is a no-op the second time, and
+/// calling `unisolate` when not isolated is a no-op.
+///
+/// **Source-of-truth contract for `is_isolated` / `current_allowed_ips`.**
+/// In production builds, these MUST reflect the live firewall state
+/// rather than a process-local cache, so the agent recovers cleanly
+/// when an external tool tampers with the rules between operations:
+///
+/// - [`LinuxHostIsolation::is_isolated`] shells out to `nft list table
+///   inet sn360_isolation` and reports whether the table is present.
+/// - The Windows and macOS implementations in this module are
+///   intentionally CI stubs that read the in-memory cache; the real
+///   `netsh advfirewall` / WFP COM API and `pfctl` anchor wiring
+///   land alongside the per-OS production follow-ups tracked in
+///   `docs/edr-parity/PHASES.md`. They are correct under the current
+///   architecture because the owning [`crate::host_isolation`]
+///   module independently tracks the last applied state for
+///   transition detection (`last_state` in `sda-host-isolation`).
+/// - [`MockHostIsolation`] is in-memory by design and only used by
+///   tests.
 pub trait HostIsolation: Send + Sync {
     /// Apply a default-drop firewall ruleset and accept only the
     /// supplied `allow_ips` (loopback is always appended by the
@@ -69,11 +85,16 @@ pub trait HostIsolation: Send + Sync {
     /// Tear down the isolation ruleset.
     fn unisolate(&self) -> Result<()>;
 
-    /// Report whether the host is currently isolated.
+    /// Report whether the host is currently isolated.  See the
+    /// source-of-truth contract on the trait doc above for which
+    /// implementations query the live firewall vs. the in-memory
+    /// cache.
     fn is_isolated(&self) -> Result<bool>;
 
-    /// Return the currently-allowed CIDRs (as observed in the
-    /// firewall state, NOT from a cached config value).
+    /// Return the currently-allowed CIDRs.  Production
+    /// implementations should reflect the live firewall state;
+    /// CI stubs (Windows / macOS in this module) fall back to the
+    /// last applied set from the in-memory cache.
     fn current_allowed_ips(&self) -> Result<Vec<IpNet>>;
 }
 
@@ -247,11 +268,31 @@ mod linux {
             Ok(())
         }
 
+        /// Source of truth: the presence of the `inet sn360_isolation`
+        /// nftables table.  `nft list table inet sn360_isolation`
+        /// exits 0 when the table is present and non-zero otherwise.
+        /// This deliberately ignores the in-memory cache so an
+        /// external operator who runs `nft delete table inet
+        /// sn360_isolation` (or whose unrelated firewall script
+        /// torches the table) does not cause the agent to keep
+        /// reporting `isolated = true` and miss the next genuine
+        /// transition.
         fn is_isolated(&self) -> Result<bool> {
-            Ok(self.state.lock().unwrap().isolated)
+            let out = Command::new(&self.nft_path)
+                .args(["list", "table", "inet", "sn360_isolation"])
+                .output()?;
+            Ok(out.status.success())
         }
 
         fn current_allowed_ips(&self) -> Result<Vec<IpNet>> {
+            // The nft rule format does not round-trip losslessly
+            // back to `IpNet` without a real parser (the rules
+            // print as `ip daddr X.Y.Z.W/M accept` plus an `ip6`
+            // variant), and `is_isolated` is the load-bearing
+            // source-of-truth query for the module.  Return the
+            // last applied set from the cache and document the
+            // gap on the trait so callers know it's the
+            // last-applied list, not a live firewall snapshot.
             Ok(self.state.lock().unwrap().allow_ips.clone())
         }
     }
@@ -289,9 +330,12 @@ mod windows_impl {
     impl HostIsolation for WindowsHostIsolation {
         fn isolate(&self, allow_ips: &[IpNet]) -> Result<()> {
             let allow = normalize_allow_ips(allow_ips);
-            // Production: netsh advfirewall + WFP COM API with
-            // rule group "sn360_isolation". CI: cache the state
-            // so harnesses can observe the call.
+            // CI stub: cache the state so harnesses can observe
+            // the call.  The production-grade `netsh advfirewall`
+            // + WFP COM API path (rule group `sn360_isolation`)
+            // lands alongside the Windows production follow-up
+            // (docs/edr-parity/PHASES.md — see the per-OS
+            // production-implementation entries under Phase E3).
             let mut g = self.state.lock().unwrap();
             g.isolated = true;
             g.allow_ips = allow;
@@ -305,6 +349,11 @@ mod windows_impl {
             Ok(())
         }
 
+        /// CI stub: reads the in-memory cache.  The production
+        /// path will query WFP for filters in the
+        /// `sn360_isolation` provider context to satisfy the
+        /// source-of-truth contract on the trait — see the trait
+        /// doc and `docs/edr-parity/PHASES.md`.
         fn is_isolated(&self) -> Result<bool> {
             Ok(self.state.lock().unwrap().isolated)
         }
@@ -347,8 +396,12 @@ mod macos_impl {
     impl HostIsolation for MacosHostIsolation {
         fn isolate(&self, allow_ips: &[IpNet]) -> Result<()> {
             let allow = normalize_allow_ips(allow_ips);
-            // Production: pfctl anchor com.sn360.host_isolation.
-            // CI: cache the state for harnesses.
+            // CI stub: cache the state so harnesses can observe
+            // the call.  The production-grade `pfctl` anchor
+            // `com.sn360.host_isolation` path lands alongside the
+            // macOS production follow-up (docs/edr-parity/PHASES.md
+            // — see the per-OS production-implementation entries
+            // under Phase E3).
             let mut g = self.state.lock().unwrap();
             g.isolated = true;
             g.allow_ips = allow;
@@ -362,6 +415,11 @@ mod macos_impl {
             Ok(())
         }
 
+        /// CI stub: reads the in-memory cache.  The production
+        /// path will run `pfctl -a com.sn360.host_isolation -s
+        /// rules` and check that an anchor is present to satisfy
+        /// the source-of-truth contract on the trait — see the
+        /// trait doc and `docs/edr-parity/PHASES.md`.
         fn is_isolated(&self) -> Result<bool> {
             Ok(self.state.lock().unwrap().isolated)
         }
@@ -515,5 +573,31 @@ mod tests {
     fn isolation_error_serializes_via_display() {
         let e = HostIsolationError::SafetyViolation("missing loopback".into());
         assert!(e.to_string().contains("safety invariant"));
+    }
+
+    /// Pin the Linux `is_isolated` source-of-truth contract: the
+    /// answer must come from the `nft` exit code (table present)
+    /// and not from the in-memory cache.  We can't write nftables
+    /// rules from CI without `CAP_NET_ADMIN`, so use
+    /// `with_nft_path` to point at `/bin/true` (always exits 0,
+    /// equivalent to "table exists") and `/bin/false` (always
+    /// exits 1, equivalent to "table missing") and verify the
+    /// boolean directly.  The cache is never touched, so any
+    /// implementation that fell back to it would produce the
+    /// default `false` for both shims.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_is_isolated_reads_from_nft_exit_code() {
+        let isolated_shim = LinuxHostIsolation::with_nft_path("/bin/true");
+        assert!(
+            isolated_shim.is_isolated().unwrap(),
+            "is_isolated must report `true` when `nft list table` exits 0"
+        );
+
+        let not_isolated_shim = LinuxHostIsolation::with_nft_path("/bin/false");
+        assert!(
+            !not_isolated_shim.is_isolated().unwrap(),
+            "is_isolated must report `false` when `nft list table` exits non-zero"
+        );
     }
 }

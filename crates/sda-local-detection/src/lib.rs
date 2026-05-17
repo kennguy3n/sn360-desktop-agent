@@ -654,10 +654,19 @@ fn pipeline_store(cell: &PipelineCell, new: Arc<DetectionPipeline>) {
 /// Each input entry is one of:
 ///
 /// 1. `"<key_id>:<hex>"` — explicit rotation id, e.g.
-///    `"edr-2026-q2:5d3e…"`.  The first `:` separates the id from
-///    the 64-character lower-case hex pubkey.  This is the form a
-///    TRDS server publishes against, so production deployments
-///    should always use it.
+///    `"edr-2026-q2:5d3e…"`.  The **first** `:` separates the id
+///    from the 64-character lower-case hex pubkey.  This is the
+///    form a TRDS server publishes against, so production
+///    deployments should always use it.
+///
+///    **Constraint on `key_id`:** because parsing uses
+///    [`str::split_once`], the `key_id` MUST NOT contain a `:`
+///    character — otherwise the suffix after the first colon will
+///    be interpreted as the hex pubkey and signature verification
+///    will fail.  TRDS operators publishing key entries should keep
+///    `key_id` to `[A-Za-z0-9_-]+` (the actual server-side schema
+///    enforces a stricter regex, but the agent rejects colon-laden
+///    ids defensively via the bad-key drop below).
 /// 2. `"<hex>"` — legacy bare-hex form.  The LDE assigns an
 ///    auto-generated id of `"rotation-{i}"` (i = position in the
 ///    list).  Envelopes from a TRDS server cannot match these

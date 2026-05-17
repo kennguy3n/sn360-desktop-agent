@@ -483,8 +483,28 @@ fn parse_extra_allow_ips(strings: &[String]) -> Result<Vec<IpNet>, String> {
 }
 
 /// Build the merged allow-list from configuration + the caller's
-/// extras. Loopback is appended unconditionally by the PAL
-/// (`normalize_allow_ips`); we do not double-add it here.
+/// extras.
+///
+/// Two safety nets layered on top of the operator-supplied input:
+///
+/// 1. `cfg.control_plane_cidrs` is unioned in so the management
+///    channel cannot be severed by an `IsolateHost` that omitted it
+///    from `extra_allow_ips` (the no-empty-control-plane guard in
+///    `handle_job` is the upstream defense; this is defense-in-depth).
+/// 2. When `cfg.always_allow_dns == true`, the platform's system DNS
+///    resolvers are discovered (see [`discover_system_dns_resolvers`])
+///    and unioned in so the host can still resolve names while
+///    isolated.  This honours the `always_allow_dns` invariant
+///    documented on
+///    [`sda_core::config::HostIsolationConfig::always_allow_dns`]; on
+///    Linux we parse `/etc/resolv.conf`, on Windows / macOS the
+///    discovery is a TODO that returns an empty list (the per-OS
+///    helper lands with the Phase E3 production follow-ups).
+///
+/// Loopback is appended unconditionally by the PAL
+/// (`normalize_allow_ips`); we do not double-add it here.  The
+/// `always_allow_loopback` config flag is therefore informational —
+/// loopback is included regardless of its value.
 pub fn build_allow_ips(cfg: &HostIsolationConfig, extras: &[IpNet]) -> Vec<IpNet> {
     let mut out: Vec<IpNet> = extras.to_vec();
     for raw in &cfg.control_plane_cidrs {
@@ -496,11 +516,93 @@ pub fn build_allow_ips(cfg: &HostIsolationConfig, extras: &[IpNet]) -> Vec<IpNet
             warn!(raw = %raw, "host isolation control_plane_cidrs: invalid CIDR, dropped");
         }
     }
+    if cfg.always_allow_dns {
+        for resolver in discover_system_dns_resolvers() {
+            if !out.contains(&resolver) {
+                out.push(resolver);
+            }
+        }
+    }
     // Sort + dedup for determinism so consecutive `isolate` calls
     // with the same logical input hash to the same firewall write
     // (and the PAL idempotency check matches).
     out.sort_by_key(|n| n.to_string());
     out.dedup();
+    out
+}
+
+/// Discover the host's system DNS resolvers so they can be added to
+/// the isolation allow-list when
+/// [`HostIsolationConfig::always_allow_dns`] is true.
+///
+/// Returns one `/32` (or `/128`) [`IpNet`] per resolver IP, in the
+/// order they appear in the platform's resolver configuration.
+///
+/// - **Linux**: parses `/etc/resolv.conf` and returns each
+///   `nameserver` entry.  Comments and malformed lines are skipped
+///   silently; the file being missing is treated as "no resolvers
+///   known" rather than an error (the agent must still be able to
+///   honour an `IsolateHost` request even on a host with no DNS
+///   configured).
+/// - **Windows** and **macOS**: no platform helper is wired yet.
+///   The Windows path will iterate the registered network adapters'
+///   `NameServer` values; the macOS path will read `scutil --dns` or
+///   the equivalent SystemConfiguration API.  Both land with the
+///   Phase E3 per-OS production follow-ups; until then this returns
+///   an empty list and operators on those platforms should add their
+///   resolvers explicitly via `extra_allow_ips` on the isolation job
+///   (or via `control_plane_cidrs` if they prefer them config-driven).
+pub fn discover_system_dns_resolvers() -> Vec<IpNet> {
+    #[cfg(target_os = "linux")]
+    {
+        parse_resolv_conf("/etc/resolv.conf")
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        debug!(
+            "discover_system_dns_resolvers: no platform helper for this target; \
+             operators should set extra_allow_ips on the isolation job to permit DNS"
+        );
+        Vec::new()
+    }
+}
+
+/// Linux helper: parse a `resolv.conf(5)` file and return one
+/// [`IpNet`] per `nameserver` line.  Public-for-testing so the unit
+/// test can feed a tempfile.
+#[cfg(target_os = "linux")]
+fn parse_resolv_conf(path: &str) -> Vec<IpNet> {
+    use std::net::IpAddr;
+    let contents = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+    let mut out = Vec::new();
+    for line in contents.lines() {
+        let line = line.trim();
+        if line.starts_with('#') || line.starts_with(';') || line.is_empty() {
+            continue;
+        }
+        let mut parts = line.split_whitespace();
+        if parts.next() != Some("nameserver") {
+            continue;
+        }
+        let Some(addr) = parts.next() else { continue };
+        // `nameserver` can be followed by a scope id (`fe80::1%eth0`)
+        // on IPv6 addresses; strip it before parsing so glibc-style
+        // entries don't fail us silently.
+        let addr_no_scope = addr.split('%').next().unwrap_or(addr);
+        let Ok(ip) = addr_no_scope.parse::<IpAddr>() else {
+            continue;
+        };
+        let net = match ip {
+            IpAddr::V4(v4) => IpNet::new(IpAddr::V4(v4), 32),
+            IpAddr::V6(v6) => IpNet::new(IpAddr::V6(v6), 128),
+        };
+        if let Ok(net) = net {
+            out.push(net);
+        }
+    }
     out
 }
 
@@ -648,6 +750,100 @@ mod tests {
         let strings: Vec<String> = allow.iter().map(|n| n.to_string()).collect();
         assert!(strings.iter().any(|s| s == "10.0.0.0/8"));
         assert!(!strings.iter().any(|s| s.contains("not-a-cidr")));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parse_resolv_conf_handles_comments_blanks_and_ipv6_scope_ids() {
+        use std::io::Write;
+        let mut tf = tempfile::NamedTempFile::new().unwrap();
+        // Mix of `#` and `;` comments, blanks, a non-`nameserver`
+        // directive, a v4 entry, a v6 entry with a scope id, and a
+        // malformed entry — only the two well-formed `nameserver`
+        // lines should make it through.
+        writeln!(tf, "# this is a comment").unwrap();
+        writeln!(tf, "; vendored comment style").unwrap();
+        writeln!(tf).unwrap();
+        writeln!(tf, "search example.com").unwrap();
+        writeln!(tf, "nameserver 10.0.0.53").unwrap();
+        writeln!(tf, "nameserver fe80::1%eth0").unwrap();
+        writeln!(tf, "nameserver not-an-ip").unwrap();
+        tf.flush().unwrap();
+        let resolvers = parse_resolv_conf(tf.path().to_str().unwrap());
+        let strings: Vec<String> = resolvers.iter().map(|n| n.to_string()).collect();
+        assert_eq!(
+            strings,
+            vec!["10.0.0.53/32".to_string(), "fe80::1/128".to_string()],
+            "only well-formed nameserver lines survive; ipv6 scope id stripped"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parse_resolv_conf_missing_file_is_no_resolvers_not_an_error() {
+        // Pointing at a nonexistent path must return Vec::new() so
+        // the agent can still honour an IsolateHost on a DNS-less
+        // host without panicking.
+        let r = parse_resolv_conf("/nonexistent/path/that/should/not/exist/resolv.conf");
+        assert!(r.is_empty());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn build_allow_ips_unions_system_dns_resolvers_when_flag_is_on() {
+        // Sanity check: when `always_allow_dns == true`, the merged
+        // allow-list MUST contain the system resolvers from
+        // /etc/resolv.conf so the host can still resolve names while
+        // isolated.  We can't fake `/etc/resolv.conf` from a unit
+        // test, but we CAN assert the round-trip directly through
+        // the parser to avoid coupling to the live host.
+        let cfg = HostIsolationConfig {
+            enabled: true,
+            control_plane_cidrs: vec!["10.20.0.0/16".into()],
+            always_allow_dns: true,
+            always_allow_loopback: true,
+        };
+        let expected_dns = parse_resolv_conf("/etc/resolv.conf");
+        let allow = build_allow_ips(&cfg, &[]);
+        for dns in &expected_dns {
+            assert!(
+                allow.contains(dns),
+                "expected resolver {dns} to be unioned into the allow-list when always_allow_dns=true",
+            );
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn build_allow_ips_omits_system_dns_resolvers_when_flag_is_off() {
+        // Mirror of the previous test: when the flag is `false`,
+        // the discovered system resolvers must NOT be auto-merged
+        // (operators have to put them in `control_plane_cidrs` or
+        // `extra_allow_ips` explicitly).
+        let cfg = HostIsolationConfig {
+            enabled: true,
+            control_plane_cidrs: vec!["10.20.0.0/16".into()],
+            always_allow_dns: false,
+            always_allow_loopback: true,
+        };
+        let resolvers = parse_resolv_conf("/etc/resolv.conf");
+        let allow = build_allow_ips(&cfg, &[]);
+        for dns in &resolvers {
+            // The resolver could still legitimately appear if it
+            // happens to fall inside `10.20.0.0/16`; the test only
+            // fires when there is at least one resolver outside the
+            // control-plane CIDR.
+            let outside_ctrl_plane = !"10.20.0.0/16"
+                .parse::<IpNet>()
+                .unwrap()
+                .contains(&dns.addr());
+            if outside_ctrl_plane {
+                assert!(
+                    !allow.contains(dns),
+                    "resolver {dns} must NOT auto-merge when always_allow_dns=false",
+                );
+            }
+        }
     }
 
     #[test]
