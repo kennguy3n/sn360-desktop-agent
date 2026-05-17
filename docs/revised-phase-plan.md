@@ -1,4 +1,4 @@
-# SDA Revised Phase Plan — Phases 7–9
+# SDA Revised Phase Plan — Phases 7–10
 
 This document supersedes the late-phase entries in
 [`device-agent-proposal.md` §12](../device-agent-proposal.md#12-implementation-roadmap)
@@ -118,6 +118,62 @@ back in, but the shipped artefact is native-only.
 
 ---
 
+## Phase 10 — EDR Parity (Process / Network / Memory / Identity)
+
+Goal: close the competitive gap with CrowdStrike Falcon,
+SentinelOne, and Microsoft Defender for Endpoint by extending SDA
+from a FIM + logcollector + LDE pipeline to a full user-mode EDR
+slate (process telemetry, network telemetry, host isolation,
+memory scanning, identity-attack detection, and DLP).
+
+Phase 10 slots in after Phase 9 because the EDR data path is
+built on top of the SN360 native protocol as the default
+transport — Phase 7 (native promotion) and Phase 8 (full Control
+Plane) are pre-requisites for the new `edr.*` NATS subjects, and
+Phase 9 (legacy deprecation) keeps the default binary small
+enough to absorb the new EDR modules without breaching the
+binary-size budget.
+
+The canonical roadmap for this phase lives in
+[`docs/edr-parity/PHASES.md`](./edr-parity/PHASES.md); design
+rationale lives in [`docs/edr-parity/PROPOSAL.md`](./edr-parity/PROPOSAL.md);
+architecture reference lives in
+[`docs/edr-parity/ARCHITECTURE.md`](./edr-parity/ARCHITECTURE.md);
+delivery log lives in
+[`docs/edr-parity/PROGRESS.md`](./edr-parity/PROGRESS.md).
+
+EDR Parity uses **Phase E** identifiers (E0–E6) internally to
+avoid collision with the existing **Phase D** (Device Control)
+and **Phase M** (Desktop MDM) identifiers.
+
+| #     | Task                                                                                                                                        |
+|-------|---------------------------------------------------------------------------------------------------------------------------------------------|
+| 10.1  | Phase E0 — Architecture & schema sign-off (ADR, 8 new `EventKind` variants, `MessageType` + `edr.*` NATS subjects, canonical-JSON wire schemas). |
+| 10.2  | Phase E1 — Process telemetry across all three OSes (cn_proc / ETW / Endpoint Security), parent-chain enrichment, LDE expansion to consume process events, behavioural rules. |
+| 10.3  | Phase E2 — LDE maturity: TRDS rule hot-reload (replacing the placeholder at `crates/sda-local-detection/src/lib.rs` lines 495–501), signature verification, flip `local_detection.enabled` default from `false` to `true` (at `crates/sda-core/src/config.rs` line 983). |
+| 10.4  | Phase E3 — Network telemetry (TCP/UDP attribution) + DNS query logging + host isolation (`nftables` / `netsh advfirewall` / `pfctl`). |
+| 10.5  | Phase E4 — Memory scanning + fileless detection (RWX-region enumeration + in-memory YARA + optional Windows AMSI integration). |
+| 10.6  | Phase E5 — Identity-attack detection (LSASS / `/etc/shadow` / keychain) + regex-based DLP on file writes (and optionally clipboard). |
+| 10.7  | Phase E6 — Kernel-driver productisation (Windows WDK minifilter + WHQL signing, macOS SystemExtension, Linux eBPF). Tracked as ongoing, not gating Phase 10 sign-off. |
+| 10.8  | Server-side ⚙️ companion work in [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform) — TRDS process/network rule compilation, Agent Gateway `edr.*` subjects, Risk Engine recommendations, SMI `edr_coverage` sub-score, Dashboard process-tree viewer + isolate-host button, Action Orchestrator `IsolateHost` / `UnisolateHost` action types. |
+
+**Milestone 10:** SDA reports full process trees (with parent
+chains), outbound network connections with PID attribution, DNS
+queries with process context, and can be isolated via a signed
+`IsolateHost` action; the LDE matches process-chain and network
+IOC rules against the new telemetry; memory-scan and
+identity-attack alerts surface on the dashboard. Idle RSS with
+the full EDR slate enabled stays below 32 MB and the shipped
+binary stays below 10 MB.
+
+**Scope boundaries (per
+[`docs/edr-parity/PROPOSAL.md` § 4](./edr-parity/PROPOSAL.md)):**
+no full packet capture / PCAP, no TLS interception / MITM proxy,
+no full DPI (DLP is pattern-matching only), no kernel driver in
+Phases E0–E5 (kernel-mode productisation is Phase E6).
+
+---
+
 ## Relationship to earlier phases
 
 - **Phase 5.6** (opt-in enhanced protocol) is the *engineering*
@@ -129,6 +185,16 @@ back in, but the shipped artefact is native-only.
   server-side work is implemented in the
   [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform)
   repository and is **out of scope** for `sn360-desktop-agent`.
+- **Phase 10** (EDR Parity) builds on top of Phase 7's native
+  protocol promotion and Phase 8's full Control Plane. The Phase
+  E1 process-telemetry pipeline and the Phase E3 network /
+  isolation pipeline both depend on the `edr.*` NATS subject tree
+  on the Agent Gateway, which is server-side work
+  ([`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform)).
+  The Phase E2 LDE default-ON flip lifts the rule-pull
+  placeholder at `crates/sda-local-detection/src/lib.rs` lines
+  495–501 to a verified TRDS bundle pull, which depends on the
+  Phase 8.1 TRDS production work.
 
 ## Tracking
 
@@ -136,3 +202,8 @@ Progress against this plan should be mirrored into `PROGRESS.md`
 under a new "Phase 7" section once Phase 7 work actually starts in
 the code; this file is the design reference, `PROGRESS.md` is the
 delivery log.
+
+For Phase 10 the canonical per-task ledger is
+[`docs/edr-parity/PROGRESS.md`](./edr-parity/PROGRESS.md); the
+root [`PROGRESS.md`](../PROGRESS.md) carries a Priority 6 summary
+table that mirrors the seven sub-tasks above (P6.1 – P6.7).

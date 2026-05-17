@@ -243,6 +243,28 @@ this section is a top-level summary.
 | P5.6 | SMI `mdm_compliance` sub-score (M1.8) ⚙️ | Not Started — server-side |
 | P5.7 | Desktop MDM service (M2.4) ⚙️ | Not Started — server-side |
 
+### Priority 6 — EDR Parity (Process / Network / Memory / Identity)
+
+The canonical per-task ledger lives in
+[`docs/edr-parity/PROGRESS.md`](./docs/edr-parity/PROGRESS.md);
+this section is a top-level summary. EDR Parity uses **Phase E**
+identifiers (E0–E6) to avoid collision with the existing **Phase D**
+(Device Control) and **Phase M** (Desktop MDM) identifiers. See the
+companion [`docs/edr-parity/PROPOSAL.md`](./docs/edr-parity/PROPOSAL.md),
+[`docs/edr-parity/PHASES.md`](./docs/edr-parity/PHASES.md), and
+[`docs/edr-parity/ARCHITECTURE.md`](./docs/edr-parity/ARCHITECTURE.md)
+for design rationale, phased roadmap, and architecture reference.
+
+| # | Task | Status |
+|---|------|--------|
+| P6.1 | Phase E0: Architecture & schema sign-off | Not Started |
+| P6.2 | Phase E1: Process telemetry (all platforms) | Not Started |
+| P6.3 | Phase E2: LDE maturity + default-ON | Not Started |
+| P6.4 | Phase E3: Network telemetry + host isolation | Not Started |
+| P6.5 | Phase E4: Memory scanning + fileless detection | Not Started |
+| P6.6 | Phase E5: Identity attack detection + DLP | Not Started |
+| P6.7 | Phase E6: Kernel driver productisation | Not Started |
+
 > **Cross-repo status (2026-05-11).** All agent-side Device Control
 > work (Phases 0–5 + D2 user-mode enforcement) is complete on this
 > repo, and every control-plane ⚙️ task (1.14–1.16, 2.12–2.14, 3.6,
