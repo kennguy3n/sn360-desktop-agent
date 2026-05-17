@@ -142,6 +142,7 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 aho-corasick = "1"
 bloomfilter = "1"
 indexmap = "2"
+regex = "1"
 
 [profile.release]
 lto = "fat"

@@ -15,10 +15,12 @@
 //! rather than an arbitrary hash-bucket victim.  Windows older than
 //! `max_window_sec` are purged on every evaluation.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
+use regex::Regex;
+use tracing::warn;
 
 use crate::rule_store::{BehavioralRule, BehavioralRuleKind};
 
@@ -54,6 +56,11 @@ pub struct BehavioralEngine {
     // rather than arbitrary hash-bucket victims.
     threshold_state: IndexMap<(usize, String), VecDeque<Instant>>,
     sequence_state: IndexMap<(usize, String), SequenceState>,
+    /// Compiled `(name_regex, parent_chain_regex)` pairs for the
+    /// `ProcessChain` matcher, indexed by rule offset in `rules`.  We
+    /// compile once at construction time so each event evaluation is
+    /// a simple lookup.
+    process_chain_regex: HashMap<usize, (Regex, Regex)>,
     max_entities: usize,
     max_window: Duration,
 }
@@ -68,10 +75,41 @@ struct SequenceState {
 impl BehavioralEngine {
     /// Build an engine from the provided rule list.
     pub fn new(rules: Vec<BehavioralRule>, max_entities: usize, max_window_sec: u64) -> Self {
+        let mut process_chain_regex = HashMap::new();
+        for (idx, rule) in rules.iter().enumerate() {
+            if let BehavioralRuleKind::ProcessChain {
+                name_regex,
+                parent_chain_regex,
+            } = &rule.kind
+            {
+                match (Regex::new(name_regex), Regex::new(parent_chain_regex)) {
+                    (Ok(n), Ok(p)) => {
+                        process_chain_regex.insert(idx, (n, p));
+                    }
+                    (n, p) => {
+                        if let Err(e) = n {
+                            warn!(
+                                rule = %rule.id,
+                                error = %e,
+                                "behavioural rule has invalid name_regex; skipping"
+                            );
+                        }
+                        if let Err(e) = p {
+                            warn!(
+                                rule = %rule.id,
+                                error = %e,
+                                "behavioural rule has invalid parent_chain_regex; skipping"
+                            );
+                        }
+                    }
+                }
+            }
+        }
         Self {
             rules,
             threshold_state: IndexMap::new(),
             sequence_state: IndexMap::new(),
+            process_chain_regex,
             max_entities: max_entities.max(1),
             max_window: Duration::from_secs(max_window_sec.max(1)),
         }
@@ -177,6 +215,31 @@ impl BehavioralEngine {
                     self.sequence_state.insert(key, state);
                     self.maybe_evict(false);
                 }
+                BehavioralRuleKind::ProcessChain { .. } => {
+                    // The process arm of handle_event packs the
+                    // matched process name + cmdline AND the
+                    // " > "-joined parent chain into `event.text`,
+                    // separated by " > " when a chain is present.
+                    // The entity is the spawned process's exe_path
+                    // (or name as a fallback).
+                    let Some((name_re, chain_re)) = self.process_chain_regex.get(&idx)
+                    else {
+                        continue;
+                    };
+                    let (chain_part, leaf_part) = split_chain_and_leaf(event.text);
+                    if !name_re.is_match(leaf_part) {
+                        continue;
+                    }
+                    if !chain_re.is_match(chain_part) {
+                        continue;
+                    }
+                    out.push(BehavioralMatch {
+                        rule_id: rule.id.clone(),
+                        severity: rule.severity.clone(),
+                        description: rule.description.clone(),
+                        entity: event.entity.to_string(),
+                    });
+                }
             }
         }
         out
@@ -210,6 +273,27 @@ impl BehavioralEngine {
     }
 }
 
+/// Split a process-arm primary_text into `(chain, leaf_name)` for
+/// independent name- and chain-regex matching.
+///
+/// `handle_event` builds the primary_text as either:
+///   `"parent1 > parent2 > name cmdline…"`  (with chain)
+///   `"name cmdline…"`                       (no chain)
+///
+/// We split on the *last* `" > "` to separate the chain from the
+/// leaf, then take the first whitespace-delimited token of the leaf
+/// as the process name (since the remainder is cmdline text).
+fn split_chain_and_leaf(text: &str) -> (&str, &str) {
+    let (chain, leaf) = if let Some(idx) = text.rfind(" > ") {
+        (&text[..idx], &text[idx + 3..])
+    } else {
+        ("", text)
+    };
+    // Extract just the process name (first token) from the leaf.
+    let leaf_name = leaf.split_whitespace().next().unwrap_or("");
+    (chain, leaf_name)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,6 +322,25 @@ mod tests {
             kind: BehavioralRuleKind::Sequence {
                 sequence: steps.iter().map(|s| s.to_string()).collect(),
                 window_secs: window,
+            },
+        }
+    }
+
+    fn process_chain_rule(
+        id: &str,
+        name_re: &str,
+        chain_re: &str,
+        desc: &str,
+    ) -> BehavioralRule {
+        use crate::rule_store::SEV_HIGH;
+        BehavioralRule {
+            id: id.into(),
+            severity: SEV_HIGH.into(),
+            description: desc.into(),
+            event_source: "process".into(),
+            kind: BehavioralRuleKind::ProcessChain {
+                name_regex: name_re.into(),
+                parent_chain_regex: chain_re.into(),
             },
         }
     }
@@ -418,5 +521,112 @@ mod tests {
             .map(|(_, e)| e.as_str())
             .collect();
         assert_eq!(surviving, vec!["c", "d", "e"]);
+    }
+
+    // --- ProcessChain matcher tests (Phase E1.7) ---
+
+    #[test]
+    fn test_process_chain_office_spawns_powershell() {
+        let rule = process_chain_rule(
+            "edr-chain-001",
+            r"^powershell(\.exe)?$",
+            r".*(winword|excel|outlook)(\.exe)?.*",
+            "Office app spawned PowerShell",
+        );
+        let mut eng = BehavioralEngine::new(vec![rule], 100, 3600);
+        let hits = eng.evaluate(&BehavioralEvent {
+            source: "process",
+            entity: r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+            text: "explorer.exe > winword.exe > cmd.exe > powershell.exe -enc ...",
+        });
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].rule_id, "edr-chain-001");
+    }
+
+    #[test]
+    fn test_process_chain_no_match_benign_parent() {
+        let rule = process_chain_rule(
+            "edr-chain-001",
+            r"^powershell(\.exe)?$",
+            r".*(winword|excel|outlook)(\.exe)?.*",
+            "Office app spawned PowerShell",
+        );
+        let mut eng = BehavioralEngine::new(vec![rule], 100, 3600);
+        let hits = eng.evaluate(&BehavioralEvent {
+            source: "process",
+            entity: r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+            text: "explorer.exe > cmd.exe > powershell.exe",
+        });
+        assert!(hits.is_empty(), "benign parent chain should not match");
+    }
+
+    #[test]
+    fn test_process_chain_wmiprvse_rundll32() {
+        let rule = process_chain_rule(
+            "edr-chain-002",
+            r"^rundll32(\.exe)?$",
+            r".*wmiprvse(\.exe)?.*",
+            "wmiprvse spawned rundll32",
+        );
+        let mut eng = BehavioralEngine::new(vec![rule], 100, 3600);
+        let hits = eng.evaluate(&BehavioralEvent {
+            source: "process",
+            entity: r"C:\Windows\System32\rundll32.exe",
+            text: "svchost.exe > wmiprvse.exe > rundll32.exe some.dll,entry",
+        });
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].rule_id, "edr-chain-002");
+    }
+
+    #[test]
+    fn test_process_chain_source_filter() {
+        let rule = process_chain_rule(
+            "edr-chain-001",
+            r"^powershell(\.exe)?$",
+            r".*winword(\.exe)?.*",
+            "test",
+        );
+        let mut eng = BehavioralEngine::new(vec![rule], 100, 3600);
+        let hits = eng.evaluate(&BehavioralEvent {
+            source: "logcollector",
+            entity: "powershell.exe",
+            text: "winword.exe > powershell.exe",
+        });
+        assert!(hits.is_empty(), "wrong source should be ignored");
+    }
+
+    #[test]
+    fn test_process_chain_no_parent_chain() {
+        let rule = process_chain_rule(
+            "edr-chain-001",
+            r"^powershell(\.exe)?$",
+            r".*winword(\.exe)?.*",
+            "test",
+        );
+        let mut eng = BehavioralEngine::new(vec![rule], 100, 3600);
+        let hits = eng.evaluate(&BehavioralEvent {
+            source: "process",
+            entity: "powershell.exe",
+            text: "powershell.exe -enc ...",
+        });
+        assert!(hits.is_empty(), "empty chain should not match chain regex");
+    }
+
+    #[test]
+    fn test_split_chain_and_leaf() {
+        // Leaf strips cmdline so the name regex sees just the program.
+        assert_eq!(
+            split_chain_and_leaf("explorer.exe > winword.exe > powershell.exe -enc xyz"),
+            ("explorer.exe > winword.exe", "powershell.exe")
+        );
+        assert_eq!(
+            split_chain_and_leaf("powershell.exe -enc"),
+            ("", "powershell.exe")
+        );
+        assert_eq!(
+            split_chain_and_leaf("powershell.exe"),
+            ("", "powershell.exe")
+        );
+        assert_eq!(split_chain_and_leaf(""), ("", ""));
     }
 }

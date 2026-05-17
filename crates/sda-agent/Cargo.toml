@@ -33,6 +33,7 @@ sda-sca = { workspace = true }
 sda-active-response = { workspace = true }
 sda-rootcheck = { workspace = true }
 sda-local-detection = { workspace = true }
+sda-process-monitor = { workspace = true }
 sda-enhanced-inventory = { workspace = true }
 sda-updater = { workspace = true }
 sda-device-control = { workspace = true }

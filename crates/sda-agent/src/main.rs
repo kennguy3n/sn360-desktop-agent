@@ -420,6 +420,21 @@ async fn main() -> Result<()> {
         agent.register_module(lde_handle);
     }
 
+    // 12f-bis. Start Process Monitor module (Phase E1) if enabled.
+    //           Default is `false`; flipping `process_monitor.enabled`
+    //           to `true` lights up cross-platform process telemetry
+    //           (Created / Terminated / ImageLoaded) with parent-chain
+    //           enrichment fed into the LDE for behavioural matching.
+    if config.modules.process_monitor.enabled {
+        info!("starting process monitor module");
+        let pm_handle = sda_process_monitor::ProcessMonitorModule::start(
+            &config,
+            agent.event_bus(),
+            agent.shutdown_signal(),
+        );
+        agent.register_module(pm_handle);
+    }
+
     // 12g. Start Enhanced Inventory module if enabled
     if config.modules.enhanced_inventory.enabled {
         info!("starting enhanced inventory module");
@@ -889,6 +904,26 @@ fn map_event_to_message(agent_id: &str, kind: &EventKind) -> Option<WazuhMessage
         EventKind::MdmAutoRemediationResult { payload } => {
             (MessageType::MdmAutoRemediationResult, payload.clone())
         }
+
+        // --- EDR Parity event mapping (Phase E1-E3) ---
+        EventKind::ProcessCreated { payload } => {
+            (MessageType::ProcessCreated, payload.clone())
+        }
+        EventKind::ProcessTerminated { payload } => {
+            (MessageType::ProcessTerminated, payload.clone())
+        }
+        EventKind::ImageLoaded { payload } => (MessageType::ImageLoaded, payload.clone()),
+        EventKind::NetworkConnection { payload } => {
+            (MessageType::NetworkConnection, payload.clone())
+        }
+        EventKind::DnsQuery { payload } => (MessageType::DnsQuery, payload.clone()),
+        EventKind::MemoryScanAlert { payload } => {
+            (MessageType::MemoryScanAlert, payload.clone())
+        }
+        EventKind::HostIsolationStateChanged { payload } => {
+            (MessageType::HostIsolationStateChanged, payload.clone())
+        }
+        EventKind::IdentityAlert { payload } => (MessageType::IdentityAlert, payload.clone()),
 
         // Lifecycle / internal events are not forwarded.
         _ => return None,

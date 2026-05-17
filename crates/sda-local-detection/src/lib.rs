@@ -352,8 +352,164 @@ async fn handle_event(pipeline: &DetectionPipeline, bus: &EventBus, event: &Even
             None,
             extract_ipv4s(message),
         ),
-        // The LDE only observes FIM and logcollector streams; other
-        // event kinds pass through untouched.
+
+        // --- EDR Parity event arms (Phase E1-E3) ---
+        // Process create: feed `exe_path` as the entity and the
+        // joined parent-chain text as primary_text so behavioural
+        // rules can match against the full ancestor history.
+        EventKind::ProcessCreated { payload } => {
+            let parsed: serde_json::Value =
+                serde_json::from_str(payload).unwrap_or_default();
+            let name = parsed
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let exe_path = parsed
+                .get("exe_path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let entity = if !exe_path.is_empty() {
+                exe_path
+            } else {
+                name.clone()
+            };
+            let cmdline = parsed
+                .get("cmdline")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|x| x.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .unwrap_or_default();
+            let parent_chain = parsed
+                .get("parent_chain")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|x| x.get("name").and_then(|n| n.as_str()))
+                        .collect::<Vec<_>>()
+                        .join(" > ")
+                })
+                .unwrap_or_default();
+            let primary_text = if parent_chain.is_empty() {
+                format!("{name} {cmdline}").trim().to_string()
+            } else {
+                format!("{parent_chain} > {name} {cmdline}").trim().to_string()
+            };
+            ("process", entity, primary_text, None, None, Vec::new())
+        }
+        EventKind::ProcessTerminated { payload } => {
+            let parsed: serde_json::Value =
+                serde_json::from_str(payload).unwrap_or_default();
+            let name = parsed
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let exit_code = parsed
+                .get("exit_code")
+                .and_then(|v| v.as_i64())
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "?".into());
+            (
+                "process",
+                name.clone(),
+                format!("terminated exit_code={exit_code}"),
+                None,
+                None,
+                Vec::new(),
+            )
+        }
+        EventKind::ImageLoaded { payload } => {
+            let parsed: serde_json::Value =
+                serde_json::from_str(payload).unwrap_or_default();
+            let image_path = parsed
+                .get("image_path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let image_hash = parsed
+                .get("image_hash")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            (
+                "process",
+                image_path.clone(),
+                image_path,
+                None,
+                image_hash,
+                Vec::new(),
+            )
+        }
+        EventKind::NetworkConnection { payload } => {
+            let parsed: serde_json::Value =
+                serde_json::from_str(payload).unwrap_or_default();
+            let process_name = parsed
+                .get("process_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let remote_addr = parsed
+                .get("remote_addr")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let remote_port = parsed
+                .get("remote_port")
+                .and_then(|v| v.as_u64())
+                .map(|p| p.to_string())
+                .unwrap_or_else(|| "?".into());
+            let ips = if !remote_addr.is_empty() {
+                vec![remote_addr.clone()]
+            } else {
+                Vec::new()
+            };
+            (
+                "network",
+                process_name,
+                format!("{remote_addr}:{remote_port}"),
+                None,
+                None,
+                ips,
+            )
+        }
+        EventKind::DnsQuery { payload } => {
+            let parsed: serde_json::Value =
+                serde_json::from_str(payload).unwrap_or_default();
+            let query_name = parsed
+                .get("query_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let process_name = parsed
+                .get("process_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let response_ips = parsed
+                .get("response_ips")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            (
+                "dns",
+                process_name,
+                query_name,
+                None,
+                None,
+                response_ips,
+            )
+        }
+
+        // Other event kinds pass through untouched.
         _ => return,
     };
 
