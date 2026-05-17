@@ -442,7 +442,16 @@ pub struct LocalDetectionConfig {
     /// embedded baseline bundle at startup; to preserve the previous
     /// default-off behaviour, set `modules.local_detection.enabled:
     /// false` explicitly.
-    #[serde(default)]
+    ///
+    /// Uses `default_true` (not bare `#[serde(default)]`) so the
+    /// default applies on the per-field serde path as well as the
+    /// struct-level `LocalDetectionConfig::default()` path — i.e.
+    /// when an operator provides a partial `local_detection:`
+    /// section that omits the `enabled` key, the LDE still defaults
+    /// on (matching the documented intent).  A bare
+    /// `#[serde(default)]` would silently resolve to
+    /// `bool::default() == false` on that path.
+    #[serde(default = "default_true")]
     pub enabled: bool,
     /// Interval in seconds between rule-bundle pulls from the Tenant
     /// Rule Distribution Service (TRDS).

@@ -40,3 +40,4 @@ yara = { version = "0.28", features = ["vendored"] }
 [dev-dependencies]
 tempfile = "3"
 tokio = { workspace = true, features = ["rt-multi-thread", "test-util"] }
+serde_yaml = { workspace = true }

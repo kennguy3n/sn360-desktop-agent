@@ -1291,6 +1291,53 @@ mod tests {
     }
 
     #[test]
+    fn test_local_detection_partial_yaml_keeps_enabled_default_on() {
+        // Regression: the `enabled` field must default to `true` on the
+        // per-field serde path as well as on the struct-level
+        // `LocalDetectionConfig::default()` path.  Before the
+        // `#[serde(default = "default_true")]` fix, an operator who
+        // wrote a *partial* `local_detection:` section (e.g. setting
+        // only `rule_bundle_path`) without explicitly listing
+        // `enabled: true` would silently get `enabled = false` from
+        // `bool::default()`, contradicting the documented default-on
+        // intent.
+        //
+        // Two shapes are covered:
+        //   (a) a partial `LocalDetectionConfig` block with another
+        //       field set and `enabled` omitted;
+        //   (b) an empty `LocalDetectionConfig` block — `enabled` is
+        //       absent and *no* other key is present.
+        //
+        // Both must end up with `enabled = true`.
+        let partial = r#"
+rule_bundle_path: /var/lib/sn360-desktop-agent/rules.mp
+"#;
+        let cfg_partial: LocalDetectionConfig =
+            serde_yaml::from_str(partial).expect("partial yaml parses");
+        assert!(
+            cfg_partial.enabled,
+            "partial LocalDetectionConfig yaml must default `enabled` to true (per-field serde path)"
+        );
+
+        let empty = "{}";
+        let cfg_empty: LocalDetectionConfig =
+            serde_yaml::from_str(empty).expect("empty yaml parses");
+        assert!(
+            cfg_empty.enabled,
+            "empty LocalDetectionConfig yaml must default `enabled` to true (per-field serde path)"
+        );
+
+        // And the explicit-off path still works.
+        let explicit_off = "enabled: false\n";
+        let cfg_off: LocalDetectionConfig =
+            serde_yaml::from_str(explicit_off).expect("explicit-off yaml parses");
+        assert!(
+            !cfg_off.enabled,
+            "explicit `enabled: false` must still disable the LDE"
+        );
+    }
+
+    #[test]
     fn test_local_detection_default_trds_fields() {
         // Phase E2.1: TRDS endpoint is absent by default; signing keys
         // are an empty rotation set; the pull timeout has a sane default.
