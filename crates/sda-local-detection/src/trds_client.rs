@@ -164,7 +164,16 @@ impl TrdsClient {
             .await
             .map_err(|e| TrdsError::Http(e.to_string()))?;
 
-        if resp.status() == reqwest::StatusCode::NOT_MODIFIED {
+        // Both `304 Not Modified` and `204 No Content` map to "no
+        // newer bundle" — the e2e mock TRDS server (and, per
+        // convention, the platform-side TRDS) returns 204 with an
+        // empty body for the steady-state "nothing to do" case.
+        // Treating 204 as an error path (the body fails JSON decode)
+        // would emit a misleading "TRDS pull failed" warn! on every
+        // poll cycle.
+        if resp.status() == reqwest::StatusCode::NOT_MODIFIED
+            || resp.status() == reqwest::StatusCode::NO_CONTENT
+        {
             return Ok(None);
         }
 
@@ -404,5 +413,62 @@ mod tests {
             TrdsClient::new(format!("http://{addr}/trds"), Duration::from_secs(2)).unwrap();
         let err = client.fetch_envelope(0).await.unwrap_err();
         assert!(matches!(err, TrdsError::HttpStatus(404)));
+    }
+
+    /// Regression for the Phase E2 review finding: a `204 No Content`
+    /// response from the TRDS server (the steady-state "no newer
+    /// bundle" signal — see `crates/sda-agent/tests/e2e_lde_hotreload.rs`)
+    /// must be treated as `Ok(None)`, not as a transport error.  Before
+    /// the fix, 204 fell through to `bytes()` + `serde_json::from_slice`
+    /// and surfaced as `TrdsError::BadEnvelope`, causing the LDE to
+    /// log a misleading `"TRDS pull failed"` warn! on every poll cycle.
+    #[tokio::test]
+    async fn http_204_no_content_treated_as_no_new_bundle() {
+        use tokio::io::AsyncWriteExt;
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            if let Ok((mut sock, _)) = listener.accept().await {
+                let resp =
+                    b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                let _ = sock.write_all(resp).await;
+            }
+        });
+
+        let client =
+            TrdsClient::new(format!("http://{addr}/trds"), Duration::from_secs(2)).unwrap();
+        let res = client.fetch_envelope(0).await.expect("204 must not error");
+        assert!(
+            res.is_none(),
+            "204 No Content must map to Ok(None), got {res:?}"
+        );
+    }
+
+    /// Companion regression: an explicit `304 Not Modified` must also
+    /// map to `Ok(None)`.  This is the original code path, but it's
+    /// worth pinning so a future refactor that touches the
+    /// status-code matching block (e.g. swapping to a match arm) can't
+    /// regress just one of the two "no new bundle" status codes.
+    #[tokio::test]
+    async fn http_304_not_modified_treated_as_no_new_bundle() {
+        use tokio::io::AsyncWriteExt;
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            if let Ok((mut sock, _)) = listener.accept().await {
+                let resp =
+                    b"HTTP/1.1 304 Not Modified\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                let _ = sock.write_all(resp).await;
+            }
+        });
+
+        let client =
+            TrdsClient::new(format!("http://{addr}/trds"), Duration::from_secs(2)).unwrap();
+        let res = client.fetch_envelope(0).await.expect("304 must not error");
+        assert!(res.is_none(), "304 Not Modified must map to Ok(None)");
     }
 }

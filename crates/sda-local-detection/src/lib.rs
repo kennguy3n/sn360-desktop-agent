@@ -707,6 +707,13 @@ async fn pull_and_install(
     };
     let new_version = new_pipeline.bundle_version;
     let new_rule_count = new_pipeline.iocs.rule_count();
+    // Emit one `LocalDetectionAlert` per behavioural rule the new
+    // pipeline refused to load (invalid regex), then publish it so
+    // the LDE keeps the rest of the bundle live.  We drain *before*
+    // `pipeline_store` so subsequent `pipeline_load()` callers see a
+    // freshly-drained engine (no stale `skipped_rules` queued for
+    // re-publication on every event).
+    publish_skipped_rule_alerts(bus, &new_pipeline, new_version).await;
     pipeline_store(pipeline_cell, Arc::new(new_pipeline));
     info!(
         version = new_version,
@@ -746,6 +753,47 @@ async fn publish_bundle_security_alert(bus: &EventBus, err: &TrdsError) {
     }
 }
 
+/// Drain `behavioural_engine.take_skipped_rules()` and publish one
+/// `LocalDetectionAlert` per permanently-disabled rule.
+///
+/// Without this, an operator would only see the startup `warn!`
+/// trace line (easy to miss in a busy log) when a TRDS-pushed
+/// regex fails to compile, and the rule would silently never fire.
+/// Surfacing each skip as a `severity = "high"` system alert in the
+/// SIEM matches the visibility we already provide for TRDS bundle
+/// rejection (`publish_bundle_security_alert`).
+async fn publish_skipped_rule_alerts(bus: &EventBus, pipeline: &DetectionPipeline, version: u64) {
+    let skipped = pipeline.behavioral.lock().await.take_skipped_rules();
+    if skipped.is_empty() {
+        return;
+    }
+    warn!(
+        count = skipped.len(),
+        bundle_version = version,
+        "LDE: behavioural rules permanently disabled at bundle load due to invalid regex"
+    );
+    for rule in skipped {
+        let kind = EventKind::LocalDetectionAlert {
+            rule_id: "system.lde.rule_disabled".into(),
+            rule_type: "system".into(),
+            severity: "high".into(),
+            description: format!(
+                "LDE rule {} permanently disabled at bundle v{version} load: {}",
+                rule.rule_id, rule.reason,
+            ),
+            matched_value: rule.rule_id.clone(),
+        };
+        let event = Event::new("local_detection", Priority::High, kind);
+        if let Err(e) = bus.publish_to_server(event).await {
+            warn!(
+                error = %e,
+                rule = %rule.rule_id,
+                "failed to publish behavioural-rule disabled alert"
+            );
+        }
+    }
+}
+
 /// Main LDE run loop.
 async fn run(
     config: LocalDetectionConfig,
@@ -772,6 +820,14 @@ async fn run(
         version = initial_pipeline.bundle_version,
         "local detection engine ready"
     );
+
+    // Surface any behavioural rules that the engine refused to load
+    // due to invalid regexes — see `publish_skipped_rule_alerts` for
+    // the rationale.  We drain *before* moving the pipeline into the
+    // `Arc<PipelineCell>` so the per-rule alerts are emitted exactly
+    // once per bundle load, not once per pipeline_load().
+    let initial_version = initial_pipeline.bundle_version;
+    publish_skipped_rule_alerts(&bus, &initial_pipeline, initial_version).await;
 
     let pipeline_cell: Arc<PipelineCell> = Arc::new(StdRwLock::new(Arc::new(initial_pipeline)));
 
