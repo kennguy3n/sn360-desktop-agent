@@ -45,6 +45,33 @@ pub struct BehavioralEvent<'a> {
     pub entity: &'a str,
     /// Free-form text searched by `contains` / `sequence` predicates.
     pub text: &'a str,
+    /// Structured process metadata for [`BehavioralRuleKind::ProcessChain`]
+    /// matchers.  Set by `handle_event` only for `process_created`
+    /// events; `None` for every other source (FIM, logcollector,
+    /// network, DNS, process_terminated, process_image_loaded).
+    ///
+    /// Carrying the parent chain and the leaf name as separate
+    /// fields — rather than packing them into the same `text` string
+    /// — avoids an ambiguity that bit Phase E1.7: when `text` was
+    /// `"{parent_chain} > {name} {cmdline}"` and cmdline contained
+    /// a literal `>` (PowerShell `-Command "... > out.txt"`, bash
+    /// redirects, build scripts), `rfind(" > ")` matched inside
+    /// cmdline instead of at the chain→leaf boundary and the regex
+    /// produced a false negative on legitimate detections.
+    pub process: Option<ProcessFields<'a>>,
+}
+
+/// Structured process fields surfaced to the
+/// [`BehavioralRuleKind::ProcessChain`] matcher.
+#[derive(Debug, Clone, Copy)]
+pub struct ProcessFields<'a> {
+    /// `" > "`-joined parent chain (root → immediate parent), e.g.
+    /// `"explorer.exe > winword.exe"`.  Empty when no parents are
+    /// known.
+    pub parent_chain: &'a str,
+    /// The spawned process's leaf basename, e.g. `"powershell.exe"`.
+    /// Empty when the process name is unknown.
+    pub leaf_name: &'a str,
 }
 
 /// A behavioural rule that was rejected at engine-construction time
@@ -263,20 +290,27 @@ impl BehavioralEngine {
                     self.maybe_evict(false);
                 }
                 BehavioralRuleKind::ProcessChain { .. } => {
-                    // The process arm of handle_event packs the
-                    // matched process name + cmdline AND the
-                    // " > "-joined parent chain into `event.text`,
-                    // separated by " > " when a chain is present.
+                    // ProcessChain matches on STRUCTURED fields
+                    // (`event.process.parent_chain` and
+                    // `event.process.leaf_name`) populated by
+                    // `handle_event` for `process_created` events.
                     // The entity is the spawned process's exe_path
-                    // (or name as a fallback).
+                    // (or name as a fallback).  If the producing
+                    // source did not provide structured process
+                    // fields, the rule cannot match — this is also
+                    // the secondary guard that keeps ProcessChain
+                    // rules from firing on `process_terminated` or
+                    // `process_image_loaded` events.
                     let Some((name_re, chain_re)) = self.process_chain_regex.get(&idx) else {
                         continue;
                     };
-                    let (chain_part, leaf_part) = split_chain_and_leaf(event.text);
-                    if !name_re.is_match(leaf_part) {
+                    let Some(proc) = event.process else {
+                        continue;
+                    };
+                    if !name_re.is_match(proc.leaf_name) {
                         continue;
                     }
-                    if !chain_re.is_match(chain_part) {
+                    if !chain_re.is_match(proc.parent_chain) {
                         continue;
                     }
                     out.push(BehavioralMatch {
@@ -317,27 +351,6 @@ impl BehavioralEngine {
     pub fn tracked_entities(&self) -> usize {
         self.threshold_state.len() + self.sequence_state.len()
     }
-}
-
-/// Split a process-arm primary_text into `(chain, leaf_name)` for
-/// independent name- and chain-regex matching.
-///
-/// `handle_event` builds the primary_text as either:
-///   `"parent1 > parent2 > name cmdline…"`  (with chain)
-///   `"name cmdline…"`                       (no chain)
-///
-/// We split on the *last* `" > "` to separate the chain from the
-/// leaf, then take the first whitespace-delimited token of the leaf
-/// as the process name (since the remainder is cmdline text).
-fn split_chain_and_leaf(text: &str) -> (&str, &str) {
-    let (chain, leaf) = if let Some(idx) = text.rfind(" > ") {
-        (&text[..idx], &text[idx + 3..])
-    } else {
-        ("", text)
-    };
-    // Extract just the process name (first token) from the leaf.
-    let leaf_name = leaf.split_whitespace().next().unwrap_or("");
-    (chain, leaf_name)
 }
 
 #[cfg(test)]
@@ -401,6 +414,7 @@ mod tests {
             source: "logcollector",
             entity: "sshd",
             text: "auth failure for user root",
+            process: None,
         };
         assert!(eng.evaluate_at(&ev, t0).is_empty());
         assert!(eng.evaluate_at(&ev, t0 + Duration::from_secs(1)).is_empty());
@@ -422,6 +436,7 @@ mod tests {
             source: "logcollector",
             entity: "sshd",
             text: "auth failure",
+            process: None,
         };
         eng.evaluate_at(&ev, t0);
         eng.evaluate_at(&ev, t0 + Duration::from_secs(1));
@@ -446,6 +461,7 @@ mod tests {
             source: "logcollector",
             entity: "host",
             text: "",
+            process: None,
         };
 
         assert!(eng
@@ -490,6 +506,7 @@ mod tests {
                 source: "logcollector",
                 entity: "host",
                 text: "a",
+                process: None,
             },
             t0,
         );
@@ -499,6 +516,7 @@ mod tests {
                 source: "logcollector",
                 entity: "host",
                 text: "c",
+                process: None,
             },
             t0 + Duration::from_secs(30),
         );
@@ -513,6 +531,7 @@ mod tests {
             source: "fim",
             entity: "/etc",
             text: "x",
+            process: None,
         });
         assert!(hits.is_empty());
     }
@@ -528,6 +547,7 @@ mod tests {
                     source: "logcollector",
                     entity: &e,
                     text: "x",
+                    process: None,
                 },
                 t0,
             );
@@ -554,6 +574,7 @@ mod tests {
                     source: "logcollector",
                     entity: name,
                     text: "x",
+                    process: None,
                 },
                 t0,
             );
@@ -581,7 +602,11 @@ mod tests {
         let hits = eng.evaluate(&BehavioralEvent {
             source: "process_created",
             entity: r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
-            text: "explorer.exe > winword.exe > cmd.exe > powershell.exe -enc ...",
+            text: "powershell.exe -enc ...",
+            process: Some(ProcessFields {
+                parent_chain: "explorer.exe > winword.exe > cmd.exe",
+                leaf_name: "powershell.exe",
+            }),
         });
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].rule_id, "edr-chain-001");
@@ -599,7 +624,11 @@ mod tests {
         let hits = eng.evaluate(&BehavioralEvent {
             source: "process_created",
             entity: r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
-            text: "explorer.exe > cmd.exe > powershell.exe",
+            text: "powershell.exe",
+            process: Some(ProcessFields {
+                parent_chain: "explorer.exe > cmd.exe",
+                leaf_name: "powershell.exe",
+            }),
         });
         assert!(hits.is_empty(), "benign parent chain should not match");
     }
@@ -616,7 +645,11 @@ mod tests {
         let hits = eng.evaluate(&BehavioralEvent {
             source: "process_created",
             entity: r"C:\Windows\System32\rundll32.exe",
-            text: "svchost.exe > wmiprvse.exe > rundll32.exe some.dll,entry",
+            text: "rundll32.exe some.dll,entry",
+            process: Some(ProcessFields {
+                parent_chain: "svchost.exe > wmiprvse.exe",
+                leaf_name: "rundll32.exe",
+            }),
         });
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].rule_id, "edr-chain-002");
@@ -635,6 +668,7 @@ mod tests {
             source: "logcollector",
             entity: "powershell.exe",
             text: "winword.exe > powershell.exe",
+            process: None,
         });
         assert!(hits.is_empty(), "wrong source should be ignored");
     }
@@ -652,6 +686,10 @@ mod tests {
             source: "process_created",
             entity: "powershell.exe",
             text: "powershell.exe -enc ...",
+            process: Some(ProcessFields {
+                parent_chain: "",
+                leaf_name: "powershell.exe",
+            }),
         });
         assert!(hits.is_empty(), "empty chain should not match chain regex");
     }
@@ -671,13 +709,15 @@ mod tests {
         );
         let mut eng = BehavioralEngine::new(vec![rule], 100, 3600);
 
-        // Synthetic ProcessTerminated payload: leaf is "terminated"
-        // so the name regex would not match even if we forgot the
-        // source pin; the source pin is the primary guard.
+        // Synthetic ProcessTerminated payload: the source pin is the
+        // primary guard; `process: None` is the secondary guard the
+        // ProcessChain matcher uses since terminated/image-loaded
+        // events do not carry structured process fields.
         let terminated = eng.evaluate(&BehavioralEvent {
             source: "process_terminated",
             entity: "powershell.exe",
-            text: "explorer.exe > winword.exe > powershell.exe terminated exit_code=0",
+            text: "terminated exit_code=0",
+            process: None,
         });
         assert!(
             terminated.is_empty(),
@@ -689,7 +729,8 @@ mod tests {
         let image_loaded = eng.evaluate(&BehavioralEvent {
             source: "process_image_loaded",
             entity: r"C:\Windows\System32\powershell.exe",
-            text: "explorer.exe > winword.exe > powershell.exe",
+            text: r"C:\Windows\System32\powershell.exe",
+            process: None,
         });
         assert!(
             image_loaded.is_empty(),
@@ -701,7 +742,11 @@ mod tests {
         let created = eng.evaluate(&BehavioralEvent {
             source: "process_created",
             entity: r"C:\Windows\System32\powershell.exe",
-            text: "explorer.exe > winword.exe > powershell.exe",
+            text: "powershell.exe",
+            process: Some(ProcessFields {
+                parent_chain: "explorer.exe > winword.exe",
+                leaf_name: "powershell.exe",
+            }),
         });
         assert_eq!(
             created.len(),
@@ -765,27 +810,85 @@ mod tests {
         let hits = eng.evaluate(&BehavioralEvent {
             source: "process_created",
             entity: r"C:\Windows\System32\powershell.exe",
-            text: "explorer.exe > winword.exe > powershell.exe",
+            text: "powershell.exe",
+            process: Some(ProcessFields {
+                parent_chain: "winword.exe",
+                leaf_name: "powershell.exe",
+            }),
         });
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].rule_id, "office-spawns-powershell");
     }
 
+    /// Regression for the Phase E3 review finding: a `ProcessCreated`
+    /// whose cmdline contains a literal `>` (shell redirect, PowerShell
+    /// `-Command "... > out"`, build script) MUST still match the
+    /// ProcessChain rule.  Before the refactor, `primary_text` was
+    /// `"{parent_chain} > {name} {cmdline}"` and `split_chain_and_leaf`
+    /// used `rfind(" > ")` to recover `(chain, leaf)` — which would
+    /// happily match a `" > "` inside the cmdline and yield the wrong
+    /// leaf (the post-redirect token), producing a false negative on
+    /// every cmdline-with-redirect.  The fix carries `parent_chain` and
+    /// `leaf_name` as structured fields on `BehavioralEvent::process`
+    /// so the matcher is no longer sensitive to cmdline content.
     #[test]
-    fn test_split_chain_and_leaf() {
-        // Leaf strips cmdline so the name regex sees just the program.
-        assert_eq!(
-            split_chain_and_leaf("explorer.exe > winword.exe > powershell.exe -enc xyz"),
-            ("explorer.exe > winword.exe", "powershell.exe")
+    fn test_process_chain_matches_when_cmdline_contains_literal_redirect() {
+        let rule = process_chain_rule(
+            "edr-chain-001",
+            r"^powershell(\.exe)?$",
+            r".*winword(\.exe)?.*",
+            "Office app spawned PowerShell",
         );
+        let mut eng = BehavioralEngine::new(vec![rule], 100, 3600);
+        // PowerShell `-Command` payload that contains a literal
+        // `" > "` (shell redirect) deep inside its argv.  Under the
+        // old rfind-based splitter this string would have produced
+        // a leaf of `bar` and the name regex would fail.  With the
+        // structured fields, the matcher only sees the explicit
+        // `parent_chain` and `leaf_name` and the redirect is
+        // irrelevant.
+        let hits = eng.evaluate(&BehavioralEvent {
+            source: "process_created",
+            entity: r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+            text: "powershell.exe -Command Get-Content foo > bar",
+            process: Some(ProcessFields {
+                parent_chain: "explorer.exe > winword.exe",
+                leaf_name: "powershell.exe",
+            }),
+        });
         assert_eq!(
-            split_chain_and_leaf("powershell.exe -enc"),
-            ("", "powershell.exe")
+            hits.len(),
+            1,
+            "ProcessChain rule must fire even when cmdline contains a literal redirect"
         );
-        assert_eq!(
-            split_chain_and_leaf("powershell.exe"),
-            ("", "powershell.exe")
+        assert_eq!(hits[0].rule_id, "edr-chain-001");
+    }
+
+    /// Companion: a `ProcessCreated` event with `process: None`
+    /// (e.g. produced by a future PAL that does not yet surface
+    /// `parent_chain`) MUST NOT fire a ProcessChain rule.  The
+    /// structured-fields guard in the matcher is the only thing
+    /// keeping us from regressing into the cmdline-collision bug.
+    #[test]
+    fn test_process_chain_requires_structured_process_fields() {
+        let rule = process_chain_rule(
+            "edr-chain-001",
+            r"^powershell(\.exe)?$",
+            r".*winword(\.exe)?.*",
+            "Office app spawned PowerShell",
         );
-        assert_eq!(split_chain_and_leaf(""), ("", ""));
+        let mut eng = BehavioralEngine::new(vec![rule], 100, 3600);
+        let hits = eng.evaluate(&BehavioralEvent {
+            source: "process_created",
+            entity: r"C:\Windows\System32\powershell.exe",
+            // Even with the chain in the free-form text, the matcher
+            // must refuse to fire without the structured fields.
+            text: "winword.exe > powershell.exe",
+            process: None,
+        });
+        assert!(
+            hits.is_empty(),
+            "ProcessChain rule must not fall back to parsing event.text when process: None"
+        );
     }
 }

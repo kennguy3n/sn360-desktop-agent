@@ -35,7 +35,7 @@ use sda_core::module::{AgentModule, ModuleHandle, ModuleHealth, ModuleStatus};
 use sda_core::signal::ShutdownSignal;
 use sda_event_bus::{Event, EventBus, EventKind, EventReceiver, Priority};
 
-use crate::behavioral::{BehavioralEngine, BehavioralEvent, BehavioralMatch};
+use crate::behavioral::{BehavioralEngine, BehavioralEvent, BehavioralMatch, ProcessFields};
 use crate::ioc_matcher::{IocMatch, IocMatcher};
 use crate::offline_queue::OfflineQueue;
 use crate::response::LocalResponder;
@@ -310,6 +310,17 @@ impl LocalAlert {
 /// Handle a single inbound event by running it through every rule
 /// backend and firing alerts for each hit.
 async fn handle_event(pipeline: &DetectionPipeline, bus: &EventBus, event: &Event) {
+    // Per-event structured process metadata.  Set only by the
+    // `ProcessCreated` arm below; the ProcessChain behavioural
+    // matcher reads `parent_chain` and `leaf_name` from
+    // `BehavioralEvent::process` rather than parsing the composite
+    // `primary_text`.  Phase E3 review fix: lifting these out of the
+    // free-form text avoids the `rfind(" > ")` ambiguity when a
+    // cmdline contains a literal `>` (PowerShell `-Command`, shell
+    // redirects, build scripts).
+    let mut process_parent_chain: Option<String> = None;
+    let mut process_leaf_name: Option<String> = None;
+
     // Extract the interesting fields from the event kind.
     let (source_tag, entity, primary_text, fim_path, sha256, ips): (
         &str,
@@ -408,6 +419,16 @@ async fn handle_event(pipeline: &DetectionPipeline, bus: &EventBus, event: &Even
                     .trim()
                     .to_string()
             };
+            // Surface the structured process fields for the
+            // ProcessChain behavioural matcher.  We keep
+            // `primary_text` as the full composite string so the
+            // string-IOC and Threshold/Sequence matchers continue
+            // to see the chain + cmdline (their semantics are
+            // unchanged), but ProcessChain now reads from
+            // `BehavioralEvent::process` and is no longer sensitive
+            // to a `" > "` substring inside cmdline.
+            process_parent_chain = Some(parent_chain);
+            process_leaf_name = Some(name);
             // Distinct source tags for each process event kind so
             // behavioural rules (notably ProcessChain) can pin
             // themselves to ProcessCreated explicitly — see Phase
@@ -542,10 +563,27 @@ async fn handle_event(pipeline: &DetectionPipeline, bus: &EventBus, event: &Even
     // --- Behavioural rules ---
     let behavioral_hits = {
         let mut engine = pipeline.behavioral.lock().await;
+        // ProcessChain matchers consume `parent_chain` and `leaf_name`
+        // as separate fields so a literal `>` inside cmdline (shell
+        // redirect, PowerShell `-Command`, build script) cannot
+        // collide with the chain→leaf boundary parser that used to
+        // live in `split_chain_and_leaf`.  Other rule kinds read
+        // `text` as before.
+        let process = match (
+            process_parent_chain.as_deref(),
+            process_leaf_name.as_deref(),
+        ) {
+            (Some(parent_chain), Some(leaf_name)) => Some(ProcessFields {
+                parent_chain,
+                leaf_name,
+            }),
+            _ => None,
+        };
         engine.evaluate(&BehavioralEvent {
             source: source_tag,
             entity: &entity,
             text: &primary_text,
+            process,
         })
     };
     for hit in behavioral_hits {
