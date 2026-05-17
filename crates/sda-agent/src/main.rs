@@ -506,24 +506,25 @@ async fn main() -> Result<()> {
             mdm_location_store.clone(),
             mdm_geolocator,
         ));
-        // Hold the action_tx sender so the agent main can hand
-        // router-accepted MDM jobs into the dispatcher once the
-        // Device Control router learns to forward MDM-flavour jobs.
+        // `start()` consumes one clone of the `Arc<MdmModule>` and
+        // spawns an internal dispatcher task that holds its own
+        // clone of the same `Arc` (the `dispatch_self` capture in
+        // `sda_mdm::module`). That dispatcher-side `Arc` is what
+        // keeps the module — and the `mpsc` sender / receiver pair
+        // returned by `action_sender()` — alive for the lifetime
+        // of the agent. The local `mdm_module` `Arc` here is
+        // therefore free to drop at end of this scope; we do not
+        // need a `let _keep_alive = mdm_module;` shim.
         //
-        // We do NOT need to retain this purely to keep the channel
-        // open — the dispatcher task spawned inside `start()` holds
-        // its own `Arc<MdmModule>` (which keeps the internal
-        // `action_tx` alive). The reason we keep the external sender
-        // is so a future router refactor can `.clone()` it without
-        // needing to fish the `Arc<MdmModule>` back out of the
-        // module registry.
-        let _mdm_action_tx = mdm_module.action_sender();
-        let mdm_handle = mdm_module.clone().start(agent.shutdown_signal());
+        // Once the Device Control router learns to forward
+        // MDM-flavour jobs to `MdmModule::dispatch`, the router
+        // wiring will live here too: it'll need `mdm_module
+        // .action_sender()` (or a wrapper that holds the sender
+        // through the router's lifecycle). That code path is not
+        // yet implemented — the inbound dispatch arms in
+        // `MdmModule::dispatch` are reachable but not reached.
+        let mdm_handle = mdm_module.start(agent.shutdown_signal());
         agent.register_module(mdm_handle);
-        // Keep the Arc alive past this scope so `dispatch` stays
-        // callable from outside the dispatcher task (e.g. by the
-        // future router) without round-tripping through the channel.
-        let _mdm_module_handle = mdm_module;
     }
 
     // 12j. Query (osquery sidecar) module — Phase 1 MVP.
