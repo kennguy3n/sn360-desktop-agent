@@ -153,11 +153,26 @@ modules:
 ```yaml
 modules:
   local_detection:
-    enabled: true
+    enabled: true                       # default since EDR Parity E2.3 — see Migration
     rule_bundle_path: /var/lib/sn360-desktop-agent/rules.mp
     yara_rules_dir: /var/lib/sn360-desktop-agent/yara
     offline_queue_capacity: 10000
+    rule_pull_interval: 60              # seconds between TRDS pulls (default: 60)
+    trds_endpoint: null                 # optional — when null, the embedded baseline bundle is used
+    rule_bundle_signing_keys: []        # hex-encoded Ed25519 public keys for TRDS bundle verification
 ```
+
+`enabled` defaults to `true` — agents that omit this section will
+run the Local Detection Engine against the embedded baseline
+bundle (three behavioural process-chain rules + a small set of
+synthetic IOCs from `crates/sda-local-detection/src/default_bundle.rs`)
+on startup. To preserve the pre-EDR-Parity default-off behaviour,
+explicitly set `modules.local_detection.enabled: false`.
+
+`rule_pull_interval` is enforced with a soft floor of 1 second so
+the e2e hot-reload suite can converge quickly; in production we
+recommend ≥ 30 seconds. The agent emits a `warn!` at startup when
+the configured value is below the recommended floor.
 
 ### `modules.enhanced_inventory`
 
@@ -169,6 +184,59 @@ modules:
     sbom_enabled: true
     scan_interval_secs: 10           # tick cadence per scanner
 ```
+
+### `modules.host_isolation`
+
+```yaml
+modules:
+  host_isolation:
+    enabled: false                   # default — opt-in network containment
+    control_plane_cidrs:             # required when enabled: agent refuses to isolate
+      - 10.20.0.0/16                 # if this list is empty (would sever ctrl-plane)
+      - 203.0.113.0/24
+    always_allow_dns: true           # default: true — system DNS resolvers stay reachable
+    always_allow_loopback: true      # informational — loopback is ALWAYS allowed by the PAL
+```
+
+> ⚠️ **Phase E3 startup gate.** Setting `host_isolation.enabled: true`
+> is currently a **no-op at startup**: the host-isolation module is
+> only constructed when the agent has a real enrolled tenant +
+> device identity, and the wiring that threads that identity through
+> the Device Control router lands with Phase E3 tasks
+> [E3.13](./edr-parity/PHASES.md#e313) (server-side identity push)
+> and [E3.14](./edr-parity/PHASES.md#e314) (agent-side router
+> binding).  Until both server-side tasks ship, the agent logs a
+> `warn!` at startup explaining that host isolation is configured
+> but inactive, and every `IsolateHost` / `UnisolateHost` job from
+> the control plane will be refused at the router layer.
+> Operators can safely enable the config flag ahead of the server
+> rollout — the agent will pick up the live path automatically once
+> the identity wiring is in place.
+
+`control_plane_cidrs` MUST be non-empty whenever `enabled: true`.
+The host-isolation module refuses `IsolateHost` jobs (and bumps
+`vitals.refused`) when the list is empty so the management
+channel cannot be accidentally severed by an isolation job — see
+[`empty_control_plane_cidrs_refuses_isolation_without_touching_pal`](../crates/sda-host-isolation/src/lib.rs)
+for the regression test.  `UnisolateHost` is NOT blocked by this
+guard so recovery from a misconfigured isolation is always
+possible.
+
+`always_allow_dns: true` (the default) instructs the agent to
+discover the host's system DNS resolvers and union them into the
+allow-list so name resolution survives isolation.  On Linux this
+parses `/etc/resolv.conf` (IPv6 scope ids stripped); on Windows
+and macOS the platform helper lands with the Phase E3 per-OS
+production follow-ups, and operators should pass DNS resolver
+IPs explicitly via the job's `extra_allow_ips` or via
+`control_plane_cidrs` until then.
+
+`always_allow_loopback` is informational only — `127.0.0.0/8`
+and `::1/128` are appended to every allow-list by
+`sda_pal::host_isolation::normalize_allow_ips` regardless of the
+flag's value.  Leaving the flag at its `true` default makes that
+guarantee visible in config; setting it to `false` does not
+disable loopback access.
 
 ## `updater`
 

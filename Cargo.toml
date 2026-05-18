@@ -25,6 +25,9 @@ members = [
     "crates/sda-app-control",
     "crates/sda-management-compat",
     "crates/sda-mdm",
+    "crates/sda-process-monitor",
+    "crates/sda-network-monitor",
+    "crates/sda-host-isolation",
 ]
 # fuzz/ has its own [workspace] stanza and is not part of the main
 # build. Keeping it excluded avoids pulling libfuzzer-sys (and the
@@ -128,11 +131,18 @@ sda-remote-support = { path = "crates/sda-remote-support" }
 sda-app-control = { path = "crates/sda-app-control" }
 sda-management-compat = { path = "crates/sda-management-compat" }
 sda-mdm = { path = "crates/sda-mdm" }
+sda-process-monitor = { path = "crates/sda-process-monitor" }
+sda-network-monitor = { path = "crates/sda-network-monitor" }
+sda-host-isolation = { path = "crates/sda-host-isolation" }
 
 # Self-update (P3.1)
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "stream", "json"] }
 ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 hex = "0.4"
+base64 = "0.22"
+# CIDR / IP-net parsing — used by sda-pal::host_isolation (E3.10)
+# and the sda-host-isolation module (E3.11) to validate allow-lists.
+ipnet = { version = "2", features = ["serde"] }
 tempfile = "3"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 
@@ -140,6 +150,7 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 aho-corasick = "1"
 bloomfilter = "1"
 indexmap = "2"
+regex = "1"
 
 [profile.release]
 lto = "fat"

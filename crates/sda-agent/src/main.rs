@@ -420,6 +420,114 @@ async fn main() -> Result<()> {
         agent.register_module(lde_handle);
     }
 
+    // 12f-bis. Start Process Monitor module (Phase E1) if enabled.
+    //           Default is `false`; flipping `process_monitor.enabled`
+    //           to `true` lights up cross-platform process telemetry
+    //           (Created / Terminated / ImageLoaded) with parent-chain
+    //           enrichment fed into the LDE for behavioural matching.
+    if config.modules.process_monitor.enabled {
+        info!("starting process monitor module");
+        let pm_handle = sda_process_monitor::ProcessMonitorModule::start(
+            &config,
+            agent.event_bus(),
+            agent.shutdown_signal(),
+        );
+        agent.register_module(pm_handle);
+    }
+
+    // 12f-ter. Network Monitor module (Phase E3) — Off by default.
+    //          Flipping `network_monitor.enabled = true` lights up
+    //          cross-platform TCP/UDP connection telemetry
+    //          (`EventKind::NetworkConnection`) with PID
+    //          attribution; the LDE feeds the `remote_addr` straight
+    //          into the existing IP IOC bloom.
+    if config.modules.network_monitor.enabled {
+        info!("starting network monitor module");
+        let nm_handle = sda_network_monitor::NetworkMonitorModule::start(
+            &config,
+            agent.event_bus(),
+            agent.shutdown_signal(),
+        );
+        agent.register_module(nm_handle);
+    }
+
+    // 12f-quater. DNS Monitor module (Phase E3) — Off by default.
+    //             Subscribes to the per-OS DNS source
+    //             (systemd-resolved on Linux, ETW on Windows,
+    //             NEDNSProxyProvider on macOS) and emits
+    //             `EventKind::DnsQuery` events. The LDE feeds the
+    //             `query_name` into the string IOC backend and the
+    //             `response_ips` into the IP IOC bloom.
+    if config.modules.dns_monitor.enabled {
+        info!("starting dns monitor module");
+        let dm_handle = sda_network_monitor::DnsMonitorModule::start(
+            &config,
+            agent.event_bus(),
+            agent.shutdown_signal(),
+        );
+        agent.register_module(dm_handle);
+    }
+
+    // 12f-quinquies. Host Isolation module (Phase E3) — Off by
+    //                default. Consumes `IsolateHost` /
+    //                `UnisolateHost` `SignedActionJob`s once the
+    //                Device Control router learns to forward them
+    //                (parity with the MDM dispatcher; that wiring
+    //                lands in a follow-up).
+    //
+    //                **Safety guard:** the router validates jobs
+    //                against this agent's `(tenant_id, device_id)`
+    //                pair, and the `Phase1Stub` hooks reject every
+    //                signature with `UnknownKeyId` until the real
+    //                KeyStore lands. Until the follow-up wires
+    //                enrolled identity + a production key store
+    //                into this call site, *every* inbound job
+    //                would be silently refused. Rather than start
+    //                a non-functional module that looks healthy to
+    //                an operator, we log a `warn!` and skip
+    //                registration when the identity is nil — this
+    //                is the agent-side echo of `host_isolation`
+    //                being a follow-up-gated feature.
+    //
+    //                The `submitter` is bound at the outer scope
+    //                so the channel stays open for the lifetime of
+    //                `main` even when the module is not started.
+    let _host_isolation_submitter: Option<sda_host_isolation::HostIsolationSubmitter> =
+        if config.modules.host_isolation.enabled {
+            // TODO(edr-parity follow-up): replace these nil UUIDs
+            // with the real enrolled `(tenant_id, device_id)` from
+            // the agent's enrollment state once the SignedActionJob
+            // dispatcher is wired through Device Control.
+            let identity = sda_device_control::router::AgentIdentity {
+                tenant_id: uuid::Uuid::nil(),
+                device_id: uuid::Uuid::nil(),
+            };
+            if identity.tenant_id.is_nil() || identity.device_id.is_nil() {
+                warn!(
+                    tenant_id = %identity.tenant_id,
+                    device_id = %identity.device_id,
+                    "host_isolation.enabled=true but enrolled identity has not been \
+                     wired through Device Control yet; every inbound SignedActionJob \
+                     would be refused by the router. Skipping module start. \
+                     Track sn360-security-platform follow-up E3.13 / E3.14 for the \
+                     wiring change that lifts this guard."
+                );
+                None
+            } else {
+                info!("starting host isolation module");
+                let (hi_handle, submitter) = sda_host_isolation::HostIsolationModule::start(
+                    &config,
+                    identity,
+                    agent.event_bus(),
+                    agent.shutdown_signal(),
+                );
+                agent.register_module(hi_handle);
+                Some(submitter)
+            }
+        } else {
+            None
+        };
+
     // 12g. Start Enhanced Inventory module if enabled
     if config.modules.enhanced_inventory.enabled {
         info!("starting enhanced inventory module");
@@ -889,6 +997,22 @@ fn map_event_to_message(agent_id: &str, kind: &EventKind) -> Option<WazuhMessage
         EventKind::MdmAutoRemediationResult { payload } => {
             (MessageType::MdmAutoRemediationResult, payload.clone())
         }
+
+        // --- EDR Parity event mapping (Phase E1-E3) ---
+        EventKind::ProcessCreated { payload } => (MessageType::ProcessCreated, payload.clone()),
+        EventKind::ProcessTerminated { payload } => {
+            (MessageType::ProcessTerminated, payload.clone())
+        }
+        EventKind::ImageLoaded { payload } => (MessageType::ImageLoaded, payload.clone()),
+        EventKind::NetworkConnection { payload } => {
+            (MessageType::NetworkConnection, payload.clone())
+        }
+        EventKind::DnsQuery { payload } => (MessageType::DnsQuery, payload.clone()),
+        EventKind::MemoryScanAlert { payload } => (MessageType::MemoryScanAlert, payload.clone()),
+        EventKind::HostIsolationStateChanged { payload } => {
+            (MessageType::HostIsolationStateChanged, payload.clone())
+        }
+        EventKind::IdentityAlert { payload } => (MessageType::IdentityAlert, payload.clone()),
 
         // Lifecycle / internal events are not forwarded.
         _ => return None,

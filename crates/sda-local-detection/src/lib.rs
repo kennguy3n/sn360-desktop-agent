@@ -14,15 +14,17 @@
 //! loop driven by a [`ShutdownSignal`].
 
 pub mod behavioral;
+pub mod default_bundle;
 pub mod ioc_matcher;
 pub mod offline_queue;
 pub mod response;
 pub mod rule_store;
+pub mod trds_client;
 pub mod yara_scanner;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock as StdRwLock};
 use std::time::Duration;
 
 use tokio::sync::Mutex;
@@ -33,11 +35,12 @@ use sda_core::module::{AgentModule, ModuleHandle, ModuleHealth, ModuleStatus};
 use sda_core::signal::ShutdownSignal;
 use sda_event_bus::{Event, EventBus, EventKind, EventReceiver, Priority};
 
-use crate::behavioral::{BehavioralEngine, BehavioralEvent, BehavioralMatch};
+use crate::behavioral::{BehavioralEngine, BehavioralEvent, BehavioralMatch, ProcessFields};
 use crate::ioc_matcher::{IocMatch, IocMatcher};
 use crate::offline_queue::OfflineQueue;
 use crate::response::LocalResponder;
 use crate::rule_store::{IocList, RuleBundle};
+use crate::trds_client::{verify_envelope, SigningKey, TrdsClient, TrdsError};
 use crate::yara_scanner::{YaraMatch, YaraScanner};
 
 const STATUS_INITIALIZED: u8 = 0;
@@ -151,8 +154,9 @@ impl DetectionPipeline {
 
 /// Build the initial rule bundle from `config.rule_bundle_path`.  A
 /// missing or unreadable bundle is *not* fatal — we degrade gracefully
-/// to an empty bundle so the run loop can still serve as a pass-through
-/// (and future TRDS pulls can populate rules).
+/// to the embedded [`default_bundle`](crate::default_bundle::default_bundle)
+/// so the run loop can still serve as a baseline detector while waiting
+/// for the first TRDS pull (Phase E2.4).
 fn load_initial_bundle(path: &std::path::Path) -> RuleBundle {
     match RuleBundle::load(path) {
         Ok(b) => {
@@ -169,12 +173,15 @@ fn load_initial_bundle(path: &std::path::Path) -> RuleBundle {
             b
         }
         Err(e) => {
+            let b = default_bundle::default_bundle();
             warn!(
                 path = %path.display(),
                 error = %e,
-                "LDE rule bundle unavailable; starting with empty ruleset"
+                fallback_version = b.version,
+                fallback_rules = b.behavioral.len(),
+                "LDE rule bundle unavailable; falling back to embedded default baseline"
             );
-            RuleBundle::default()
+            b
         }
     }
 }
@@ -303,6 +310,17 @@ impl LocalAlert {
 /// Handle a single inbound event by running it through every rule
 /// backend and firing alerts for each hit.
 async fn handle_event(pipeline: &DetectionPipeline, bus: &EventBus, event: &Event) {
+    // Per-event structured process metadata.  Set only by the
+    // `ProcessCreated` arm below; the ProcessChain behavioural
+    // matcher reads `parent_chain` and `leaf_name` from
+    // `BehavioralEvent::process` rather than parsing the composite
+    // `primary_text`.  Phase E3 review fix: lifting these out of the
+    // free-form text avoids the `rfind(" > ")` ambiguity when a
+    // cmdline contains a literal `>` (PowerShell `-Command`, shell
+    // redirects, build scripts).
+    let mut process_parent_chain: Option<String> = None;
+    let mut process_leaf_name: Option<String> = None;
+
     // Extract the interesting fields from the event kind.
     let (source_tag, entity, primary_text, fim_path, sha256, ips): (
         &str,
@@ -352,8 +370,177 @@ async fn handle_event(pipeline: &DetectionPipeline, bus: &EventBus, event: &Even
             None,
             extract_ipv4s(message),
         ),
-        // The LDE only observes FIM and logcollector streams; other
-        // event kinds pass through untouched.
+
+        // --- EDR Parity event arms (Phase E1-E3) ---
+        // Process create: feed `exe_path` as the entity and the
+        // joined parent-chain text as primary_text so behavioural
+        // rules can match against the full ancestor history.
+        EventKind::ProcessCreated { payload } => {
+            let parsed: serde_json::Value = serde_json::from_str(payload).unwrap_or_default();
+            let name = parsed
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let exe_path = parsed
+                .get("exe_path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let entity = if !exe_path.is_empty() {
+                exe_path
+            } else {
+                name.clone()
+            };
+            let cmdline = parsed
+                .get("cmdline")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|x| x.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .unwrap_or_default();
+            let parent_chain = parsed
+                .get("parent_chain")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|x| x.get("name").and_then(|n| n.as_str()))
+                        .collect::<Vec<_>>()
+                        .join(" > ")
+                })
+                .unwrap_or_default();
+            let primary_text = if parent_chain.is_empty() {
+                format!("{name} {cmdline}").trim().to_string()
+            } else {
+                format!("{parent_chain} > {name} {cmdline}")
+                    .trim()
+                    .to_string()
+            };
+            // Surface the structured process fields for the
+            // ProcessChain behavioural matcher.  We keep
+            // `primary_text` as the full composite string so the
+            // string-IOC and Threshold/Sequence matchers continue
+            // to see the chain + cmdline (their semantics are
+            // unchanged), but ProcessChain now reads from
+            // `BehavioralEvent::process` and is no longer sensitive
+            // to a `" > "` substring inside cmdline.
+            process_parent_chain = Some(parent_chain);
+            process_leaf_name = Some(name);
+            // Distinct source tags for each process event kind so
+            // behavioural rules (notably ProcessChain) can pin
+            // themselves to ProcessCreated explicitly — see Phase
+            // E5 review note: ProcessChain rules must not fire on
+            // ProcessTerminated / ImageLoaded payloads even though
+            // they share the same underlying domain.
+            (
+                "process_created",
+                entity,
+                primary_text,
+                None,
+                None,
+                Vec::new(),
+            )
+        }
+        EventKind::ProcessTerminated { payload } => {
+            let parsed: serde_json::Value = serde_json::from_str(payload).unwrap_or_default();
+            let name = parsed
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let exit_code = parsed
+                .get("exit_code")
+                .and_then(|v| v.as_i64())
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "?".into());
+            (
+                "process_terminated",
+                name.clone(),
+                format!("terminated exit_code={exit_code}"),
+                None,
+                None,
+                Vec::new(),
+            )
+        }
+        EventKind::ImageLoaded { payload } => {
+            let parsed: serde_json::Value = serde_json::from_str(payload).unwrap_or_default();
+            let image_path = parsed
+                .get("image_path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let image_hash = parsed
+                .get("image_hash")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            (
+                "process_image_loaded",
+                image_path.clone(),
+                image_path,
+                None,
+                image_hash,
+                Vec::new(),
+            )
+        }
+        EventKind::NetworkConnection { payload } => {
+            let parsed: serde_json::Value = serde_json::from_str(payload).unwrap_or_default();
+            let process_name = parsed
+                .get("process_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let remote_addr = parsed
+                .get("remote_addr")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let remote_port = parsed
+                .get("remote_port")
+                .and_then(|v| v.as_u64())
+                .map(|p| p.to_string())
+                .unwrap_or_else(|| "?".into());
+            let ips = if !remote_addr.is_empty() {
+                vec![remote_addr.clone()]
+            } else {
+                Vec::new()
+            };
+            (
+                "network",
+                process_name,
+                format!("{remote_addr}:{remote_port}"),
+                None,
+                None,
+                ips,
+            )
+        }
+        EventKind::DnsQuery { payload } => {
+            let parsed: serde_json::Value = serde_json::from_str(payload).unwrap_or_default();
+            let query_name = parsed
+                .get("query_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let process_name = parsed
+                .get("process_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let response_ips = parsed
+                .get("response_ips")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            ("dns", process_name, query_name, None, None, response_ips)
+        }
+
+        // Other event kinds pass through untouched.
         _ => return,
     };
 
@@ -376,10 +563,27 @@ async fn handle_event(pipeline: &DetectionPipeline, bus: &EventBus, event: &Even
     // --- Behavioural rules ---
     let behavioral_hits = {
         let mut engine = pipeline.behavioral.lock().await;
+        // ProcessChain matchers consume `parent_chain` and `leaf_name`
+        // as separate fields so a literal `>` inside cmdline (shell
+        // redirect, PowerShell `-Command`, build script) cannot
+        // collide with the chain→leaf boundary parser that used to
+        // live in `split_chain_and_leaf`.  Other rule kinds read
+        // `text` as before.
+        let process = match (
+            process_parent_chain.as_deref(),
+            process_leaf_name.as_deref(),
+        ) {
+            (Some(parent_chain), Some(leaf_name)) => Some(ProcessFields {
+                parent_chain,
+                leaf_name,
+            }),
+            _ => None,
+        };
         engine.evaluate(&BehavioralEvent {
             source: source_tag,
             entity: &entity,
             text: &primary_text,
+            process,
         })
     };
     for hit in behavioral_hits {
@@ -426,6 +630,217 @@ async fn maybe_respond(
     }
 }
 
+/// Atomic-swap container for the active [`DetectionPipeline`].
+///
+/// `handle_event` reads through a brief read-lock to clone the inner
+/// `Arc<DetectionPipeline>` and then runs against that snapshot.
+/// Hot-reload takes a write-lock just long enough to publish the new
+/// `Arc` — in-flight evaluations always complete against the pipeline
+/// they started with.  This mirrors the
+/// `UsbPolicySupervisor::apply_bundle_slice` CAS pattern used by
+/// `sda-device-control`.
+type PipelineCell = StdRwLock<Arc<DetectionPipeline>>;
+
+fn pipeline_load(cell: &PipelineCell) -> Arc<DetectionPipeline> {
+    cell.read().expect("LDE pipeline RwLock poisoned").clone()
+}
+
+fn pipeline_store(cell: &PipelineCell, new: Arc<DetectionPipeline>) {
+    *cell.write().expect("LDE pipeline RwLock poisoned") = new;
+}
+
+/// Parse the configured signing-key entries into [`SigningKey`]s.
+///
+/// Each input entry is one of:
+///
+/// 1. `"<key_id>:<hex>"` — explicit rotation id, e.g.
+///    `"edr-2026-q2:5d3e…"`.  The **first** `:` separates the id
+///    from the 64-character lower-case hex pubkey.  This is the
+///    form a TRDS server publishes against, so production
+///    deployments should always use it.
+///
+///    **Constraint on `key_id`:** because parsing uses
+///    [`str::split_once`], the `key_id` MUST NOT contain a `:`
+///    character — otherwise the suffix after the first colon will
+///    be interpreted as the hex pubkey and signature verification
+///    will fail.  TRDS operators publishing key entries should keep
+///    `key_id` to `[A-Za-z0-9_-]+` (the actual server-side schema
+///    enforces a stricter regex, but the agent rejects colon-laden
+///    ids defensively via the bad-key drop below).
+/// 2. `"<hex>"` — legacy bare-hex form.  The LDE assigns an
+///    auto-generated id of `"rotation-{i}"` (i = position in the
+///    list).  Envelopes from a TRDS server cannot match these
+///    auto-ids, so this form is only useful for trust bootstrapping
+///    when the rotation namespace is empty.
+///
+/// Bad entries are logged-and-dropped rather than fatal so a single
+/// typo can't take the LDE offline.
+fn build_signing_keys(entries: &[String]) -> Vec<SigningKey> {
+    entries
+        .iter()
+        .enumerate()
+        .filter_map(|(i, raw)| {
+            let (key_id, public_hex) = match raw.split_once(':') {
+                Some((id, hex)) if !id.is_empty() && !hex.is_empty() => {
+                    (id.to_string(), hex.to_string())
+                }
+                _ => (format!("rotation-{i}"), raw.clone()),
+            };
+            let key = SigningKey { key_id, public_hex };
+            match key.verifying_key() {
+                Ok(_) => Some(key),
+                Err(e) => {
+                    warn!(error = %e, "skipping invalid LDE signing key");
+                    None
+                }
+            }
+        })
+        .collect()
+}
+
+/// Attempt a single TRDS pull and atomic pipeline swap.  Returns the
+/// version actually installed, or the unchanged `current_version` if
+/// nothing changed / the pull failed.
+///
+/// On signature / key-id / version-substitution failures we emit a
+/// High-severity `LocalDetectionAlert` so SIEM operators see the
+/// rejection, but the live pipeline is preserved (last-known-good).
+async fn pull_and_install(
+    client: &TrdsClient,
+    keys: &[SigningKey],
+    config: &LocalDetectionConfig,
+    bus: &EventBus,
+    pipeline_cell: &Arc<PipelineCell>,
+    current_version: u64,
+) -> u64 {
+    let envelope = match client.fetch_envelope(current_version).await {
+        Ok(Some(env)) => env,
+        Ok(None) => {
+            debug!(current_version, "TRDS reports no newer bundle");
+            return current_version;
+        }
+        Err(e) => {
+            warn!(error = %e, "TRDS pull failed; keeping last-known-good pipeline");
+            return current_version;
+        }
+    };
+
+    if envelope.version <= current_version {
+        debug!(
+            envelope_version = envelope.version,
+            current_version, "TRDS returned non-newer envelope; ignoring"
+        );
+        return current_version;
+    }
+
+    let verified = match verify_envelope(&envelope, keys) {
+        Ok(v) => v,
+        Err(e) => {
+            let security = e.is_security_alert();
+            warn!(error = %e, security, "TRDS bundle rejected; keeping last-known-good pipeline");
+            if security {
+                publish_bundle_security_alert(bus, &e).await;
+            }
+            return current_version;
+        }
+    };
+
+    let new_pipeline = match DetectionPipeline::new(config, verified.bundle.clone()) {
+        Ok(p) => p,
+        Err(e) => {
+            warn!(error = %e, "failed to build pipeline from verified bundle");
+            return current_version;
+        }
+    };
+    let new_version = new_pipeline.bundle_version;
+    let new_rule_count = new_pipeline.iocs.rule_count();
+    // Emit one `LocalDetectionAlert` per behavioural rule the new
+    // pipeline refused to load (invalid regex), then publish it so
+    // the LDE keeps the rest of the bundle live.  We drain *before*
+    // `pipeline_store` so subsequent `pipeline_load()` callers see a
+    // freshly-drained engine (no stale `skipped_rules` queued for
+    // re-publication on every event).
+    publish_skipped_rule_alerts(bus, &new_pipeline, new_version).await;
+    pipeline_store(pipeline_cell, Arc::new(new_pipeline));
+    info!(
+        version = new_version,
+        rules = new_rule_count,
+        key_id = %verified.key_id,
+        "LDE pipeline hot-reloaded from TRDS"
+    );
+    publish_bundle_applied_alert(bus, new_version).await;
+    new_version
+}
+
+async fn publish_bundle_applied_alert(bus: &EventBus, version: u64) {
+    let kind = EventKind::LocalDetectionAlert {
+        rule_id: "system.trds.applied".into(),
+        rule_type: "system".into(),
+        severity: "info".into(),
+        description: format!("LDE rule bundle v{version} applied"),
+        matched_value: version.to_string(),
+    };
+    let event = Event::new("local_detection", Priority::Low, kind);
+    if let Err(e) = bus.publish_to_server(event).await {
+        debug!(error = %e, "best-effort bundle-applied notice dropped");
+    }
+}
+
+async fn publish_bundle_security_alert(bus: &EventBus, err: &TrdsError) {
+    let kind = EventKind::LocalDetectionAlert {
+        rule_id: "system.trds.rejected".into(),
+        rule_type: "system".into(),
+        severity: "high".into(),
+        description: format!("LDE rejected TRDS bundle: {err}"),
+        matched_value: format!("{err:?}"),
+    };
+    let event = Event::new("local_detection", Priority::High, kind);
+    if let Err(e) = bus.publish_to_server(event).await {
+        warn!(error = %e, "failed to publish TRDS rejection alert");
+    }
+}
+
+/// Drain `behavioural_engine.take_skipped_rules()` and publish one
+/// `LocalDetectionAlert` per permanently-disabled rule.
+///
+/// Without this, an operator would only see the startup `warn!`
+/// trace line (easy to miss in a busy log) when a TRDS-pushed
+/// regex fails to compile, and the rule would silently never fire.
+/// Surfacing each skip as a `severity = "high"` system alert in the
+/// SIEM matches the visibility we already provide for TRDS bundle
+/// rejection (`publish_bundle_security_alert`).
+async fn publish_skipped_rule_alerts(bus: &EventBus, pipeline: &DetectionPipeline, version: u64) {
+    let skipped = pipeline.behavioral.lock().await.take_skipped_rules();
+    if skipped.is_empty() {
+        return;
+    }
+    warn!(
+        count = skipped.len(),
+        bundle_version = version,
+        "LDE: behavioural rules permanently disabled at bundle load due to invalid regex"
+    );
+    for rule in skipped {
+        let kind = EventKind::LocalDetectionAlert {
+            rule_id: "system.lde.rule_disabled".into(),
+            rule_type: "system".into(),
+            severity: "high".into(),
+            description: format!(
+                "LDE rule {} permanently disabled at bundle v{version} load: {}",
+                rule.rule_id, rule.reason,
+            ),
+            matched_value: rule.rule_id.clone(),
+        };
+        let event = Event::new("local_detection", Priority::High, kind);
+        if let Err(e) = bus.publish_to_server(event).await {
+            warn!(
+                error = %e,
+                rule = %rule.rule_id,
+                "failed to publish behavioural-rule disabled alert"
+            );
+        }
+    }
+}
+
 /// Main LDE run loop.
 async fn run(
     config: LocalDetectionConfig,
@@ -436,6 +851,8 @@ async fn run(
     info!(
         rule_bundle = %config.rule_bundle_path.display(),
         offline_queue = %config.offline_queue_path.display(),
+        trds_endpoint = ?config.trds_endpoint,
+        signing_keys = config.rule_bundle_signing_keys.len(),
         block_ip = config.block_ip,
         kill_process = config.kill_process,
         quarantine = config.quarantine,
@@ -443,21 +860,72 @@ async fn run(
     );
 
     let bundle = load_initial_bundle(&config.rule_bundle_path);
-    let pipeline = DetectionPipeline::new(&config, bundle)?;
+    let initial_pipeline = DetectionPipeline::new(&config, bundle)?;
     info!(
-        rules = pipeline.iocs.rule_count(),
-        yara_loaded = pipeline.yara.has_rules(),
-        version = pipeline.bundle_version,
+        rules = initial_pipeline.iocs.rule_count(),
+        yara_loaded = initial_pipeline.yara.has_rules(),
+        version = initial_pipeline.bundle_version,
         "local detection engine ready"
     );
+
+    // Surface any behavioural rules that the engine refused to load
+    // due to invalid regexes — see `publish_skipped_rule_alerts` for
+    // the rationale.  We drain *before* moving the pipeline into the
+    // `Arc<PipelineCell>` so the per-rule alerts are emitted exactly
+    // once per bundle load, not once per pipeline_load().
+    let initial_version = initial_pipeline.bundle_version;
+    publish_skipped_rule_alerts(&bus, &initial_pipeline, initial_version).await;
+
+    let pipeline_cell: Arc<PipelineCell> = Arc::new(StdRwLock::new(Arc::new(initial_pipeline)));
+
+    let signing_keys = build_signing_keys(&config.rule_bundle_signing_keys);
+    let trds_client = match &config.trds_endpoint {
+        Some(endpoint) => {
+            match TrdsClient::new(
+                endpoint.clone(),
+                Duration::from_secs(config.trds_pull_timeout_secs.max(1)),
+            ) {
+                Ok(c) => {
+                    info!(endpoint, "TRDS hot-reload client armed");
+                    Some(c)
+                }
+                Err(e) => {
+                    warn!(error = %e, "TRDS client construction failed; hot-reload disabled");
+                    None
+                }
+            }
+        }
+        None => None,
+    };
 
     let mut rx: EventReceiver = bus.subscribe();
     status.store(STATUS_RUNNING, Ordering::Relaxed);
 
+    // The first tick of `tokio::time::interval` fires immediately
+    // — we deliberately keep this so the LDE attempts a TRDS pull at
+    // startup, surfacing the freshest rules without waiting a full
+    // pull cycle.  Without an endpoint configured the arm in the
+    // `select!` below is effectively a no-op aside from a debug log.
+    //
+    // The hard floor is 1 second so the e2e hot-reload suite can
+    // converge quickly (`e2e_lde_hotreload.rs` configures
+    // `rule_pull_interval: 1`).  We separately warn at startup when
+    // the configured value drops below `RULE_PULL_INTERVAL_WARN_SECS`
+    // so an operator who fat-fingers `1` in production sees that
+    // the agent is about to hammer their TRDS endpoint.
+    const RULE_PULL_INTERVAL_WARN_SECS: u64 = 10;
+    if config.rule_pull_interval < RULE_PULL_INTERVAL_WARN_SECS {
+        warn!(
+            configured = config.rule_pull_interval,
+            recommended_floor = RULE_PULL_INTERVAL_WARN_SECS,
+            "modules.local_detection.rule_pull_interval is below the recommended \
+             floor; the LDE will poll the TRDS endpoint very aggressively. This is \
+             intentional for the e2e hot-reload suite but should not be used in \
+             production. Consider setting rule_pull_interval >= 30."
+        );
+    }
     let mut rule_pull_timer =
-        tokio::time::interval(Duration::from_secs(config.rule_pull_interval.max(30)));
-    // Consume the immediate first tick — bundle was just loaded.
-    rule_pull_timer.tick().await;
+        tokio::time::interval(Duration::from_secs(config.rule_pull_interval.max(1)));
 
     // Spool-drain timer — attempts to replay any detection payloads
     // that were parked in the offline queue while the server was
@@ -485,19 +953,30 @@ async fn run(
                         break;
                     }
                 };
-                handle_event(&pipeline, &bus, &event).await;
+                let snapshot = pipeline_load(&pipeline_cell);
+                handle_event(&snapshot, &bus, &event).await;
             }
 
             _ = drain_timer.tick() => {
-                drain_offline_queue(&pipeline.offline, &bus, drain_batch_size).await;
+                let snapshot = pipeline_load(&pipeline_cell);
+                drain_offline_queue(&snapshot.offline, &bus, drain_batch_size).await;
             }
 
             _ = rule_pull_timer.tick() => {
-                // Placeholder for TRDS pull.  The real pull will reach
-                // out to the Tenant Rule Distribution Service; for now
-                // we simply log — operators can hot-swap by writing a
-                // new bundle and restarting the module.
-                debug!("LDE rule pull timer fired (hot-reload not yet implemented)");
+                if let Some(client) = trds_client.as_ref() {
+                    let current_version = pipeline_load(&pipeline_cell).bundle_version;
+                    pull_and_install(
+                        client,
+                        &signing_keys,
+                        &config,
+                        &bus,
+                        &pipeline_cell,
+                        current_version,
+                    )
+                    .await;
+                } else {
+                    debug!("LDE rule pull timer fired but no TRDS endpoint configured");
+                }
             }
         }
     }
@@ -631,6 +1110,9 @@ mod tests {
             quarantine_dir: tmp.path().join("quarantine"),
             offline_drain_interval: 30,
             offline_drain_batch: 64,
+            trds_endpoint: None,
+            rule_bundle_signing_keys: Vec::new(),
+            trds_pull_timeout_secs: 10,
         }
     }
 
@@ -791,10 +1273,78 @@ mod tests {
     }
 
     #[test]
-    fn test_load_initial_bundle_missing_is_empty() {
+    fn test_load_initial_bundle_missing_falls_back_to_default() {
+        // Phase E2.4: a missing on-disk bundle must fall back to the
+        // embedded default bundle so the default-ON LDE has rules to
+        // evaluate immediately.
         let b = load_initial_bundle(std::path::Path::new("/nonexistent"));
-        assert_eq!(b.version, 0);
-        assert!(b.iocs.strings.is_empty());
+        assert_eq!(b.version, default_bundle::DEFAULT_BUNDLE_VERSION);
+        assert!(!b.iocs.strings.is_empty());
+        assert!(b.behavioral.len() >= 3);
+    }
+
+    #[test]
+    fn test_local_detection_default_is_enabled() {
+        // Phase E2.3: LDE ships default-on.
+        let cfg = LocalDetectionConfig::default();
+        assert!(cfg.enabled, "LDE must be default-on after Phase E2.3");
+    }
+
+    #[test]
+    fn test_local_detection_partial_yaml_keeps_enabled_default_on() {
+        // Regression: the `enabled` field must default to `true` on the
+        // per-field serde path as well as on the struct-level
+        // `LocalDetectionConfig::default()` path.  Before the
+        // `#[serde(default = "default_true")]` fix, an operator who
+        // wrote a *partial* `local_detection:` section (e.g. setting
+        // only `rule_bundle_path`) without explicitly listing
+        // `enabled: true` would silently get `enabled = false` from
+        // `bool::default()`, contradicting the documented default-on
+        // intent.
+        //
+        // Two shapes are covered:
+        //   (a) a partial `LocalDetectionConfig` block with another
+        //       field set and `enabled` omitted;
+        //   (b) an empty `LocalDetectionConfig` block — `enabled` is
+        //       absent and *no* other key is present.
+        //
+        // Both must end up with `enabled = true`.
+        let partial = r#"
+rule_bundle_path: /var/lib/sn360-desktop-agent/rules.mp
+"#;
+        let cfg_partial: LocalDetectionConfig =
+            serde_yaml::from_str(partial).expect("partial yaml parses");
+        assert!(
+            cfg_partial.enabled,
+            "partial LocalDetectionConfig yaml must default `enabled` to true (per-field serde path)"
+        );
+
+        let empty = "{}";
+        let cfg_empty: LocalDetectionConfig =
+            serde_yaml::from_str(empty).expect("empty yaml parses");
+        assert!(
+            cfg_empty.enabled,
+            "empty LocalDetectionConfig yaml must default `enabled` to true (per-field serde path)"
+        );
+
+        // And the explicit-off path still works.
+        let explicit_off = "enabled: false\n";
+        let cfg_off: LocalDetectionConfig =
+            serde_yaml::from_str(explicit_off).expect("explicit-off yaml parses");
+        assert!(
+            !cfg_off.enabled,
+            "explicit `enabled: false` must still disable the LDE"
+        );
+    }
+
+    #[test]
+    fn test_local_detection_default_trds_fields() {
+        // Phase E2.1: TRDS endpoint is absent by default; signing keys
+        // are an empty rotation set; the pull timeout has a sane default.
+        let cfg = LocalDetectionConfig::default();
+        assert!(cfg.trds_endpoint.is_none());
+        assert!(cfg.rule_bundle_signing_keys.is_empty());
+        assert!(cfg.trds_pull_timeout_secs >= 1);
     }
 
     #[test]

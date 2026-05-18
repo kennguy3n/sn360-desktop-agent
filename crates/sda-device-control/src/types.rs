@@ -134,6 +134,9 @@ pub enum ActionKind {
     EnableDiskEncryption,
     EnableFirewall,
     SetScreenLock,
+    // --- EDR Parity actions (Phase E3) ---
+    IsolateHost,
+    UnisolateHost,
 }
 
 /// Outcome of a `SignedActionJob` execution.
@@ -372,9 +375,23 @@ mod tests {
             ActionKind::EnableDiskEncryption,
             ActionKind::EnableFirewall,
             ActionKind::SetScreenLock,
+            ActionKind::IsolateHost,
+            ActionKind::UnisolateHost,
         ] {
             assert_eq!(rt(&v), v);
         }
+    }
+
+    #[test]
+    fn action_kind_wire_spelling_for_edr_parity_variants() {
+        assert_eq!(
+            serde_json::to_string(&ActionKind::IsolateHost).unwrap(),
+            "\"isolate_host\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ActionKind::UnisolateHost).unwrap(),
+            "\"unisolate_host\""
+        );
     }
 
     #[test]

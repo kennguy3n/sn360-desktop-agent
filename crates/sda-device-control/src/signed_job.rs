@@ -313,6 +313,34 @@ pub struct QueryAdHocArgs {
     pub max_rows: u32,
 }
 
+/// Args for `IsolateHost` (Phase E3 of the EDR Parity workstream).
+///
+/// The agent always merges `extra_allow_ips` with the configured
+/// `modules.host_isolation.control_plane_cidrs`, loopback, and
+/// (when `always_allow_dns: true`) the system resolvers — so a
+/// caller-supplied empty list is fine.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IsolateHostArgs {
+    /// Extra CIDR ranges (IPv4 or IPv6) to keep allowed while the
+    /// host is isolated. Parsed by the host-isolation module as
+    /// `ipnet::IpNet`; invalid entries cause the job to be refused.
+    #[serde(default)]
+    pub extra_allow_ips: Vec<String>,
+    /// Optional human-readable reason retained in the evidence chain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// Args for `UnisolateHost`. Mirrors `ExitLostModeArgs`: no required
+/// payload, only an optional audit-trail reason.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UnisolateHostArgs {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
 /// Strongly-typed envelope around the parsed `args` for one job.
 #[derive(Debug, Clone, PartialEq)]
 pub enum JobArgs {
@@ -337,6 +365,9 @@ pub enum JobArgs {
     EnableDiskEncryption(EnableDiskEncryptionArgs),
     EnableFirewall(EnableFirewallArgs),
     SetScreenLock(SetScreenLockArgs),
+    // --- EDR Parity args (Phase E3) ---
+    IsolateHost(IsolateHostArgs),
+    UnisolateHost(UnisolateHostArgs),
 }
 
 impl JobArgs {
@@ -477,6 +508,19 @@ impl JobArgs {
                 }
                 JobArgs::SetScreenLock(v)
             }
+            // --- EDR Parity action args (Phase E3) ---
+            ActionKind::IsolateHost => {
+                let v: IsolateHostArgs = from_value(args)?;
+                // Parse every CIDR up-front so the router can refuse
+                // malformed jobs in step 10 rather than half-way
+                // through firewall application.
+                for cidr in &v.extra_allow_ips {
+                    cidr.parse::<ipnet::IpNet>()
+                        .map_err(|e| format!("extra_allow_ips entry {cidr:?} invalid: {e}"))?;
+                }
+                JobArgs::IsolateHost(v)
+            }
+            ActionKind::UnisolateHost => JobArgs::UnisolateHost(from_value(args)?),
         };
         Ok(parsed)
     }

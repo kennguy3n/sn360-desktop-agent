@@ -100,6 +100,31 @@ pub enum MessageType {
     /// Auto-remediation supervisor finished a self-signed local job.
     MdmAutoRemediationResult,
 
+    // --- EDR Parity message types (Phase E) ---
+    //
+    // EDR telemetry uses the SN360 native protocol path (TLS 1.3 +
+    // MessagePack / JSON envelopes routed by the Agent Gateway in
+    // `sn360-security-platform`). When the agent is talking to a
+    // legacy Wazuh manager these frames are forwarded as logcollector
+    // messages with an `edr:<kind>` source tag so operators on the
+    // legacy console can still see them as raw JSON.
+    /// Process created (exec / fork) event.
+    ProcessCreated,
+    /// Process terminated event.
+    ProcessTerminated,
+    /// Image (DLL / shared library) loaded into a process.
+    ImageLoaded,
+    /// Outbound or inbound network connection observed.
+    NetworkConnection,
+    /// DNS query observed.
+    DnsQuery,
+    /// Memory scan alert raised by the memory scanner.
+    MemoryScanAlert,
+    /// Host isolation state changed (isolate / unisolate).
+    HostIsolationStateChanged,
+    /// Identity-related alert (LSASS access, shadow read, keychain).
+    IdentityAlert,
+
     /// Generic message.
     Generic,
 }
@@ -151,6 +176,17 @@ impl MessageType {
             MessageType::MdmOsUpdateResult => "mdm-os-update-result",
             MessageType::MdmConfigProfileApplied => "mdm-config-profile-applied",
             MessageType::MdmAutoRemediationResult => "mdm-auto-remediation-result",
+            // EDR Parity (Phase E). These wire strings are part of
+            // the public contract — any change is a major schema
+            // version bump.
+            MessageType::ProcessCreated => "edr-process-created",
+            MessageType::ProcessTerminated => "edr-process-terminated",
+            MessageType::ImageLoaded => "edr-image-loaded",
+            MessageType::NetworkConnection => "edr-network-connection",
+            MessageType::DnsQuery => "edr-dns-query",
+            MessageType::MemoryScanAlert => "edr-memory-scan-alert",
+            MessageType::HostIsolationStateChanged => "edr-host-isolation-state-changed",
+            MessageType::IdentityAlert => "edr-identity-alert",
             MessageType::Generic => "message",
         }
     }
@@ -194,6 +230,14 @@ impl MessageType {
             "mdm-os-update-result" => MessageType::MdmOsUpdateResult,
             "mdm-config-profile-applied" => MessageType::MdmConfigProfileApplied,
             "mdm-auto-remediation-result" => MessageType::MdmAutoRemediationResult,
+            "edr-process-created" => MessageType::ProcessCreated,
+            "edr-process-terminated" => MessageType::ProcessTerminated,
+            "edr-image-loaded" => MessageType::ImageLoaded,
+            "edr-network-connection" => MessageType::NetworkConnection,
+            "edr-dns-query" => MessageType::DnsQuery,
+            "edr-memory-scan-alert" => MessageType::MemoryScanAlert,
+            "edr-host-isolation-state-changed" => MessageType::HostIsolationStateChanged,
+            "edr-identity-alert" => MessageType::IdentityAlert,
             _ => MessageType::Generic,
         }
     }
@@ -354,6 +398,29 @@ impl WazuhMessage {
             MessageType::MdmAutoRemediationResult => {
                 format!("1:mdm:auto-remediation-result:{}", self.payload)
             }
+            // EDR Parity events (Phase E). These follow the same
+            // logcollector queue + source-tag convention as Device
+            // Control / MDM so legacy Wazuh consoles can see them
+            // as raw JSON. The Agent Gateway in
+            // `sn360-security-platform` strips the prefix when
+            // routing to the native NATS topology under the
+            // `edr.*` subject tree.
+            MessageType::ProcessCreated => format!("1:edr:process-created:{}", self.payload),
+            MessageType::ProcessTerminated => {
+                format!("1:edr:process-terminated:{}", self.payload)
+            }
+            MessageType::ImageLoaded => format!("1:edr:image-loaded:{}", self.payload),
+            MessageType::NetworkConnection => {
+                format!("1:edr:network-connection:{}", self.payload)
+            }
+            MessageType::DnsQuery => format!("1:edr:dns-query:{}", self.payload),
+            MessageType::MemoryScanAlert => {
+                format!("1:edr:memory-scan-alert:{}", self.payload)
+            }
+            MessageType::HostIsolationStateChanged => {
+                format!("1:edr:host-isolation-state-changed:{}", self.payload)
+            }
+            MessageType::IdentityAlert => format!("1:edr:identity-alert:{}", self.payload),
             // Control messages already carry the correct prefix.
             MessageType::Keepalive | MessageType::Startup | MessageType::Shutdown => {
                 self.payload.clone()
@@ -773,6 +840,59 @@ mod tests {
                 prefix
             );
             assert!(body.ends_with("{\"k\":\"v\"}"));
+        }
+    }
+
+    #[test]
+    fn test_encode_body_edr_prefixes() {
+        // Each EDR Parity MessageType must prepend a stable
+        // `1:edr:<kind>:` prefix when forwarded to a legacy Wazuh
+        // manager. Mirrors the Device Control / MDM contract so
+        // analysisd routes the payload to the logcollector queue.
+        let cases = [
+            (MessageType::ProcessCreated, "1:edr:process-created:"),
+            (MessageType::ProcessTerminated, "1:edr:process-terminated:"),
+            (MessageType::ImageLoaded, "1:edr:image-loaded:"),
+            (MessageType::NetworkConnection, "1:edr:network-connection:"),
+            (MessageType::DnsQuery, "1:edr:dns-query:"),
+            (MessageType::MemoryScanAlert, "1:edr:memory-scan-alert:"),
+            (
+                MessageType::HostIsolationStateChanged,
+                "1:edr:host-isolation-state-changed:",
+            ),
+            (MessageType::IdentityAlert, "1:edr:identity-alert:"),
+        ];
+        for (mt, prefix) in cases {
+            let msg = WazuhMessage::new("001", mt.clone(), "{\"k\":\"v\"}");
+            let body = String::from_utf8(msg.encode_body()).unwrap();
+            assert!(
+                body.starts_with(prefix),
+                "{:?} encoded body {:?} did not start with {:?}",
+                mt,
+                body,
+                prefix
+            );
+            assert!(body.ends_with("{\"k\":\"v\"}"));
+        }
+    }
+
+    #[test]
+    fn test_edr_message_type_protocol_str_roundtrip() {
+        let types = [
+            MessageType::ProcessCreated,
+            MessageType::ProcessTerminated,
+            MessageType::ImageLoaded,
+            MessageType::NetworkConnection,
+            MessageType::DnsQuery,
+            MessageType::MemoryScanAlert,
+            MessageType::HostIsolationStateChanged,
+            MessageType::IdentityAlert,
+        ];
+        for mt in types {
+            let s = mt.as_protocol_str();
+            let back = MessageType::from_protocol_str(s);
+            assert_eq!(format!("{:?}", mt), format!("{:?}", back));
+            assert!(s.starts_with("edr-"));
         }
     }
 }

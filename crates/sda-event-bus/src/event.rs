@@ -235,6 +235,38 @@ pub enum EventKind {
     /// Auto-remediation supervisor finished a self-signed local job
     /// (success or failure).
     MdmAutoRemediationResult { payload: String },
+
+    // --- EDR Parity events (Phase E) ---
+    //
+    // Each variant carries an already-serialised canonical JSON
+    // payload produced by the owning EDR crate (`sda-process-monitor`,
+    // `sda-network-monitor`, `sda-host-isolation`). The bus treats
+    // the payload as opaque; wire schemas live in
+    // `docs/edr-parity/ARCHITECTURE.md` § 8.
+    /// A new process was created. Payload includes pid, ppid, name,
+    /// exe_path, cmdline, user, and parent_chain.
+    ProcessCreated { payload: String },
+    /// A process terminated. Payload includes pid, name, exit_code.
+    ProcessTerminated { payload: String },
+    /// An image (DLL / shared library) was loaded into a process.
+    /// Payload includes pid, image_path, image_hash.
+    ImageLoaded { payload: String },
+    /// A network connection was observed. Payload includes pid,
+    /// process_name, direction, protocol, local_addr, remote_addr,
+    /// remote_port.
+    NetworkConnection { payload: String },
+    /// A DNS query was observed. Payload includes pid, process_name,
+    /// query_name, query_type, response_ips.
+    DnsQuery { payload: String },
+    /// A memory scan alert was raised. Payload includes pid,
+    /// process_name, region_base, region_size, alert_type, description.
+    MemoryScanAlert { payload: String },
+    /// Host isolation state changed. Payload includes isolated flag
+    /// and allowed_ips list.
+    HostIsolationStateChanged { payload: String },
+    /// An identity-related alert (LSASS access, shadow read, keychain
+    /// access). Payload includes category, user, technique, description.
+    IdentityAlert { payload: String },
 }
 
 /// An event that flows through the event bus.
@@ -279,6 +311,34 @@ mod tests {
         assert!(Priority::Critical < Priority::High);
         assert!(Priority::High < Priority::Normal);
         assert!(Priority::Normal < Priority::Low);
+    }
+
+    fn edr_event_kinds() -> Vec<EventKind> {
+        let payload = r#"{"k":"v"}"#.to_string();
+        vec![
+            EventKind::ProcessCreated {
+                payload: payload.clone(),
+            },
+            EventKind::ProcessTerminated {
+                payload: payload.clone(),
+            },
+            EventKind::ImageLoaded {
+                payload: payload.clone(),
+            },
+            EventKind::NetworkConnection {
+                payload: payload.clone(),
+            },
+            EventKind::DnsQuery {
+                payload: payload.clone(),
+            },
+            EventKind::MemoryScanAlert {
+                payload: payload.clone(),
+            },
+            EventKind::HostIsolationStateChanged {
+                payload: payload.clone(),
+            },
+            EventKind::IdentityAlert { payload },
+        ]
     }
 
     fn dc_event_kinds() -> Vec<EventKind> {
@@ -349,6 +409,34 @@ mod tests {
             let again = serde_json::to_string(&back).expect("re-encode");
             assert_eq!(json, again, "DC event kind did not round-trip cleanly");
         }
+    }
+
+    #[test]
+    fn edr_event_kinds_round_trip_via_serde_json() {
+        for kind in edr_event_kinds() {
+            let json = serde_json::to_string(&kind).expect("encode");
+            let back: EventKind = serde_json::from_str(&json).expect("decode");
+            let again = serde_json::to_string(&back).expect("re-encode");
+            assert_eq!(json, again, "EDR event kind did not round-trip cleanly");
+        }
+    }
+
+    #[test]
+    fn edr_event_kinds_preserve_payload() {
+        let payload = r#"{"pid":1234,"name":"test.exe"}"#;
+        let kind = EventKind::ProcessCreated {
+            payload: payload.to_string(),
+        };
+        let json = serde_json::to_string(&kind).expect("encode");
+        assert!(json.contains("test.exe"));
+        assert!(json.contains("ProcessCreated"));
+    }
+
+    #[test]
+    fn edr_event_count_matches_phase_e0_signoff() {
+        // Phase E0 froze the EDR EventKind sign-off list at 8
+        // variants. Any change requires a new ADR.
+        assert_eq!(edr_event_kinds().len(), 8);
     }
 
     #[test]

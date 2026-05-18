@@ -100,6 +100,19 @@ pub enum BehavioralRuleKind {
         /// Window size in seconds.
         window_secs: u64,
     },
+    /// Fire when a `ProcessCreated` event has a process name matching
+    /// `name_regex` and an ancestor chain matching
+    /// `parent_chain_regex` (Phase E1.7).  The parent chain is the
+    /// `" > "`-joined list of ancestor names included by
+    /// `sda-local-detection`'s process arm in `handle_event`.
+    ProcessChain {
+        /// Regex matched against the spawned process name (e.g.
+        /// `^powershell\.exe$`).
+        name_regex: String,
+        /// Regex matched against the joined parent-chain string
+        /// (e.g. `.*(winword|excel|outlook)\.exe.*`).
+        parent_chain_regex: String,
+    },
 }
 
 /// A complete on-disk rule bundle.

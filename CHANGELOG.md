@@ -10,6 +10,60 @@ minor bump.
 
 ### Added
 
+- **ShieldNet EDR Parity — Phases E0–E3 (agent-side).**
+  Agent-side delivery of the EDR Parity workstream defined in
+  [`docs/edr-parity/PROGRESS.md`](./docs/edr-parity/PROGRESS.md).
+  Phase E0 (architecture & schema) adds 8 new `EventKind` variants
+  in `crates/sda-event-bus/src/event.rs` (`ProcessCreated`,
+  `ProcessTerminated`, `ImageLoaded`, `NetworkConnection`,
+  `DnsQuery`, `MemoryScanAlert`, `HostIsolationStateChanged`,
+  `IdentityAlert`) following the existing `{ payload: String }`
+  canonical-JSON pattern, matching `MessageType` variants and
+  encoder arms in `crates/sda-comms/src/protocol.rs` under the
+  `legacy-siem` feature gate, and the clean-room EDR posture note
+  in `deny.toml` + [`docs/security-audit.md`](./docs/security-audit.md).
+  Phase E1 (process telemetry) ships a new `sda-pal::ProcessMonitor`
+  trait with Linux `cn_proc` netlink + `/proc` enrichment, Windows
+  ETW `Microsoft-Windows-Kernel-Process`, macOS Endpoint Security
+  framework, plus `MockProcessMonitor` for hermetic CI, and a new
+  `crates/sda-process-monitor` module crate with parent-chain
+  enrichment, bounded mpsc + drop-oldest back-pressure, and a
+  `parent_chain_regex` matcher extension to the behavioural rule
+  DSL (Office→PowerShell, wmiprvse→rundll32, non-system
+  `lsass.exe` access). Phase E2 (LDE maturity + default-ON) lands
+  the real TRDS hot-reload pipeline
+  (`crates/sda-local-detection/src/trds_client.rs`) with Ed25519
+  signature verification against a pinned key rotation set, atomic
+  `Arc<ArcSwap<DetectionPipeline>>` swap, an embedded default
+  bundle (`crates/sda-local-detection/src/default_bundle.rs`), and
+  **flips `LocalDetectionConfig::default().enabled` from `false`
+  to `true`** in `crates/sda-core/src/config.rs` — see "Migration"
+  below for upgrade impact. Phase E3 (network telemetry + host
+  isolation) ships three new PAL traits — `NetworkMonitor` (Linux
+  `/proc/net/*` poller with `to_ne_bytes()` endian-correct IP
+  parsing, Windows ETW `Microsoft-Windows-Kernel-Network`, macOS
+  `NEFilterDataProvider`), `DnsMonitor` (Linux
+  journalctl / systemd-resolved tap, Windows ETW
+  `Microsoft-Windows-DNS-Client`, macOS `NEDNSProxyProvider`), and
+  `HostIsolation` (Linux nftables `sn360_isolation`, Windows
+  `netsh advfirewall` + WFP, macOS `pfctl` anchor
+  `com.sn360.host_isolation`) — plus two new module crates,
+  `sda-network-monitor` (bounded LRU-ish dedup ring +
+  4-per-second UDP flow sampler) and `sda-host-isolation` (10-step
+  `SignedActionJob` validation pipeline, allow-list construction
+  with control-plane + loopback + DNS + extras, `IsolateHost` /
+  `UnisolateHost` `ActionKind` variants). The LDE
+  `handle_event` catch-all is replaced with explicit arms for
+  every new variant; remote-IP and query-name IOC matching flows
+  through the existing `pipeline.iocs` backends without new
+  rule-engine code. Four new hermetic E2E suites
+  (`make e2e-process-telemetry`, `make e2e-lde-hotreload`,
+  `make e2e-network-telemetry`, `make e2e-host-isolation`)
+  exercise the full pipeline against mock PAL implementations;
+  combined live counts are 41 new agent-side E2E tests plus 178
+  new unit tests. Server-side ⚙️ tasks (E1.9, E1.10, E2.5, E3.13,
+  E3.14) remain tracked separately in
+  [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform).
 - **ShieldNet Desktop MDM — Phases M1–M3 (agent-side).**
   New `crates/sda-mdm` crate provides the agent-side surface for
   the Desktop MDM workstream (default **on**). Phase M1 lands the

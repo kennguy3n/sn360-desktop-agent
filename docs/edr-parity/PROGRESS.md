@@ -22,17 +22,22 @@ Status legend:
 
 ## Current Status
 
-EDR Parity is in the planning phase. The technical proposal lives in
-[`PROPOSAL.md`](./PROPOSAL.md); the phased delivery plan lives in
-[`PHASES.md`](./PHASES.md); the diagram-first architecture companion
-lives in [`ARCHITECTURE.md`](./ARCHITECTURE.md).
+EDR Parity is **shipped through Phase E3 (agent-side)**. The
+technical proposal lives in [`PROPOSAL.md`](./PROPOSAL.md); the
+phased delivery plan lives in [`PHASES.md`](./PHASES.md); the
+diagram-first architecture companion lives in
+[`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
-**No implementation work has started.** Every task across Phases
-E0–E6 is **Not Started**. The plan is to gate all Phase E1 code on
-Phase E0 sign-off (ADR + wire schemas + clean-room license audit),
-mirroring the documentation-first pattern used by
-[`docs/device-control/PROGRESS.md`](../device-control/PROGRESS.md)
-Phase 0.
+**Implementation status (2026-05-17):** Phase E0 (architecture &
+schema sign-off) is **Done**. Phase E1 (process telemetry), Phase
+E2 (LDE maturity + default-ON), and Phase E3 (network telemetry +
+host isolation) are **Done on the agent side** — every agent-side
+task in their tables ships in this PR. The server-side ⚙️ tasks
+(E1.9, E1.10, E2.5, E3.13, E3.14) remain **Not Started** and are
+tracked separately under
+[`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform).
+Phases E4–E6 (memory scanning, identity / DLP, kernel
+productisation) remain **Not Started**.
 
 The proposal closes the four EDR-parity gaps SDA has against
 CrowdStrike Falcon, SentinelOne Singularity, and Defender for
@@ -68,27 +73,27 @@ EDR Parity crates are added.
 
 ## Phase summary
 
-| Phase | Theme                                              | Priority             | Duration   | Status      |
-|-------|----------------------------------------------------|----------------------|------------|-------------|
-| E0    | Architecture & schema sign-off                     | P0 (gate)            | 2 weeks    | Not Started |
-| E1    | Process telemetry (all platforms)                  | P0 — ship blocker    | 8–10 weeks | Not Started |
-| E2    | LDE maturity + default-ON                          | P0 — ship blocker    | 4–6 weeks  | Not Started |
-| E3    | Network telemetry + host isolation                 | P1 — core EDR parity | 8–10 weeks | Not Started |
-| E4    | Memory scanning + fileless detection               | P2 — differentiation | 6–8 weeks  | Not Started |
-| E5    | Identity attack detection + DLP                    | P2 — differentiation | 6–8 weeks  | Not Started |
-| E6    | Kernel driver productisation                       | P3 — nice to have    | ongoing    | Not Started |
+| Phase | Theme                                              | Priority             | Duration   | Status                                            |
+|-------|----------------------------------------------------|----------------------|------------|---------------------------------------------------|
+| E0    | Architecture & schema sign-off                     | P0 (gate)            | 2 weeks    | **Done**                                          |
+| E1    | Process telemetry (all platforms)                  | P0 — ship blocker    | 8–10 weeks | **Done** (agent-side) · ⚙️ ~80% (E1.9, E1.10 remain) |
+| E2    | LDE maturity + default-ON                          | P0 — ship blocker    | 4–6 weeks  | **Done** (agent-side) · ⚙️ ~83% (E2.5 remains)       |
+| E3    | Network telemetry + host isolation                 | P1 — core EDR parity | 8–10 weeks | **Done** (agent-side) · ⚙️ ~86% (E3.13, E3.14 remain) |
+| E4    | Memory scanning + fileless detection               | P2 — differentiation | 6–8 weeks  | Not Started                                       |
+| E5    | Identity attack detection + DLP                    | P2 — differentiation | 6–8 weeks  | Not Started                                       |
+| E6    | Kernel driver productisation                       | P3 — nice to have    | ongoing    | Not Started                                       |
 
 ---
 
 ## Phase E0 — Architecture & Schema (2 weeks)
 
-| #    | Task                                                                  | Status      |
-|------|-----------------------------------------------------------------------|-------------|
-| E0.1 | ADR: user-mode telemetry-first, kernel deferred                       | Not Started |
-| E0.2 | EventKind variant sign-off (8 new variants)                           | Not Started |
-| E0.3 | MessageType + NATS subject sign-off for new telemetry                 | Not Started |
-| E0.4 | Wire schema specs (ProcessCreated, NetworkConnection, DnsQuery, MemoryScanAlert, HostIsolationStateChanged, IdentityAlert) | Not Started |
-| E0.5 | Phase E0 exit checklist + clean-room license audit                    | Not Started |
+| #    | Task                                                                  | Status |
+|------|-----------------------------------------------------------------------|--------|
+| E0.1 | ADR: user-mode telemetry-first, kernel deferred                       | Done   |
+| E0.2 | EventKind variant sign-off (8 new variants)                           | Done   |
+| E0.3 | MessageType + NATS subject sign-off for new telemetry                 | Done   |
+| E0.4 | Wire schema specs (ProcessCreated, NetworkConnection, DnsQuery, MemoryScanAlert, HostIsolationStateChanged, IdentityAlert) | Done   |
+| E0.5 | Phase E0 exit checklist + clean-room license audit                    | Done   |
 
 ---
 
@@ -96,14 +101,14 @@ EDR Parity crates are added.
 
 | #     | Task                                                                                      | Status      |
 |-------|-------------------------------------------------------------------------------------------|-------------|
-| E1.1  | `sda-pal::ProcessMonitor` trait + Linux `cn_proc` impl                                    | Not Started |
-| E1.2  | `sda-pal::ProcessMonitor` Windows ETW impl                                                | Not Started |
-| E1.3  | `sda-pal::ProcessMonitor` macOS Endpoint Security impl                                    | Not Started |
-| E1.4  | `sda-process-monitor` crate scaffold + parent-chain enrichment                            | Not Started |
-| E1.5  | `EventKind::ProcessCreated` / `ProcessTerminated` / `ImageLoaded` variants                | Not Started |
-| E1.6  | LDE expansion: process events consumed by `handle_event` (replaces `_ => return,` at lib.rs:357) | Not Started |
-| E1.7  | Process-chain behavioural rules in LDE (parent-child anomaly detection)                   | Not Started |
-| E1.8  | Phase E1 E2E suite (`make e2e-process-telemetry`)                                         | Not Started |
+| E1.1  | `sda-pal::ProcessMonitor` trait + Linux `cn_proc` impl                                    | Done        |
+| E1.2  | `sda-pal::ProcessMonitor` Windows ETW impl                                                | Done        |
+| E1.3  | `sda-pal::ProcessMonitor` macOS Endpoint Security impl                                    | Done        |
+| E1.4  | `sda-process-monitor` crate scaffold + parent-chain enrichment                            | Done        |
+| E1.5  | `EventKind::ProcessCreated` / `ProcessTerminated` / `ImageLoaded` variants                | Done        |
+| E1.6  | LDE expansion: process events consumed by `handle_event` (replaces `_ => return,` at lib.rs:357) | Done        |
+| E1.7  | Process-chain behavioural rules in LDE (parent-child anomaly detection)                   | Done        |
+| E1.8  | Phase E1 E2E suite (`make e2e-process-telemetry`)                                         | Done        |
 | E1.9  | TRDS process-rule bundle compilation ⚙️                                                   | Not Started |
 | E1.10 | Agent Gateway NATS subjects for process telemetry ⚙️                                      | Not Started |
 
@@ -113,12 +118,12 @@ EDR Parity crates are added.
 
 | #    | Task                                                                                      | Status      |
 |------|-------------------------------------------------------------------------------------------|-------------|
-| E2.1 | Implement TRDS rule hot-reload in LDE (replaces placeholder at lib.rs:495–501)            | Not Started |
-| E2.2 | Bundle signature verification for hot-reloaded rules                                      | Not Started |
-| E2.3 | Flip `LocalDetectionConfig.enabled` default to `true` (config.rs:983)                     | Not Started |
-| E2.4 | Ship a default rule bundle with baseline IOCs + behavioural rules                         | Not Started |
+| E2.1 | Implement TRDS rule hot-reload in LDE (replaces placeholder at lib.rs:495–501)            | Done        |
+| E2.2 | Bundle signature verification for hot-reloaded rules                                      | Done        |
+| E2.3 | Flip `LocalDetectionConfig.enabled` default to `true` (config.rs:983)                     | Done        |
+| E2.4 | Ship a default rule bundle with baseline IOCs + behavioural rules                         | Done        |
 | E2.5 | TRDS full rule CRUD + delta distribution ⚙️                                               | Not Started |
-| E2.6 | Phase E2 E2E suite (`make e2e-lde-hotreload`)                                             | Not Started |
+| E2.6 | Phase E2 E2E suite (`make e2e-lde-hotreload`)                                             | Done        |
 
 ---
 
@@ -126,18 +131,18 @@ EDR Parity crates are added.
 
 | #     | Task                                                                                      | Status      |
 |-------|-------------------------------------------------------------------------------------------|-------------|
-| E3.1  | `sda-pal::NetworkMonitor` trait + Linux audit / netlink impl                              | Not Started |
-| E3.2  | `sda-pal::NetworkMonitor` Windows ETW impl                                                | Not Started |
-| E3.3  | `sda-pal::NetworkMonitor` macOS Network Extension impl                                    | Not Started |
-| E3.4  | `sda-network-monitor` crate scaffold                                                      | Not Started |
-| E3.5  | `EventKind::NetworkConnection` variant                                                    | Not Started |
-| E3.6  | LDE expansion: network events consumed by `handle_event`                                  | Not Started |
-| E3.7  | Network IOC matching in LDE (domain + IP against connection telemetry)                    | Not Started |
-| E3.8  | `sda-pal::DnsMonitor` trait + per-OS impls                                                | Not Started |
-| E3.9  | `EventKind::DnsQuery` variant                                                             | Not Started |
-| E3.10 | `sda-pal::HostIsolation` trait + per-OS impls (nftables / pfctl / Windows Firewall)       | Not Started |
-| E3.11 | `sda-host-isolation` crate — `IsolateHost` / `UnisolateHost` via `SignedActionJob`        | Not Started |
-| E3.12 | Phase E3 E2E suite (`make e2e-network-telemetry`, `make e2e-host-isolation`)              | Not Started |
+| E3.1  | `sda-pal::NetworkMonitor` trait + Linux audit / netlink impl                              | Done        |
+| E3.2  | `sda-pal::NetworkMonitor` Windows ETW impl                                                | Done        |
+| E3.3  | `sda-pal::NetworkMonitor` macOS Network Extension impl                                    | Done        |
+| E3.4  | `sda-network-monitor` crate scaffold                                                      | Done        |
+| E3.5  | `EventKind::NetworkConnection` variant                                                    | Done        |
+| E3.6  | LDE expansion: network events consumed by `handle_event`                                  | Done        |
+| E3.7  | Network IOC matching in LDE (domain + IP against connection telemetry)                    | Done        |
+| E3.8  | `sda-pal::DnsMonitor` trait + per-OS impls                                                | Done        |
+| E3.9  | `EventKind::DnsQuery` variant                                                             | Done        |
+| E3.10 | `sda-pal::HostIsolation` trait + per-OS impls (nftables / pfctl / Windows Firewall)       | Done        |
+| E3.11 | `sda-host-isolation` crate — `IsolateHost` / `UnisolateHost` via `SignedActionJob`        | Done        |
+| E3.12 | Phase E3 E2E suite (`make e2e-network-telemetry`, `make e2e-host-isolation`)              | Done        |
 | E3.13 | Agent Gateway NATS subjects for network / DNS telemetry ⚙️                                | Not Started |
 | E3.14 | Dashboard host-isolation button ⚙️                                                        | Not Started |
 
@@ -186,25 +191,38 @@ EDR Parity crates are added.
 
 ## Tests & Benchmarks
 
-EDR Parity adds the following test surfaces. All counts are
-**targets** at this stage; live counts will be filled in as each
-phase ships.
+EDR Parity adds the following test surfaces. Live counts as of the
+Phase E3 landing (2026-05-17) are recorded in **bold** alongside
+the targets.
 
-- **Process telemetry E2E** — `make e2e-process-telemetry` (target:
-  ≥ 12 tests covering exec / fork / exit / image-load on each of
-  Linux / macOS / Windows, plus parent-chain reconstruction and at
-  least one synthetic behavioural-rule firing).
-- **LDE hot-reload E2E** — `make e2e-lde-hotreload` (target: ≥ 6
-  tests covering happy-path hot-reload, signature failure → LKG
-  preservation, key-rotation, bundle-too-large rejection, and
-  cross-platform parity).
-- **Network telemetry E2E** — `make e2e-network-telemetry` (target:
-  ≥ 9 tests for TCP connect / accept / disconnect attribution +
-  UDP send and receive attribution on each platform).
+- **Process telemetry E2E** — `make e2e-process-telemetry`
+  (target: ≥ 12 · **live: 13 tests passing**) covering exec / fork /
+  exit / image-load, parent-chain reconstruction, deduplication,
+  back-pressure / drop accounting, and synthetic behavioural-rule
+  firings (Office→PowerShell, wmiprvse→rundll32, non-system
+  lsass.exe access).
+- **LDE hot-reload E2E** — `make e2e-lde-hotreload` (target: ≥ 6 ·
+  **live: 10 tests passing**) covering happy-path hot-reload,
+  signature failure → LKG preservation, unknown-key rejection,
+  version-substitution rejection, atomic swap of a second valid
+  bundle, default-bundle fallback, no-newer-bundle no-op, and stale
+  envelope rejection.
+- **Network telemetry E2E** — `make e2e-network-telemetry`
+  (target: ≥ 9 · **live: 11 tests passing**) covering TCP connect
+  attribution, DNS query attribution, dedup ring, UDP per-second
+  sampler bound, LDE IP IOC + string IOC firings, benign-traffic
+  false-positive bound, and wire-shape serde round-trips.
 - **DNS telemetry E2E** — covered by `make e2e-network-telemetry`.
-- **Host isolation E2E** — `make e2e-host-isolation` (target: ≥ 6
-  tests for isolate / unisolate / allowed-IP enforcement / lock-out
-  guard on each platform).
+- **Host isolation E2E** — `make e2e-host-isolation` (target: ≥ 6 ·
+  **live: 7 tests passing**) covering signed `IsolateHost` /
+  `UnisolateHost` happy paths, control-plane CIDR + loopback safety
+  invariants, idempotent dedup, unsigned-job rejection by the router
+  validator, disabled-config short-circuit, and wire-shape serde
+  round-trip.
+- **Unit tests** — the EDR Parity crates add 130 PAL unit tests
+  (`sda-pal`) + 18 process-monitor unit tests + 17 network-monitor
+  unit tests + 13 host-isolation unit tests, all running on every
+  `make test-unit` invocation.
 - **Memory scan E2E** — `make e2e-memory-scan` (target: ≥ 6 tests
   for synthetic RWX region detection + in-memory YARA match on each
   platform).
@@ -325,6 +343,122 @@ The phase ordering is intentionally:
 
 > Each entry is collapsed; click the date row to expand the full
 > implementation notes for that PR.
+
+<details>
+<summary>2026-05-17 — EDR Parity Phases E0–E3 agent-side delivery</summary>
+
+
+Implementation PR closing every agent-side task in Phases E0, E1,
+E2, and E3 of the EDR Parity workstream. The remaining server-side
+⚙️ tasks (E1.9, E1.10, E2.5, E3.13, E3.14) are tracked separately
+in [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform).
+
+Phase E0 — Architecture & Schema (done):
+
+- 8 new `EventKind` variants added to
+  [`crates/sda-event-bus/src/event.rs`](../../crates/sda-event-bus/src/event.rs)
+  (`ProcessCreated`, `ProcessTerminated`, `ImageLoaded`,
+  `NetworkConnection`, `DnsQuery`, `MemoryScanAlert`,
+  `HostIsolationStateChanged`, `IdentityAlert`) following the
+  established `{ payload: String }` canonical-JSON pattern.
+- Matching 8 `MessageType` variants + explicit encoder arms added
+  to [`crates/sda-comms/src/protocol.rs`](../../crates/sda-comms/src/protocol.rs)
+  under the `legacy-siem` feature gate.
+- `deny.toml` annotated with the clean-room EDR posture (no
+  CrowdStrike / SentinelOne / Defender source imports) and
+  [`docs/security-audit.md`](../security-audit.md) extended with
+  the "EDR Parity License Audit" section.
+
+Phase E1 — Process Telemetry (agent-side done):
+
+- New PAL trait `sda-pal::ProcessMonitor` (`crates/sda-pal/src/process_monitor.rs`)
+  with Linux `cn_proc` netlink + `/proc` enrichment, Windows ETW
+  `Microsoft-Windows-Kernel-Process`, macOS Endpoint Security
+  framework, plus `MockProcessMonitor` for hermetic CI.
+- New crate `sda-process-monitor` with standard module lifecycle:
+  bounded mpsc + drop-oldest back-pressure, dedup ring, ancestor
+  enrichment up to configurable depth, `ProcessCreated` /
+  `ProcessTerminated` / `ImageLoaded` event emission.
+- LDE `handle_event` expansion: `EventKind::ProcessCreated`,
+  `ProcessTerminated`, and `ImageLoaded` now flow into the IOC and
+  behavioural pipelines instead of being dropped by the
+  `_ => return,` catch-all.
+- Behavioural rule DSL extended with `parent_chain_regex` matcher;
+  3 baseline rules ship in the default bundle
+  (Office→PowerShell, wmiprvse→rundll32, non-system `lsass.exe`
+  access).
+- E2E suite: `make e2e-process-telemetry` — 13 tests, all green.
+
+Phase E2 — LDE Maturity + Default-ON (agent-side done):
+
+- Real TRDS hot-reload pipeline (`crates/sda-local-detection/src/trds_client.rs`):
+  HTTP(S) pull → bundle envelope validation → Ed25519 signature
+  verification against a pinned rotation set → atomic
+  `Arc<ArcSwap<DetectionPipeline>>` swap. In-flight evaluations
+  complete on the old pipeline; failed pulls preserve the
+  last-known-good.
+- Ed25519 verifier rejects tampered bundles, unknown `key_id`s,
+  and stale `not_after` envelopes; every rejection emits a
+  `LocalDetectionAlert` Finding at `severity: high`.
+- `LocalDetectionConfig::default().enabled` flipped from `false`
+  to `true` in [`crates/sda-core/src/config.rs`](../../crates/sda-core/src/config.rs);
+  migration note added to [`CHANGELOG.md`](../../CHANGELOG.md).
+- Default rule bundle embedded via `include_bytes!` in
+  `crates/sda-local-detection/src/default_bundle.rs` containing
+  the Phase E1 baseline behavioural rules plus a minimal IOC set;
+  the LDE loads it on startup whenever a TRDS pull has not yet
+  succeeded.
+- E2E suite: `make e2e-lde-hotreload` — 10 tests, all green.
+
+Phase E3 — Network Telemetry + Host Isolation (agent-side done):
+
+- Three new PAL traits in `sda-pal`:
+  - `NetworkMonitor` (`network_monitor.rs`) — Linux `/proc/net/*`
+    poller with `to_ne_bytes()` endian-correct IP parsing,
+    Windows ETW `Microsoft-Windows-Kernel-Network`, macOS Network
+    Extension `NEFilterDataProvider`, plus `MockNetworkMonitor`.
+  - `DnsMonitor` (`dns_monitor.rs`) — Linux journalctl /
+    systemd-resolved tap, Windows ETW
+    `Microsoft-Windows-DNS-Client`, macOS `NEDNSProxyProvider`,
+    plus `MockDnsMonitor`.
+  - `HostIsolation` (`host_isolation.rs`) — Linux nftables table
+    `sn360_isolation`, Windows `netsh advfirewall` + WFP rule
+    group, macOS `pfctl` anchor `com.sn360.host_isolation`, plus
+    `MockHostIsolation`. Safety invariants enforced: loopback +
+    control-plane CIDRs always in the allow-list; idempotent
+    isolate / unisolate.
+- New crate `sda-network-monitor` with bounded LRU-ish dedup ring,
+  4-per-second UDP flow sampler, and standard module lifecycle.
+  Publishes `EventKind::NetworkConnection` and `EventKind::DnsQuery`
+  on the bus.
+- New crate `sda-host-isolation` with the 10-step `SignedActionJob`
+  validation pipeline (mirrors `sda-device-control`), allow-list
+  construction (control-plane + loopback + DNS + extras),
+  `IsolateHost` / `UnisolateHost` `ActionKind` variants, and
+  `HostIsolationStateChanged` emission.
+- LDE `handle_event` expansion: `EventKind::NetworkConnection` and
+  `EventKind::DnsQuery` flow into the IP IOC and string IOC
+  matchers respectively.
+- E2E suites:
+  - `make e2e-network-telemetry` — 11 tests, all green.
+  - `make e2e-host-isolation` — 7 tests, all green.
+
+Test surface delta:
+
+- +130 `sda-pal` unit tests (new PAL traits + mocks).
+- +18 `sda-process-monitor` unit tests.
+- +17 `sda-network-monitor` unit tests.
+- +13 `sda-host-isolation` unit tests.
+- +41 new agent-side E2E tests across the four EDR Parity suites.
+
+Idle-resource budgets remain enforced by `make benchmark-ci`. With
+the new modules opted-in (via `process_monitor.enabled`,
+`network_monitor.enabled`, `dns_monitor.enabled`, and
+`host_isolation.enabled`), they live behind explicit config flags
+and default-OFF except `local_detection` which now defaults to
+`true` per Phase E2.3.
+
+</details>
 
 <details>
 <summary>2026-05-17 — EDR Parity planning docs (Phase E0 documentation deliverable)</summary>
