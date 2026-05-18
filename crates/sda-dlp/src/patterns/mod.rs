@@ -50,8 +50,13 @@ pub struct PatternDef {
     pub region: &'static str,
     /// Human-readable name used in logs and tracing.
     pub name: &'static str,
-    /// Byte-oriented regex pre-filter. The scanner compiles every
-    /// active regex into a single Aho-Corasick `RegexSet`.
+    /// Byte-oriented regex pre-filter. The scanner runs each
+    /// pattern's regex individually (see [`crate::scanner::Scanner`])
+    /// rather than unioning the catalogue into a `regex::bytes::RegexSet`,
+    /// because each match must carry its originating category through
+    /// to the validator. Per-pattern compilation also keeps the
+    /// memory profile predictable when operators select a subset of
+    /// the catalogue via [`select`].
     pub regex: Regex,
     /// Structural validator over the matched byte slice. Returns
     /// `true` when the candidate is structurally valid.
@@ -68,9 +73,11 @@ impl PatternDef {
     }
 }
 
-/// The full built-in pattern catalogue. The scanner compiles this
-/// list into a single `regex::bytes::RegexSet` so per-pattern cost
-/// is amortised across the input buffer (O(input_length)).
+/// The full built-in pattern catalogue. The scanner iterates these
+/// patterns individually and runs each regex over the input buffer;
+/// see [`crate::scanner::Scanner`] for the rationale (per-pattern
+/// matches must preserve their originating category for the
+/// validator and the downstream `LocalDetectionAlert`).
 ///
 /// The function is cheap and deterministic, but each call recompiles
 /// the regexes. Production code keeps one instance around in the

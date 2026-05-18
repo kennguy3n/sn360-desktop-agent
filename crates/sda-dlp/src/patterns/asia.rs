@@ -153,7 +153,16 @@ pub(crate) fn patterns() -> Vec<PatternDef> {
             category: "pii.hk_hkid",
             region: "asia",
             name: "Hong Kong HKID",
-            regex: Regex::new(r"\b[A-Z]{1,2}\d{6}\([0-9A]\)\b").expect("hk_hkid regex"),
+            // Trailing `\b` is intentionally omitted: the regex
+            // ends on the literal `)`, which is a non-word character,
+            // so a `\b` anchor after `)` would only match when the
+            // closing paren is followed by another word character —
+            // i.e. it would refuse every real-world context
+            // (whitespace, punctuation, EOL, EOF). The preceding `\b`
+            // plus the fixed-shape prefix is enough to keep the pre-
+            // filter precise, and the structural validator does the
+            // arithmetic check.
+            regex: Regex::new(r"\b[A-Z]{1,2}\d{6}\([0-9A]\)").expect("hk_hkid regex"),
             validator: validate_hk_hkid,
         },
     ]
@@ -876,5 +885,36 @@ mod tests {
         // Check digit `A` (== 10) is valid syntax — verify rejection
         // when arithmetic doesn't match.
         assert!(!p.validate(b"A123456(A)"));
+    }
+
+    /// Realistic-context regex coverage. Mirrors how the
+    /// [`crate::scanner::Scanner`] feeds bytes into each pattern —
+    /// the regex must `find_iter` the HKID embedded in a sentence,
+    /// not just survive a bare validator call. Captures the
+    /// trailing-`\b` class of bug where a regex ending in a non-word
+    /// character (`)`, `]`, dash, etc.) silently matches zero
+    /// occurrences in every realistic input. Cf. `pii.phone_e164`
+    /// and `pii.eu_vat`, both of which previously had analogous
+    /// boundary bugs.
+    #[test]
+    fn hk_hkid_regex_matches_in_realistic_contexts() {
+        let p = find_pattern("pii.hk_hkid");
+        let cases: &[&[u8]] = &[
+            b"HKID: A123456(3) end",                       // surrounded by spaces
+            b"A123456(3)",                                 // bare token
+            b"A123456(3),",                                // trailing punctuation
+            b"line one\nA123456(3)\nline three",           // newline-bounded
+            b"foo AB123456(9) bar",                        // 2-letter prefix in prose
+            b"id=A123456(3);next=AB123456(9);final=done.", // semicolon delimited
+        ];
+        for input in cases {
+            assert!(
+                p.regex.is_match(input),
+                "HKID regex did not match in realistic context: {:?}",
+                std::str::from_utf8(input).unwrap_or("<non-utf8>"),
+            );
+        }
+        // Negative: a non-HKID-shaped token must not match.
+        assert!(!p.regex.is_match(b"this has no hkid in it"));
     }
 }
