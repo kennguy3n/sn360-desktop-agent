@@ -46,6 +46,106 @@ impl MemoryPermissions {
     }
 }
 
+// Win32 `MEMORY_BASIC_INFORMATION.Protect` constants reproduced from
+// `windows::Win32::System::Memory` so the helper below can be
+// compiled and unit-tested on every host OS. The numeric values are
+// fixed by the Win32 ABI; see
+// <https://learn.microsoft.com/en-us/windows/win32/memory/memory-protection-constants>.
+//
+// `dead_code` is allowed because most arms are only referenced from
+// the Windows backend at `windows_imp::enumerate` (`cfg(target_os =
+// "windows")`) plus the in-file test module — on Linux/macOS the
+// library target sees them as unused.
+//
+// Base protection (mutually exclusive, occupy the low byte):
+#[allow(dead_code)]
+const WIN_PAGE_NOACCESS: u32 = 0x0000_0001;
+#[allow(dead_code)]
+const WIN_PAGE_READONLY: u32 = 0x0000_0002;
+#[allow(dead_code)]
+const WIN_PAGE_READWRITE: u32 = 0x0000_0004;
+#[allow(dead_code)]
+const WIN_PAGE_WRITECOPY: u32 = 0x0000_0008;
+#[allow(dead_code)]
+const WIN_PAGE_EXECUTE: u32 = 0x0000_0010;
+#[allow(dead_code)]
+const WIN_PAGE_EXECUTE_READ: u32 = 0x0000_0020;
+#[allow(dead_code)]
+const WIN_PAGE_EXECUTE_READWRITE: u32 = 0x0000_0040;
+#[allow(dead_code)]
+const WIN_PAGE_EXECUTE_WRITECOPY: u32 = 0x0000_0080;
+// Modifier flags (orthogonal to the base; OR'd in):
+#[allow(dead_code)]
+const WIN_PAGE_GUARD: u32 = 0x0000_0100;
+#[allow(dead_code)]
+const WIN_PAGE_NOCACHE: u32 = 0x0000_0200;
+#[allow(dead_code)]
+const WIN_PAGE_WRITECOMBINE: u32 = 0x0000_0400;
+// High-bit modifiers (PAGE_TARGETS_* / PAGE_ENCLAVE_*) live in bits
+// 28–31. Strip the whole high nibble defensively so future Win32
+// flags don't reintroduce the same masking bug.
+#[allow(dead_code)]
+const WIN_PAGE_HIGH_MODIFIERS: u32 = 0xF000_0000;
+
+/// Translate a raw `MEMORY_BASIC_INFORMATION.Protect` value into the
+/// platform-agnostic [`MemoryPermissions`] triple used by the rest of
+/// the scanner.
+///
+/// Windows ORs modifier flags into `Protect` alongside the base
+/// protection constant: `PAGE_EXECUTE_READWRITE | PAGE_GUARD` is
+/// `0x140`, `PAGE_READWRITE | PAGE_NOCACHE | PAGE_WRITECOMBINE` is
+/// `0x604`, and so on. A naive exact-equality match on `Protect`
+/// drops to the `_ => ::default()` arm for any page that has one of
+/// those modifiers set, classifying the region as no-access — which
+/// in turn made [`MemoryRegion::is_interesting`] return `false` for
+/// `MEM_IMAGE`/`MEM_MAPPED` RWX guard pages (.NET CLR JITs, attacker
+/// `PAGE_GUARD`-flagged shellcode). Devin Review flagged this as
+/// BUG-0002 on PR #25.
+///
+/// This helper masks out `PAGE_GUARD` / `PAGE_NOCACHE` /
+/// `PAGE_WRITECOMBINE` and the high-bit `PAGE_TARGETS_*` /
+/// `PAGE_ENCLAVE_*` modifiers, then matches on the base protection
+/// constant. It is intentionally a free function on raw `u32` so it
+/// can be exercised by `cargo test` on every host OS without pulling
+/// in the `windows` crate. `dead_code` is allowed because the only
+/// production caller lives in `windows_imp::enumerate`
+/// (`cfg(target_os = "windows")`); on Linux/macOS only the unit
+/// tests reference it.
+#[allow(dead_code)]
+pub(crate) fn permissions_from_win_protect(protect: u32) -> MemoryPermissions {
+    let base = protect
+        & !(WIN_PAGE_GUARD | WIN_PAGE_NOCACHE | WIN_PAGE_WRITECOMBINE | WIN_PAGE_HIGH_MODIFIERS);
+    match base {
+        WIN_PAGE_READONLY => MemoryPermissions {
+            readable: true,
+            ..Default::default()
+        },
+        WIN_PAGE_READWRITE | WIN_PAGE_WRITECOPY => MemoryPermissions {
+            readable: true,
+            writable: true,
+            ..Default::default()
+        },
+        WIN_PAGE_EXECUTE => MemoryPermissions {
+            executable: true,
+            ..Default::default()
+        },
+        WIN_PAGE_EXECUTE_READ => MemoryPermissions {
+            readable: true,
+            executable: true,
+            ..Default::default()
+        },
+        WIN_PAGE_EXECUTE_READWRITE | WIN_PAGE_EXECUTE_WRITECOPY => MemoryPermissions {
+            readable: true,
+            writable: true,
+            executable: true,
+        },
+        // PAGE_NOACCESS or any unrecognised value: no permissions.
+        // Treating unknown values as "no access" is conservative — it
+        // never upgrades a region's perceived permissions.
+        _ => MemoryPermissions::default(),
+    }
+}
+
 /// Where a [`MemoryRegion`] is backed.
 ///
 /// `Anonymous` (heap, stack, shared-memory) and `Jit` (W+X mappings
@@ -525,9 +625,7 @@ pub mod windows_imp {
             // early-return added in future revisions — still releases
             // it via the guard's `Drop`.
             use windows::Win32::System::Memory::{
-                VirtualQueryEx, MEMORY_BASIC_INFORMATION, MEM_COMMIT, PAGE_EXECUTE,
-                PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY, PAGE_NOACCESS,
-                PAGE_READONLY, PAGE_READWRITE, PAGE_WRITECOPY,
+                VirtualQueryEx, MEMORY_BASIC_INFORMATION, MEM_COMMIT,
             };
             use windows::Win32::System::Threading::{
                 OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
@@ -554,35 +652,15 @@ pub mod windows_imp {
                     break;
                 }
                 if info.State == MEM_COMMIT {
-                    let permissions = match info.Protect {
-                        p if p == PAGE_READONLY => MemoryPermissions {
-                            readable: true,
-                            ..Default::default()
-                        },
-                        p if p == PAGE_READWRITE || p == PAGE_WRITECOPY => MemoryPermissions {
-                            readable: true,
-                            writable: true,
-                            ..Default::default()
-                        },
-                        p if p == PAGE_EXECUTE => MemoryPermissions {
-                            executable: true,
-                            ..Default::default()
-                        },
-                        p if p == PAGE_EXECUTE_READ => MemoryPermissions {
-                            readable: true,
-                            executable: true,
-                            ..Default::default()
-                        },
-                        p if p == PAGE_EXECUTE_READWRITE || p == PAGE_EXECUTE_WRITECOPY => {
-                            MemoryPermissions {
-                                readable: true,
-                                writable: true,
-                                executable: true,
-                            }
-                        }
-                        p if p == PAGE_NOACCESS => MemoryPermissions::default(),
-                        _ => MemoryPermissions::default(),
-                    };
+                    // `info.Protect` is the raw u32 wrapped in a
+                    // `PAGE_PROTECTION_FLAGS` newtype. Windows OR's
+                    // modifier flags (PAGE_GUARD / PAGE_NOCACHE /
+                    // PAGE_WRITECOMBINE / PAGE_TARGETS_* /
+                    // PAGE_ENCLAVE_*) into this field alongside the
+                    // mutually-exclusive base protection constant, so
+                    // we delegate to the masking helper rather than
+                    // matching on `info.Protect` directly.
+                    let permissions = super::permissions_from_win_protect(info.Protect.0);
                     // VirtualQueryEx does not surface a filename — we
                     // approximate by classifying MEM_PRIVATE as
                     // Anonymous and MEM_IMAGE / MEM_MAPPED as
@@ -927,6 +1005,145 @@ mod tests {
             mapping: MappingKind::Anonymous,
         };
         assert_eq!(r.end(), u64::MAX);
+    }
+
+    // ---------------------------------------------------------------
+    // Win32 Protect → MemoryPermissions translation
+    // ---------------------------------------------------------------
+    //
+    // Exercises the parent module's `permissions_from_win_protect`
+    // helper on every host OS — the production Windows backend
+    // delegates to this same function. Devin Review flagged the
+    // exact-equality match it replaces as BUG-0002 on PR #25 because
+    // it silently dropped PAGE_GUARD / PAGE_NOCACHE / PAGE_WRITECOMBINE
+    // RWX pages to the `_ => default()` arm.
+
+    #[test]
+    fn win_protect_translates_each_base_constant() {
+        assert_eq!(
+            permissions_from_win_protect(WIN_PAGE_NOACCESS),
+            MemoryPermissions::default()
+        );
+        assert_eq!(
+            permissions_from_win_protect(WIN_PAGE_READONLY),
+            MemoryPermissions {
+                readable: true,
+                writable: false,
+                executable: false,
+            }
+        );
+        for c in [WIN_PAGE_READWRITE, WIN_PAGE_WRITECOPY] {
+            assert_eq!(
+                permissions_from_win_protect(c),
+                MemoryPermissions {
+                    readable: true,
+                    writable: true,
+                    executable: false,
+                }
+            );
+        }
+        assert_eq!(
+            permissions_from_win_protect(WIN_PAGE_EXECUTE),
+            MemoryPermissions {
+                readable: false,
+                writable: false,
+                executable: true,
+            }
+        );
+        assert_eq!(
+            permissions_from_win_protect(WIN_PAGE_EXECUTE_READ),
+            MemoryPermissions {
+                readable: true,
+                writable: false,
+                executable: true,
+            }
+        );
+        for c in [WIN_PAGE_EXECUTE_READWRITE, WIN_PAGE_EXECUTE_WRITECOPY] {
+            assert_eq!(
+                permissions_from_win_protect(c),
+                MemoryPermissions {
+                    readable: true,
+                    writable: true,
+                    executable: true,
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn win_protect_preserves_rwx_under_page_guard() {
+        // PAGE_EXECUTE_READWRITE | PAGE_GUARD == 0x140. The pre-fix
+        // exact-equality match fell through to the `_` arm and
+        // classified this RWX page as no-access. With masking, the
+        // base RWX bits survive.
+        let p = permissions_from_win_protect(WIN_PAGE_EXECUTE_READWRITE | WIN_PAGE_GUARD);
+        assert!(
+            p.is_rwx(),
+            "PAGE_EXECUTE_READWRITE | PAGE_GUARD must stay RWX"
+        );
+    }
+
+    #[test]
+    fn win_protect_preserves_base_under_nocache_and_writecombine() {
+        // PAGE_READWRITE | PAGE_NOCACHE | PAGE_WRITECOMBINE = 0x604.
+        let p = permissions_from_win_protect(
+            WIN_PAGE_READWRITE | WIN_PAGE_NOCACHE | WIN_PAGE_WRITECOMBINE,
+        );
+        assert_eq!(
+            p,
+            MemoryPermissions {
+                readable: true,
+                writable: true,
+                executable: false,
+            }
+        );
+    }
+
+    #[test]
+    fn win_protect_preserves_base_under_all_modifiers() {
+        // PAGE_EXECUTE_READ | PAGE_GUARD | PAGE_NOCACHE | PAGE_WRITECOMBINE
+        // = 0x720. Make sure RX survives even when every documented
+        // modifier is set simultaneously.
+        let p = permissions_from_win_protect(
+            WIN_PAGE_EXECUTE_READ | WIN_PAGE_GUARD | WIN_PAGE_NOCACHE | WIN_PAGE_WRITECOMBINE,
+        );
+        assert_eq!(
+            p,
+            MemoryPermissions {
+                readable: true,
+                writable: false,
+                executable: true,
+            }
+        );
+    }
+
+    #[test]
+    fn win_protect_masks_high_bit_modifiers() {
+        // PAGE_TARGETS_NO_UPDATE = 0x40000000, PAGE_ENCLAVE_*
+        // = 0x10000000..=0x80000000. Verify the high-nibble mask
+        // strips them so the base still resolves cleanly.
+        const PAGE_TARGETS_NO_UPDATE: u32 = 0x4000_0000;
+        const PAGE_ENCLAVE_THREAD_CONTROL: u32 = 0x8000_0000;
+        let p = permissions_from_win_protect(
+            WIN_PAGE_EXECUTE_READWRITE | PAGE_TARGETS_NO_UPDATE | PAGE_ENCLAVE_THREAD_CONTROL,
+        );
+        assert!(p.is_rwx());
+    }
+
+    #[test]
+    fn win_protect_returns_default_for_unknown_value() {
+        // 0x00 is not a valid Win32 protection constant; 0x07 is a
+        // bit-combination of base constants Windows never emits.
+        // Both must conservatively yield no permissions rather than
+        // grant a stray permission bit.
+        assert_eq!(
+            permissions_from_win_protect(0),
+            MemoryPermissions::default()
+        );
+        assert_eq!(
+            permissions_from_win_protect(0x07),
+            MemoryPermissions::default()
+        );
     }
 
     #[test]
