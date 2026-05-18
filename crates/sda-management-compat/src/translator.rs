@@ -112,7 +112,7 @@ pub enum CompatError {
     /// The document referenced an EE-only or do-not-port feature
     /// that `docs/licensing.md` § 7 forbids us from translating. The string
     /// identifies the offending key so the operator can remove it.
-    #[error("rejected: {0} is on the do-not-port list (`docs/device-control.md` § 11 / `docs/licensing.md` § 7)")]
+    #[error("rejected: {0} is on the do-not-port list (docs/device-control.md § 11 / docs/licensing.md § 7)")]
     UnsupportedFeature(&'static str),
 
     /// The document's `team_name` does not match the tenant the
