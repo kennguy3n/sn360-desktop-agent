@@ -116,8 +116,14 @@ pub(crate) fn patterns() -> Vec<PatternDef> {
             category: "pii.eu_vat",
             region: "europe",
             name: "EU VAT Number",
+            // Each alternation closes with `\b` so a truncated prefix
+            // (e.g. `DE12345678901` slicing 9 digits out of an 11-digit
+            // run) cannot match — the surrounding token must end on a
+            // non-word boundary too. The CHE branch ends with an
+            // optional MWST/TVA/IVA suffix, so `\b` is anchored after
+            // the whole optional group.
             regex: Regex::new(
-                r"\b(?:AT)U\d{8}|\b(?:BE)0\d{9}|\b(?:DE|EE|EL|GR|PT)\d{9}|\b(?:DK|FI|HU|LU|MT|SI)\d{8}|\b(?:CY|CZ|ES|HR)[A-Z0-9]{8,11}|\b(?:FR)[A-Z0-9]{2}\d{9}|\b(?:IT|LT|LV|PL|SK)\d{10,12}|\b(?:NL)\d{9}B\d{2}|\b(?:SE)\d{12}|\bCHE-?\d{3}\.\d{3}\.\d{3}(?:\s?(?:MWST|TVA|IVA))?",
+                r"\b(?:AT)U\d{8}\b|\b(?:BE)0\d{9}\b|\b(?:DE|EE|EL|GR|PT)\d{9}\b|\b(?:DK|FI|HU|LU|MT|SI)\d{8}\b|\b(?:CY|CZ|ES|HR)[A-Z0-9]{8,11}\b|\b(?:FR)[A-Z0-9]{2}\d{9}\b|\b(?:IT|LT|LV|PL|SK)\d{10,12}\b|\b(?:NL)\d{9}B\d{2}\b|\b(?:SE)\d{12}\b|\bCHE-?\d{3}\.\d{3}\.\d{3}(?:\s?(?:MWST|TVA|IVA))?\b",
             )
             .expect("eu_vat regex"),
             validator: validate_eu_vat,
@@ -522,7 +528,12 @@ fn validate_eu_iban(s: &[u8]) -> bool {
         b"BA" => 20,
         b"BE" => 16,
         b"BG" => 22,
-        b"CH" => 21,
+        // Switzerland is handled by the dedicated `pci.ch_iban`
+        // pattern. Rejecting it here keeps a single Swiss IBAN from
+        // producing two `LocalDetectionAlert` events (one per
+        // pattern) — operators care about the country, not which
+        // detector noticed first.
+        b"CH" => return false,
         b"CY" => 28,
         b"CZ" => 24,
         b"DE" => 22,

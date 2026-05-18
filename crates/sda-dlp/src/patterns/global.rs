@@ -57,8 +57,11 @@ pub(crate) fn patterns() -> Vec<PatternDef> {
             region: "global",
             name: "E.164 International Phone Number",
             // E.164 allows up to 15 digits (ITU-T E.164). Leading +
-            // is required; we treat `\+` as the boundary marker.
-            regex: Regex::new(r"\+\d{7,15}").expect("phone regex"),
+            // is required; a trailing `\b` prevents a greedy 15-digit
+            // match from being emitted in the middle of a longer
+            // digit run (e.g. an obfuscated phone string with 18
+            // digits after `+`).
+            regex: Regex::new(r"\+\d{7,15}\b").expect("phone regex"),
             validator: validate_phone_e164,
         },
         PatternDef {

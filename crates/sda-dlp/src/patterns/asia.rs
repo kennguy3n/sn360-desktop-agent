@@ -288,6 +288,13 @@ fn validate_vn_bhxh(s: &[u8]) -> bool {
 
 /// Thailand National ID: 13 digits, weighted mod-11 check.
 /// `check = (11 - sum_{i=0..12} d_i * (13 - i) mod 11) mod 10`.
+///
+/// The first digit encodes the citizenship class:
+/// `1..=8` are personal citizen identifiers, `0` is reserved for
+/// the corporate juristic-person tax-ID space. Personal national
+/// IDs MUST start with `1..=8`; we reject leading zero here so
+/// corporate TINs fall to the `pii.th_tax_id` pattern instead of
+/// being double-emitted by both categories.
 fn validate_th_id(s: &[u8]) -> bool {
     if s.len() != 13 {
         return false;
@@ -295,17 +302,36 @@ fn validate_th_id(s: &[u8]) -> bool {
     let Some(d) = parse_ascii_digits(s) else {
         return false;
     };
+    // Personal national IDs cannot have a leading 0 (corporate TIN).
+    if d[0] == 0 {
+        return false;
+    }
     let sum: u32 = (0..12).map(|i| (d[i] as u32) * (13 - i as u32)).sum();
     let check = (11 - sum % 11) % 10;
     d[12] as u32 == check
 }
 
-/// Thailand Tax ID shares the National ID's check algorithm — the
-/// difference is registration context, not arithmetic. Tax IDs for
-/// corporates start with `0`; for individuals the National ID is
-/// reused as the tax ID. Both must pass the same mod-11 check.
+/// Thailand Tax ID shares the National ID's mod-11 check, but the
+/// number space is disjoint from `validate_th_id` by leading digit:
+/// only juristic-person (corporate) TINs start with `0`. Personal
+/// individual tax IDs reuse the National ID and fall under
+/// `pii.th_national_id`, so this pattern restricts itself to the
+/// corporate prefix to keep the two categories disjoint and avoid
+/// emitting duplicate `LocalDetectionAlert` events for the same
+/// 13-digit number.
 fn validate_th_tax_id(s: &[u8]) -> bool {
-    validate_th_id(s)
+    if s.len() != 13 {
+        return false;
+    }
+    let Some(d) = parse_ascii_digits(s) else {
+        return false;
+    };
+    if d[0] != 0 {
+        return false;
+    }
+    let sum: u32 = (0..12).map(|i| (d[i] as u32) * (13 - i as u32)).sum();
+    let check = (11 - sum % 11) % 10;
+    d[12] as u32 == check
 }
 
 /// Singapore NRIC / FIN. Weights `[2, 7, 6, 5, 4, 3, 2]` over the 7
@@ -688,15 +714,35 @@ mod tests {
     fn th_id_accepts_published_fixture() {
         let p = find_pattern("pii.th_national_id");
         // "1234567890121" → algorithm yields check digit 1.
+        // Leading 1 is a personal citizen prefix.
         assert!(p.validate(b"1234567890121"));
         // Bit-flipped suffix.
         assert!(!p.validate(b"1234567890122"));
+        // Leading 0 is reserved for corporate juristic-person tax
+        // IDs and must be rejected by the national-ID validator —
+        // those route to `pii.th_tax_id` instead.
+        // Compute the check digit for "012345678901_":
+        //   sum = 0*13 + 1*12 + 2*11 + 3*10 + 4*9 + 5*8 + 6*7
+        //       + 7*6 + 8*5 + 9*4 + 0*3 + 1*2
+        //       = 0+12+22+30+36+40+42+42+40+36+0+2 = 302
+        //   check = (11 - 302 % 11) % 10 = (11 - 5) % 10 = 6
+        assert!(!p.validate(b"0123456789016"));
     }
 
     #[test]
-    fn th_tax_id_reuses_national_check() {
-        assert!(validate_th_tax_id(b"1234567890121"));
-        assert!(!validate_th_tax_id(b"1234567890120"));
+    fn th_tax_id_requires_corporate_leading_zero() {
+        // National-ID-style 13-digit number with personal prefix
+        // must NOT match the corporate-tax-ID pattern; that keeps
+        // `pii.th_national_id` and `pii.th_tax_id` disjoint so a
+        // single TIN never produces two `LocalDetectionAlert`
+        // findings.
+        assert!(!validate_th_tax_id(b"1234567890121"));
+        // The same fixture with the corporate `0` prefix and a
+        // recomputed mod-11 check digit. Sum for "012345678901_" =
+        // 302, check = 6.
+        assert!(validate_th_tax_id(b"0123456789016"));
+        // Corrupted corporate check digit.
+        assert!(!validate_th_tax_id(b"0123456789017"));
     }
 
     #[test]

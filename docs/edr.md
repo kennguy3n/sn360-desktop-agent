@@ -429,7 +429,7 @@ the `#[ignore]` semantics, and the long-term performance target.
 
 ### 6.2 Bounded scanning
 
-DLP only inspects files up to `max_bytes_per_file` (default 1 MiB).
+DLP only inspects files up to `max_bytes_per_file` (default 2 MiB).
 Larger files are skipped and an `AgentVitals` info event is
 emitted. The scanner reads the file via `take().read_to_end()` to
 honour the bound exactly, even on streams that return short reads.
