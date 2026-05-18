@@ -289,12 +289,19 @@ fn validate_vn_bhxh(s: &[u8]) -> bool {
 /// Thailand National ID: 13 digits, weighted mod-11 check.
 /// `check = (11 - sum_{i=0..12} d_i * (13 - i) mod 11) mod 10`.
 ///
-/// The first digit encodes the citizenship class:
-/// `1..=8` are personal citizen identifiers, `0` is reserved for
-/// the corporate juristic-person tax-ID space. Personal national
-/// IDs MUST start with `1..=8`; we reject leading zero here so
-/// corporate TINs fall to the `pii.th_tax_id` pattern instead of
-/// being double-emitted by both categories.
+/// The first digit encodes the citizenship / registration class:
+/// `1..=8` cover the published Bureau of Registration Administration
+/// (BORA) buckets — 1 = born in TH pre-1984 / known birth, 2 = late
+/// registration, 3 = born + registered 1984–2008, 4 = late
+/// registration post-1984, 5 = added to household later, 6/7 =
+/// foreigners and their children, 8 = born + registered after 2008.
+/// Digit `9` is allocated for special civil-registration cases (e.g.
+/// reissued IDs and certain administrative corrections); we accept
+/// it as the BORA system actually issues numbers in that range.
+/// Leading `0` is exclusively reserved for the corporate juristic-
+/// person tax-ID space — we reject it here so corporate TINs fall
+/// to the `pii.th_tax_id` pattern instead of being double-emitted
+/// by both categories.
 fn validate_th_id(s: &[u8]) -> bool {
     if s.len() != 13 {
         return false;

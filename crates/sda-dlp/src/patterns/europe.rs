@@ -119,11 +119,20 @@ pub(crate) fn patterns() -> Vec<PatternDef> {
             // Each alternation closes with `\b` so a truncated prefix
             // (e.g. `DE12345678901` slicing 9 digits out of an 11-digit
             // run) cannot match — the surrounding token must end on a
-            // non-word boundary too. The CHE branch ends with an
-            // optional MWST/TVA/IVA suffix, so `\b` is anchored after
-            // the whole optional group.
+            // non-word boundary too.
+            //
+            // Switzerland's CHE-prefixed VAT number is intentionally
+            // OMITTED from this pattern: the bare `CHE-XXX.XXX.XXX`
+            // form is byte-for-byte identical to the Swiss enterprise
+            // UID, which has its own dedicated `pii.ch_uid` pattern
+            // (running the issuer's mod-11 check). Including CHE here
+            // would produce two `LocalDetectionAlert` events for the
+            // same number (UID + VAT). Per the Swiss FDF, the UID and
+            // VAT number are the same identifier — operators care
+            // about leaking the number, not which detector noticed
+            // first.
             regex: Regex::new(
-                r"\b(?:AT)U\d{8}\b|\b(?:BE)0\d{9}\b|\b(?:DE|EE|EL|GR|PT)\d{9}\b|\b(?:DK|FI|HU|LU|MT|SI)\d{8}\b|\b(?:CY|CZ|ES|HR)[A-Z0-9]{8,11}\b|\b(?:FR)[A-Z0-9]{2}\d{9}\b|\b(?:IT|LT|LV|PL|SK)\d{10,12}\b|\b(?:NL)\d{9}B\d{2}\b|\b(?:SE)\d{12}\b|\bCHE-?\d{3}\.\d{3}\.\d{3}(?:\s?(?:MWST|TVA|IVA))?\b",
+                r"\b(?:AT)U\d{8}\b|\b(?:BE)0\d{9}\b|\b(?:DE|EE|EL|GR|PT)\d{9}\b|\b(?:DK|FI|HU|LU|MT|SI)\d{8}\b|\b(?:CY|CZ|ES|HR)[A-Z0-9]{8,11}\b|\b(?:FR)[A-Z0-9]{2}\d{9}\b|\b(?:IT|LT|LV|PL|SK)\d{10,12}\b|\b(?:NL)\d{9}B\d{2}\b|\b(?:SE)\d{12}\b",
             )
             .expect("eu_vat regex"),
             validator: validate_eu_vat,
@@ -479,15 +488,13 @@ fn validate_pl_pesel(s: &[u8]) -> bool {
 /// constrain length and prefix and ensure the body is the right
 /// alphabet, which is enough to keep the false-positive rate in
 /// check.
+///
+/// Switzerland's CHE-form VAT is handled by the dedicated
+/// `pii.ch_uid` pattern (same number, with a real mod-11 check) —
+/// see the pattern definition for the rationale.
 fn validate_eu_vat(s: &[u8]) -> bool {
     if s.len() < 4 {
         return false;
-    }
-    // All EU VAT prefixes are 2 uppercase letters; for Switzerland's
-    // CHE-form VAT the prefix is "CHE".
-    if s.starts_with(b"CHE") {
-        // CHE-XXX.XXX.XXX (optional spaces + MWST/TVA/IVA suffix)
-        return s.iter().filter(|b| b.is_ascii_digit()).count() == 9;
     }
     if !s[0].is_ascii_uppercase() || !s[1].is_ascii_uppercase() {
         return false;
@@ -732,7 +739,10 @@ mod tests {
         assert!(p.validate(b"DE123456789"));
         assert!(p.validate(b"ATU12345678"));
         assert!(p.validate(b"NL123456789B01"));
-        assert!(p.validate(b"CHE-123.456.788"));
+        // Switzerland's CHE-prefixed VAT is intentionally NOT
+        // matched here — see the `pii.eu_vat` regex doc-comment and
+        // the dedicated `pii.ch_uid` pattern.
+        assert!(!p.regex.is_match(b"CHE-123.456.788"));
         assert!(!p.validate(b"XX123456789")); // unknown prefix
         assert!(!p.validate(b"ATY12345678")); // AT body must start with U
     }
