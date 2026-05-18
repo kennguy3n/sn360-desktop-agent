@@ -259,9 +259,7 @@ async fn inspect_file(
                 return;
             }
             for finding in findings {
-                if let Err(e) = publish_finding(bus, mode, path, &finding) {
-                    warn!(error = %e, ?path, "DLP: failed to publish finding");
-                }
+                publish_finding(bus, mode, path, &finding).await;
             }
         }
         Err(e) => {
@@ -270,25 +268,33 @@ async fn inspect_file(
     }
 }
 
+/// Read at most `limit` bytes from `path` into a fresh `Vec`.
+///
+/// A naive `let n = f.read(&mut buf); buf.truncate(n)` is buggy
+/// here because `AsyncReadExt::read` is allowed to return any
+/// non-zero count up to the buffer length on each call — a single
+/// short read would silently truncate the DLP scan window. Wrapping
+/// the handle in `take(limit)` and draining with `read_to_end`
+/// guarantees we either consume `limit` bytes or hit EOF first.
 async fn read_bounded(path: &std::path::Path, limit: usize) -> anyhow::Result<Vec<u8>> {
-    let mut f = fs::File::open(path)
+    let f = fs::File::open(path)
         .await
         .with_context(|| format!("open {}", path.display()))?;
-    let mut buf = vec![0u8; limit];
-    let n = f
-        .read(&mut buf)
+    let mut limited = f.take(limit as u64);
+    let mut buf = Vec::with_capacity(limit);
+    limited
+        .read_to_end(&mut buf)
         .await
         .with_context(|| format!("read {}", path.display()))?;
-    buf.truncate(n);
     Ok(buf)
 }
 
-fn publish_finding(
+async fn publish_finding(
     bus: &EventBus,
     mode: DlpMode,
     path: &std::path::Path,
     finding: &DlpFinding,
-) -> anyhow::Result<()> {
+) {
     let path_display = path.display().to_string();
     let severity = match mode {
         DlpMode::Monitor => "medium",
@@ -323,9 +329,15 @@ fn publish_finding(
             matched_value: format!("{}#{}", path_display, finding.fingerprint),
         },
     );
-    bus.publish(event)
-        .map_err(|e| anyhow::anyhow!("publish DLP finding: {e}"))?;
-    Ok(())
+    // DLP findings must reach the server: SOC visibility is the
+    // whole point of the module. `publish_to_server` already
+    // broadcasts locally before attempting the server queue, so
+    // adding a `bus.publish(ev)` fallback after a failure would
+    // double-fire local detection rules on the same event — log
+    // and move on instead (matches the memory-scanner pattern).
+    if let Err(e) = bus.publish_to_server(event).await {
+        warn!(error = %e, ?path, "DLP: server-bound publish failed");
+    }
 }
 
 // ---------------------------------------------------------------------------

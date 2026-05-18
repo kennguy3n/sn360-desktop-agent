@@ -56,6 +56,7 @@ use tracing::{debug, error, info, warn};
 use sda_core::config::{AgentConfig, MemoryScannerConfig};
 use sda_core::module::{AgentModule, ModuleHandle, ModuleHealth, ModuleStatus};
 use sda_core::signal::ShutdownSignal;
+use sda_core::time::format_rfc3339_utc_millis;
 use sda_event_bus::{Event, EventBus, EventKind, Priority};
 use sda_pal::memory_scanner::{default_memory_scanner, MemoryRegion, MemoryScanner};
 use sda_pal::power::PowerMonitor;
@@ -676,45 +677,12 @@ fn bounded_read_len(region_size: usize, cap: usize) -> usize {
     }
 }
 
-fn now_rfc3339() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    // Avoid pulling in chrono for one timestamp: the bus envelope
-    // already carries a monotonic-clock timestamp, this is just a
-    // human-readable marker in the payload.
-    let dur = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = dur.as_secs();
-    let millis = dur.subsec_millis();
-    // Format as RFC3339 in UTC without an external dependency. The
-    // arithmetic is the classic civil-from-days algorithm.
-    let (year, month, day, hour, min, sec) = civil_from_unix_secs(secs as i64);
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
-        year, month, day, hour, min, sec, millis
-    )
-}
-
-fn civil_from_unix_secs(secs: i64) -> (i32, u32, u32, u32, u32, u32) {
-    // Algorithm from Howard Hinnant's "chrono-Compatible Low-Level
-    // Date Algorithms" (public domain).
-    let day = secs.div_euclid(86_400);
-    let tod = secs.rem_euclid(86_400) as u32;
-    let hour = tod / 3600;
-    let min = (tod % 3600) / 60;
-    let sec = tod % 60;
-    let z = day + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = (z - era * 146_097) as u32;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe as i32 + (era * 400) as i32;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-    (y, m, d, hour, min, sec)
-}
+// Timestamps surfaced into MemoryScanAlert payloads are produced via
+// `sda_core::time::format_rfc3339_utc_millis`. There used to be a
+// private `civil_from_unix_secs` here; that duplicated logic with
+// `sda-identity-monitor`, which the Devin Review bot flagged as a
+// maintenance risk. Both crates now share the single
+// `sda_core::time` implementation.
 
 async fn emit_alert(
     bus: &EventBus,
@@ -730,7 +698,7 @@ async fn emit_alert(
         region_size: region.size,
         alert_type: m.alert_type,
         description: m.description.clone(),
-        detected_at: now_rfc3339(),
+        detected_at: format_rfc3339_utc_millis(std::time::SystemTime::now()),
     };
     let Ok(payload_str) = serde_json::to_string(&payload) else {
         vitals.publish_failures.fetch_add(1, Ordering::Relaxed);

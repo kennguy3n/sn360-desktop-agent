@@ -77,7 +77,14 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 sda-management-compat = { workspace = true }
+# Re-list the three EDR module crates here so the E2E tests can
+# pull in their `test-support` feature gate. Cargo unifies these
+# entries with the corresponding entries in `[dependencies]`; the
+# normal-build path stays feature-clean (no test-support code in
+# the release binary).
 sda-identity-monitor = { workspace = true, features = ["test-support"] }
 sda-dlp = { workspace = true, features = ["test-support"] }
 sda-memory-scanner = { workspace = true, features = ["test-support"] }
-sda-pal = { workspace = true }
+# `sda-pal` is already listed under `[dependencies]` — duplicating
+# it here was a copy-paste artefact flagged by the Devin Review
+# bot. Cargo would tolerate it, but it adds noise to the manifest.

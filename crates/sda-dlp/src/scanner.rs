@@ -63,22 +63,25 @@ impl Scanner {
         self.patterns.len()
     }
 
-    /// Scan a UTF-8 string buffer.
+    /// Scan an arbitrary byte buffer.
     ///
-    /// Strings that contain invalid UTF-8 should be sanitised by
-    /// the caller — the regex crate works on `&str`. For arbitrary
-    /// bytes use [`Scanner::scan_bytes`] which lossily converts to
-    /// UTF-8 first.
-    pub fn scan(&self, input: &str) -> Vec<DlpFinding> {
-        let bytes = input.as_bytes();
+    /// This is the canonical entry point. Offsets and fingerprints
+    /// returned in each [`DlpFinding`] index directly into `input`,
+    /// so the caller can recover the source bytes (e.g. to extend
+    /// a fingerprint window) without translating positions.
+    ///
+    /// The scanner uses [`regex::bytes`] so non-UTF-8 input is
+    /// passed through verbatim — no lossy reconstruction is needed
+    /// and no offset skew can result from replacement characters.
+    pub fn scan_bytes(&self, input: &[u8]) -> Vec<DlpFinding> {
         let mut out = Vec::new();
         for pattern in &self.patterns {
             for mat in pattern.regex.find_iter(input) {
-                let candidate = mat.as_str();
+                let candidate = mat.as_bytes();
                 if !pattern.validate(candidate) {
                     continue;
                 }
-                let fingerprint = fingerprint_window(bytes, mat.start(), mat.end());
+                let fingerprint = fingerprint_window(input, mat.start(), mat.end());
                 out.push(DlpFinding {
                     category: pattern.category.to_string(),
                     pattern_name: pattern.name.to_string(),
@@ -91,11 +94,12 @@ impl Scanner {
         out
     }
 
-    /// Scan an arbitrary byte buffer. Non-UTF-8 sequences are
-    /// replaced lossily so the underlying regex matcher can run.
-    pub fn scan_bytes(&self, input: &[u8]) -> Vec<DlpFinding> {
-        let cow = String::from_utf8_lossy(input);
-        self.scan(&cow)
+    /// Convenience wrapper around [`Scanner::scan_bytes`] that
+    /// takes a `&str`. Offsets remain byte offsets (matching
+    /// `str::as_bytes` indexing), which is what every caller in
+    /// this crate expects.
+    pub fn scan(&self, input: &str) -> Vec<DlpFinding> {
+        self.scan_bytes(input.as_bytes())
     }
 }
 

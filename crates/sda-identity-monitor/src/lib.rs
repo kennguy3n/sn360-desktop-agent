@@ -61,6 +61,7 @@ use tracing::{debug, error, info, warn};
 use sda_core::config::{AgentConfig, IdentityMonitorConfig};
 use sda_core::module::{AgentModule, ModuleHandle, ModuleHealth, ModuleStatus};
 use sda_core::signal::ShutdownSignal;
+use sda_core::time::format_rfc3339_utc;
 use sda_event_bus::{Event, EventBus, EventKind, Priority};
 
 const STATUS_INITIALIZED: u8 = 0;
@@ -376,7 +377,7 @@ async fn publish_signal(bus: &EventBus, signal: &IdentitySignal) -> anyhow::Resu
         image_path: signal.image_path.clone(),
         target: signal.target.clone(),
         description: signal.description.clone(),
-        detected_at: now_rfc3339(),
+        detected_at: format_rfc3339_utc(std::time::SystemTime::now()),
     };
     let json = serde_json::to_string(&payload).context("serialize IdentityAlertPayload")?;
     let event = Event::new(
@@ -384,49 +385,25 @@ async fn publish_signal(bus: &EventBus, signal: &IdentitySignal) -> anyhow::Resu
         Priority::High,
         EventKind::IdentityAlert { payload: json },
     );
-    bus.publish(event)
-        .map_err(|e| anyhow::anyhow!("publish IdentityAlert: {e}"))?;
+    // Identity alerts are server-bound EDR telemetry: SOC needs
+    // to see every credential-theft attempt. `publish_to_server`
+    // already broadcasts locally before attempting the server
+    // queue, so a `bus.publish(ev)` fallback after a failed call
+    // would double-fire local detection rules on the same event —
+    // log the failure and move on instead (matches the
+    // memory-scanner pattern).
+    if let Err(e) = bus.publish_to_server(event).await {
+        warn!(error = %e, "identity monitor server-bound publish failed");
+    }
     Ok(())
 }
 
-fn now_rfc3339() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let dur = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    civil_from_unix_secs(dur.as_secs())
-}
-
-fn civil_from_unix_secs(secs: u64) -> String {
-    let days = (secs / 86_400) as i64;
-    let secs_in_day = (secs % 86_400) as u32;
-    let h = secs_in_day / 3600;
-    let m = (secs_in_day / 60) % 60;
-    let s = secs_in_day % 60;
-    let z = days + 719_468;
-    let era = if z >= 0 {
-        z / 146_097
-    } else {
-        (z - 146_096) / 146_097
-    };
-    let doe = (z - era * 146_097) as u64;
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe as i64 + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m_month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = if m_month <= 2 { y + 1 } else { y };
-    format!(
-        "{year:04}-{m_month:02}-{d:02}T{h:02}:{m:02}:{s:02}Z",
-        year = year as u32,
-        m_month = m_month,
-        d = d,
-        h = h,
-        m = m,
-        s = s
-    )
-}
+// Timestamps surfaced into IdentityAlert payloads are produced via
+// `sda_core::time::format_rfc3339_utc`. There used to be a private
+// `civil_from_unix_secs` here that duplicated logic with
+// `sda-memory-scanner` (and worse, computed `secs / 86_400` instead
+// of `div_euclid`, silently mis-handling pre-epoch dates). Both
+// crates now share the single `sda_core::time` implementation.
 
 // ---------------------------------------------------------------------------
 // Mock provider (test-only / feature-gated for cross-crate testing)
@@ -741,9 +718,14 @@ mod tests {
     }
 
     #[test]
-    fn civil_from_unix_secs_produces_rfc3339_z_string() {
-        let s = civil_from_unix_secs(1_700_000_000);
+    fn payload_detected_at_is_rfc3339_z() {
+        // The civil-from-days algorithm itself is exhaustively
+        // tested in `sda_core::time`. Here we just confirm the
+        // identity-monitor payload surface still emits a
+        // syntactically valid RFC 3339 UTC string with `Z` suffix
+        // after the move to the shared utility.
+        let s = format_rfc3339_utc(std::time::UNIX_EPOCH);
         assert!(s.ends_with('Z'));
-        assert_eq!(s.len(), 20);
+        assert_eq!(s, "1970-01-01T00:00:00Z");
     }
 }

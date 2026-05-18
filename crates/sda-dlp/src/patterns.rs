@@ -30,8 +30,18 @@
 //! (no matched content escapes the scanner) is enforced by the
 //! scanner, not the pattern, so [`PatternDef`] does not need to
 //! mention bytes.
+//!
+//! ## Byte-oriented matching
+//!
+//! All patterns operate on `&[u8]` via the [`regex::bytes`] engine.
+//! The DLP scanner inspects raw file contents (which can contain
+//! arbitrary bytes, not just valid UTF-8), and we need byte
+//! offsets that index into the original buffer — not into a lossy
+//! UTF-8 reconstruction. The three baseline regexes only ever
+//! match ASCII bytes (digits, hyphens, ASCII letters), so the
+//! validators safely treat the captured slice as ASCII.
 
-use regex::Regex;
+use regex::bytes::Regex;
 
 /// A single DLP pattern definition.
 pub struct PatternDef {
@@ -39,19 +49,22 @@ pub struct PatternDef {
     pub category: &'static str,
     /// Human-readable name surfaced in wired findings.
     pub name: &'static str,
-    /// Compiled regular expression used to find candidate matches.
+    /// Compiled byte-oriented regular expression used to find
+    /// candidate matches in a raw buffer.
     pub regex: Regex,
     /// Optional structural validator. Returns `true` when the byte
     /// slice from the regex match is a real match. Used to reject
     /// false positives that the regex alone cannot eliminate
-    /// (e.g. invalid PAN checksums).
-    pub validator: fn(&str) -> bool,
+    /// (e.g. invalid PAN checksums). The slice is guaranteed to
+    /// contain only ASCII bytes because the baseline regexes reject
+    /// non-ASCII input.
+    pub validator: fn(&[u8]) -> bool,
 }
 
 impl PatternDef {
     /// True when `candidate` (a slice already extracted by
     /// [`Self::regex`]) survives the structural validator.
-    pub fn validate(&self, candidate: &str) -> bool {
+    pub fn validate(&self, candidate: &[u8]) -> bool {
         (self.validator)(candidate)
     }
 }
@@ -109,35 +122,46 @@ pub fn select(selected: &[String]) -> Vec<PatternDef> {
 // Validators
 // ---------------------------------------------------------------------------
 
+/// Parse a fixed-length ASCII decimal slice into a `u32`. Returns
+/// `None` if any byte is not an ASCII digit. Used by the SSN
+/// validator so we never round-trip the matched bytes through a
+/// `String` for arithmetic.
+fn parse_ascii_u32(bytes: &[u8]) -> Option<u32> {
+    let mut acc: u32 = 0;
+    for b in bytes {
+        if !b.is_ascii_digit() {
+            return None;
+        }
+        acc = acc.checked_mul(10)?.checked_add((b - b'0') as u32)?;
+    }
+    Some(acc)
+}
+
 /// Loose SSN validator. Real SSA-issued numbers exclude `000`,
 /// `666`, and `900–999` in the area block; we encode those
 /// constraints so synthetic fixtures of the form `000-12-3456`
 /// don't trigger.
-fn validate_ssn(s: &str) -> bool {
-    let bytes = s.as_bytes();
-    if bytes.len() != 11 {
+fn validate_ssn(s: &[u8]) -> bool {
+    if s.len() != 11 {
         return false;
     }
-    if bytes[3] != b'-' || bytes[6] != b'-' {
+    if s[3] != b'-' || s[6] != b'-' {
         return false;
     }
-    let area: u32 = match s[0..3].parse() {
-        Ok(v) => v,
-        Err(_) => return false,
+    let Some(area) = parse_ascii_u32(&s[0..3]) else {
+        return false;
     };
     if area == 0 || area == 666 || area >= 900 {
         return false;
     }
-    let group: u32 = match s[4..6].parse() {
-        Ok(v) => v,
-        Err(_) => return false,
+    let Some(group) = parse_ascii_u32(&s[4..6]) else {
+        return false;
     };
     if group == 0 {
         return false;
     }
-    let serial: u32 = match s[7..11].parse() {
-        Ok(v) => v,
-        Err(_) => return false,
+    let Some(serial) = parse_ascii_u32(&s[7..11]) else {
+        return false;
     };
     serial != 0
 }
@@ -146,36 +170,39 @@ fn validate_ssn(s: &str) -> bool {
 /// reserved by HMRC (`BG`, `GB`, `KN`, `NK`, `NT`, `TN`, `ZZ`)
 /// plus prefixes that begin with `D`, `F`, `I`, `Q`, `U`, `V`, or
 /// contain `O` in either position.
-fn validate_uk_ni(s: &str) -> bool {
+fn validate_uk_ni(s: &[u8]) -> bool {
     if s.len() != 9 {
         return false;
     }
-    let bytes = s.as_bytes();
-    let p1 = bytes[0] as char;
-    let p2 = bytes[1] as char;
-    if matches!(p1, 'D' | 'F' | 'I' | 'Q' | 'U' | 'V' | 'O') {
+    let p1 = s[0];
+    let p2 = s[1];
+    if matches!(p1, b'D' | b'F' | b'I' | b'Q' | b'U' | b'V' | b'O') {
         return false;
     }
-    if matches!(p2, 'D' | 'F' | 'I' | 'O' | 'Q' | 'U' | 'V') {
+    if matches!(p2, b'D' | b'F' | b'I' | b'O' | b'Q' | b'U' | b'V') {
         return false;
     }
     let prefix = &s[..2];
-    if matches!(prefix, "BG" | "GB" | "KN" | "NK" | "NT" | "TN" | "ZZ") {
+    if matches!(
+        prefix,
+        b"BG" | b"GB" | b"KN" | b"NK" | b"NT" | b"TN" | b"ZZ"
+    ) {
         return false;
     }
-    let suffix = bytes[8] as char;
-    matches!(suffix, 'A' | 'B' | 'C' | 'D')
+    let suffix = s[8];
+    matches!(suffix, b'A' | b'B' | b'C' | b'D')
 }
 
 /// Luhn check over an ASCII digit string. Public so callers writing
 /// new PAN-like patterns can reuse it.
-pub fn luhn_check(digits: &str) -> bool {
+pub fn luhn_check(digits: &[u8]) -> bool {
     let mut sum = 0u32;
     let mut alt = false;
-    for c in digits.chars().rev() {
-        let Some(d) = c.to_digit(10) else {
+    for &b in digits.iter().rev() {
+        if !b.is_ascii_digit() {
             return false;
-        };
+        }
+        let d = (b - b'0') as u32;
         let v = if alt { d * 2 } else { d };
         sum += if v > 9 { v - 9 } else { v };
         alt = !alt;
@@ -183,7 +210,7 @@ pub fn luhn_check(digits: &str) -> bool {
     sum.is_multiple_of(10)
 }
 
-fn validate_pan_luhn(s: &str) -> bool {
+fn validate_pan_luhn(s: &[u8]) -> bool {
     if s.len() < 13 || s.len() > 19 {
         return false;
     }
@@ -206,61 +233,66 @@ mod tests {
 
     #[test]
     fn ssn_validator_accepts_valid_numbers() {
-        for s in ["123-45-6789", "555-12-3456", "888-55-4321"] {
-            assert!(validate_ssn(s), "expected ok: {s}");
+        for s in [b"123-45-6789" as &[u8], b"555-12-3456", b"888-55-4321"] {
+            assert!(validate_ssn(s), "expected ok: {s:?}");
         }
     }
 
     #[test]
     fn ssn_validator_rejects_reserved_blocks() {
         for s in [
-            "000-12-3456",
-            "666-12-3456",
-            "900-12-3456",
-            "999-12-3456",
-            "123-00-3456",
-            "123-45-0000",
-            "abc-de-fghi",
+            b"000-12-3456" as &[u8],
+            b"666-12-3456",
+            b"900-12-3456",
+            b"999-12-3456",
+            b"123-00-3456",
+            b"123-45-0000",
+            b"abc-de-fghi",
         ] {
-            assert!(!validate_ssn(s), "expected reject: {s}");
+            assert!(!validate_ssn(s), "expected reject: {s:?}");
         }
     }
 
     #[test]
     fn uk_ni_validator_accepts_valid_numbers() {
-        for s in ["AB123456C", "JR987654A", "MA111111D"] {
-            assert!(validate_uk_ni(s), "expected ok: {s}");
+        for s in [b"AB123456C" as &[u8], b"JR987654A", b"MA111111D"] {
+            assert!(validate_uk_ni(s), "expected ok: {s:?}");
         }
     }
 
     #[test]
     fn uk_ni_validator_rejects_reserved_prefixes() {
-        for s in ["BG123456A", "GB123456A", "NK123456A", "ZZ123456A"] {
-            assert!(!validate_uk_ni(s), "expected reject: {s}");
+        for s in [
+            b"BG123456A" as &[u8],
+            b"GB123456A",
+            b"NK123456A",
+            b"ZZ123456A",
+        ] {
+            assert!(!validate_uk_ni(s), "expected reject: {s:?}");
         }
     }
 
     #[test]
     fn pan_validator_accepts_a_real_luhn_number() {
         // Stripe / Visa public test PAN.
-        assert!(validate_pan_luhn("4242424242424242"));
+        assert!(validate_pan_luhn(b"4242424242424242"));
         // 13-digit Visa test PAN.
-        assert!(validate_pan_luhn("4222222222222"));
+        assert!(validate_pan_luhn(b"4222222222222"));
     }
 
     #[test]
     fn pan_validator_rejects_invalid_luhn_or_wrong_length() {
-        assert!(!validate_pan_luhn("1234567890123"));
-        assert!(!validate_pan_luhn("4242424242424243"));
-        assert!(!validate_pan_luhn("1"));
-        assert!(!validate_pan_luhn("12345678901234567890")); // 20 digits
+        assert!(!validate_pan_luhn(b"1234567890123"));
+        assert!(!validate_pan_luhn(b"4242424242424243"));
+        assert!(!validate_pan_luhn(b"1"));
+        assert!(!validate_pan_luhn(b"12345678901234567890")); // 20 digits
     }
 
     #[test]
     fn luhn_check_handles_known_values() {
-        assert!(luhn_check("79927398713"));
-        assert!(!luhn_check("79927398710"));
-        assert!(!luhn_check("not digits"));
+        assert!(luhn_check(b"79927398713"));
+        assert!(!luhn_check(b"79927398710"));
+        assert!(!luhn_check(b"not digits"));
     }
 
     #[test]

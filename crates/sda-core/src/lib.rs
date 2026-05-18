@@ -9,6 +9,7 @@ pub mod location;
 pub mod module;
 pub mod power;
 pub mod signal;
+pub mod time;
 
 pub use agent::Agent;
 pub use config::AgentConfig;
@@ -19,3 +20,4 @@ pub use power::{
     PowerProfileSender, POWER_PROFILE_IDLE_THRESHOLD, POWER_PROFILE_POLL_INTERVAL,
 };
 pub use signal::{ShutdownSignal, ShutdownTrigger};
+pub use time::{civil_from_unix_secs, format_rfc3339_utc, format_rfc3339_utc_millis};
