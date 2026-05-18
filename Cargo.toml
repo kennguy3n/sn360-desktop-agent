@@ -28,6 +28,9 @@ members = [
     "crates/sda-process-monitor",
     "crates/sda-network-monitor",
     "crates/sda-host-isolation",
+    "crates/sda-memory-scanner",
+    "crates/sda-identity-monitor",
+    "crates/sda-dlp",
 ]
 # fuzz/ has its own [workspace] stanza and is not part of the main
 # build. Keeping it excluded avoids pulling libfuzzer-sys (and the
@@ -134,6 +137,10 @@ sda-mdm = { path = "crates/sda-mdm" }
 sda-process-monitor = { path = "crates/sda-process-monitor" }
 sda-network-monitor = { path = "crates/sda-network-monitor" }
 sda-host-isolation = { path = "crates/sda-host-isolation" }
+# EDR Parity Phase E4 / E5 modules.
+sda-memory-scanner = { path = "crates/sda-memory-scanner" }
+sda-identity-monitor = { path = "crates/sda-identity-monitor" }
+sda-dlp = { path = "crates/sda-dlp" }
 
 # Self-update (P3.1)
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "stream", "json"] }
@@ -151,6 +158,8 @@ aho-corasick = "1"
 bloomfilter = "1"
 indexmap = "2"
 regex = "1"
+# Blake3 fingerprinting for DLP match windows (Phase E5).
+blake3 = "1"
 
 [profile.release]
 lto = "fat"

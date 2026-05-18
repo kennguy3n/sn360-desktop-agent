@@ -281,6 +281,25 @@ pub struct ModulesConfig {
     pub dns_monitor: DnsMonitorConfig,
     #[serde(default)]
     pub host_isolation: HostIsolationConfig,
+
+    // --- EDR Parity modules (Phase E4) ---
+    //
+    // Memory scanning + fileless detection. Defaults to `enabled:
+    // false` per the lazy module-loading principle; the agent process
+    // is ALWAYS included in `allow_list_processes` (see ARCHITECTURE.md
+    // § 9.4) even if the operator omits or overrides this field.
+    #[serde(default)]
+    pub memory_scanner: MemoryScannerConfig,
+
+    // --- EDR Parity modules (Phase E5) ---
+    //
+    // Identity attack detection (LSASS / shadow / keychain) and DLP
+    // (PII / PCI on file writes + optional clipboard). Both default
+    // to `enabled: false`.
+    #[serde(default)]
+    pub identity_monitor: IdentityMonitorConfig,
+    #[serde(default)]
+    pub dlp: DlpConfig,
 }
 
 /// FIM-specific configuration.
@@ -2367,6 +2386,178 @@ impl Default for HostIsolationConfig {
             always_allow_loopback: true,
         }
     }
+}
+
+/// Memory Scanner (Phase E4) configuration.
+///
+/// Drives the `sda-memory-scanner` crate which periodically enumerates
+/// committed RWX / anonymous / JIT regions of running processes via
+/// [`sda_pal::memory_scanner::MemoryScanner`] and feeds them through
+/// the in-memory YARA matcher in `sda-local-detection`.
+///
+/// The agent process is ALWAYS excluded from scanning regardless of
+/// the `allow_list_processes` field (see `ARCHITECTURE.md § 9.4`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryScannerConfig {
+    /// Whether the memory scanner module is enabled.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Interval between scan windows in seconds (default: 300).
+    #[serde(default = "default_memory_scan_interval_secs")]
+    pub scan_interval_secs: u64,
+    /// Skip a scan window when system-wide CPU exceeds this percentage
+    /// (default: 20). Set to `100` to disable idle gating.
+    #[serde(default = "default_memory_only_when_idle_below_cpu_pct")]
+    pub only_when_idle_below_cpu_pct: u32,
+    /// Process names that MUST NOT be scanned. The agent process is
+    /// always excluded in addition to this list.
+    #[serde(default = "default_memory_allow_list_processes")]
+    pub allow_list_processes: Vec<String>,
+    /// Source of YARA rules (`"trds"` for the standard TRDS bundle
+    /// pipeline; reserved for future override mechanisms).
+    #[serde(default = "default_memory_yara_rule_source")]
+    pub yara_rule_source: String,
+    /// Defer scans when the host is on battery. Recommended.
+    #[serde(default = "default_true")]
+    pub defer_on_battery: bool,
+    /// Maximum bytes read per region per scan. Bounds the agent
+    /// memory footprint and the YARA scanning budget. 0 means
+    /// "read the entire region" (not recommended).
+    #[serde(default = "default_memory_max_region_bytes")]
+    pub max_region_bytes: usize,
+}
+
+impl Default for MemoryScannerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            scan_interval_secs: default_memory_scan_interval_secs(),
+            only_when_idle_below_cpu_pct: default_memory_only_when_idle_below_cpu_pct(),
+            allow_list_processes: default_memory_allow_list_processes(),
+            yara_rule_source: default_memory_yara_rule_source(),
+            defer_on_battery: true,
+            max_region_bytes: default_memory_max_region_bytes(),
+        }
+    }
+}
+
+fn default_memory_scan_interval_secs() -> u64 {
+    300
+}
+fn default_memory_only_when_idle_below_cpu_pct() -> u32 {
+    20
+}
+fn default_memory_allow_list_processes() -> Vec<String> {
+    vec!["sn360-desktop-agent".to_string()]
+}
+fn default_memory_yara_rule_source() -> String {
+    "trds".to_string()
+}
+fn default_memory_max_region_bytes() -> usize {
+    // 4 MiB per region. Matches the resource budget cap from
+    // `ARCHITECTURE.md § 7.2` (memory scanner peak 4 MB / 1% CPU).
+    4 * 1024 * 1024
+}
+
+/// Identity Monitor (Phase E5) configuration.
+///
+/// Drives the `sda-identity-monitor` crate which surfaces LSASS
+/// access (Windows ETW), `/etc/shadow` + `/proc/kcore` reads (Linux,
+/// reusing FIM), and keychain access (macOS Endpoint Security).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IdentityMonitorConfig {
+    /// Whether the identity monitor module is enabled.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Watch LSASS handle openings via ETW
+    /// `Microsoft-Windows-Threat-Intelligence` on Windows.
+    #[serde(default = "default_true")]
+    pub lsass_access_windows: bool,
+    /// Watch `/etc/shadow` and `/proc/kcore` reads on Linux.
+    #[serde(default = "default_true")]
+    pub shadow_access_linux: bool,
+    /// Watch keychain DB access (`/Library/Keychains/*`,
+    /// `~/Library/Keychains/*`) via Endpoint Security on macOS.
+    #[serde(default = "default_true")]
+    pub keychain_access_macos: bool,
+}
+
+impl Default for IdentityMonitorConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            lsass_access_windows: true,
+            shadow_access_linux: true,
+            keychain_access_macos: true,
+        }
+    }
+}
+
+/// DLP (Phase E5) configuration.
+///
+/// Drives the `sda-dlp` crate which scans file-write payloads (and
+/// optionally clipboard contents) for PII / PCI patterns.
+///
+/// `mode = "enforce"` additionally quarantines the file via
+/// `sda-active-response`. `mode = "monitor"` only emits findings.
+/// Findings MUST NEVER contain the matched bytes — only the pattern
+/// category, byte offset/length, and a Blake3 fingerprint of the
+/// surrounding 32-byte window (see `ARCHITECTURE.md § 8.1`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DlpConfig {
+    /// Whether the DLP module is enabled.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Operating mode: `"monitor"` (log + finding only) or
+    /// `"enforce"` (additionally quarantine the file).
+    #[serde(default = "default_dlp_mode")]
+    pub mode: String,
+    /// Active pattern categories. Each entry must match a pattern
+    /// registered in `sda-dlp::patterns`. Defaults to the bundled
+    /// SSN / UK-NI / PAN-Luhn set.
+    #[serde(default = "default_dlp_patterns")]
+    pub patterns: Vec<String>,
+    /// Inspect content of files reported as Created / Modified by FIM.
+    #[serde(default = "default_true")]
+    pub inspect_file_writes: bool,
+    /// Inspect clipboard content (requires the `dlp-clipboard`
+    /// feature). Off by default.
+    #[serde(default)]
+    pub inspect_clipboard: bool,
+    /// Maximum bytes read per file-write inspection. Bounds the
+    /// agent's CPU and memory footprint when a process writes a
+    /// very large file.
+    #[serde(default = "default_dlp_max_bytes_per_file")]
+    pub max_bytes_per_file: usize,
+}
+
+impl Default for DlpConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            mode: default_dlp_mode(),
+            patterns: default_dlp_patterns(),
+            inspect_file_writes: true,
+            inspect_clipboard: false,
+            max_bytes_per_file: default_dlp_max_bytes_per_file(),
+        }
+    }
+}
+
+fn default_dlp_mode() -> String {
+    "monitor".to_string()
+}
+fn default_dlp_patterns() -> Vec<String> {
+    vec![
+        "pii.ssn".to_string(),
+        "pii.uk_ni".to_string(),
+        "pci.pan_luhn".to_string(),
+    ]
+}
+fn default_dlp_max_bytes_per_file() -> usize {
+    // 2 MiB per file. Matches the resource budget cap from
+    // `ARCHITECTURE.md § 7.2` (DLP peak 3 MB / 0.5% CPU).
+    2 * 1024 * 1024
 }
 
 impl AgentConfig {

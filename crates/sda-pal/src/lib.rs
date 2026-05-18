@@ -9,6 +9,7 @@ pub mod dns_monitor;
 pub mod fs_watcher;
 pub mod host_isolation;
 pub mod mdm;
+pub mod memory_scanner;
 pub mod network_monitor;
 pub mod package_manager;
 pub mod posture;
