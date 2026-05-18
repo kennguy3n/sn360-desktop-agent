@@ -7,6 +7,22 @@ use regex::bytes::Regex;
 use super::validators::{luhn_check, parse_ascii_u32};
 use super::PatternDef;
 
+pub(crate) const CATEGORIES: &[&str] = &[
+    "pii.ssn",
+    "pci.pan_luhn",
+    "pii.email",
+    "pii.phone_e164",
+    "pii.passport_mrz",
+    "secrets.aws_access_key",
+    "secrets.private_key",
+    "secrets.github_pat",
+    "secrets.slack_token",
+    "secrets.gcp_service_key",
+    "secrets.azure_client_secret",
+    "secrets.jwt",
+    "secrets.generic_api_key",
+];
+
 /// Returns every pattern in the global region.
 pub(crate) fn patterns() -> Vec<PatternDef> {
     vec![

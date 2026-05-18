@@ -239,8 +239,12 @@ pub fn valid_dob(year: u32, month: u32, day: u32) -> bool {
 }
 
 /// Structural rule for Germany Steuer-IdNr: in the leading 10 digits
-/// exactly one digit must repeat (legacy two-occurrence form, or up
-/// to three since 2016) and exactly one digit must be absent.
+/// exactly one digit must repeat. The legacy form (issued through
+/// 2015) has one digit appearing twice and one digit absent. The
+/// post-2016 form admits one digit appearing three times, in which
+/// case the digit sum forces exactly two digits to be absent (counts
+/// sum to 10, so `3 + 7 = 10` ⇒ 2 zeros). Anything else — including
+/// a digit appearing four or more times — is structurally invalid.
 pub fn de_steuer_id_structure(digits: &[u8]) -> bool {
     if digits.len() < 10 {
         return false;
@@ -256,8 +260,13 @@ pub fn de_steuer_id_structure(digits: &[u8]) -> bool {
     let twos = counts.iter().filter(|&&c| c == 2).count();
     let threes = counts.iter().filter(|&&c| c == 3).count();
     let overflow = counts.iter().filter(|&&c| c > 3).count();
-    let repeats = twos + threes;
-    overflow == 0 && repeats == 1 && zeros == 1
+    if overflow != 0 {
+        return false;
+    }
+    // Exactly one digit repeats. Either it's the legacy 2× form
+    // (one absent digit), or the post-2016 3× form (two absent
+    // digits). Both branches need the other repeat-count to be 0.
+    (twos == 1 && threes == 0 && zeros == 1) || (threes == 1 && twos == 0 && zeros == 2)
 }
 
 #[cfg(test)]
@@ -354,6 +363,27 @@ mod tests {
     fn de_steuer_id_structure_rejects_all_unique() {
         // 0123456789X — every digit unique → no repeat, no missing → reject.
         assert!(!de_steuer_id_structure(b"01234567890"));
+    }
+
+    #[test]
+    fn de_steuer_id_structure_accepts_post_2016_three_occurrence_form() {
+        // Counts: '1' appears 3 times, '0' and '9' are absent, every
+        // other digit appears once. Required after BZSt's 2016 reform.
+        assert!(de_steuer_id_structure(b"11123456780"));
+    }
+
+    #[test]
+    fn de_steuer_id_structure_rejects_quadruple_repeat() {
+        // '1' appears 4 times — overflow guard must reject this
+        // regardless of how many digits are absent.
+        assert!(!de_steuer_id_structure(b"11112345670"));
+    }
+
+    #[test]
+    fn de_steuer_id_structure_rejects_two_repeating_digits() {
+        // '1' twice AND '2' twice → two separate repeats, no single
+        // missing-digit branch matches.
+        assert!(!de_steuer_id_structure(b"11223456780"));
     }
 
     #[test]

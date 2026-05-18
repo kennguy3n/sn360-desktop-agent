@@ -159,12 +159,27 @@ fn category_has_prefix(category: &str, prefix: &str) -> bool {
 }
 
 fn known_categories() -> &'static HashSet<&'static str> {
+    // Built from the static `CATEGORIES` lists each region module
+    // ships alongside its `patterns()` constructor. That keeps this
+    // path off the regex-compilation critical path even when the
+    // scanner hasn't initialised yet — only the per-region
+    // `&'static [&'static str]` slices are touched.
+    //
+    // A `category_list_matches_pattern_catalogue` unit test enforces
+    // that this list stays in lock-step with `patterns()`.
     static CATS: OnceLock<HashSet<&'static str>> = OnceLock::new();
     CATS.get_or_init(|| {
-        baseline_patterns()
-            .into_iter()
-            .map(|p| p.category)
-            .collect()
+        let mut set = HashSet::with_capacity(
+            asia::CATEGORIES.len()
+                + gcc::CATEGORIES.len()
+                + europe::CATEGORIES.len()
+                + global::CATEGORIES.len(),
+        );
+        set.extend(asia::CATEGORIES.iter().copied());
+        set.extend(gcc::CATEGORIES.iter().copied());
+        set.extend(europe::CATEGORIES.iter().copied());
+        set.extend(global::CATEGORIES.iter().copied());
+        set
     })
 }
 
@@ -215,6 +230,26 @@ mod tests {
                 d.category
             );
         }
+    }
+
+    /// Drift guard: the static `CATEGORIES` arrays each region module
+    /// exposes must list every category that the live `patterns()`
+    /// constructor returns. `known_categories()` relies on this so it
+    /// can answer `is_builtin_category` without compiling any regex.
+    #[test]
+    fn category_list_matches_pattern_catalogue() {
+        let live: HashSet<&'static str> = baseline_patterns().iter().map(|p| p.category).collect();
+        let mut declared: HashSet<&'static str> = HashSet::new();
+        declared.extend(asia::CATEGORIES.iter().copied());
+        declared.extend(gcc::CATEGORIES.iter().copied());
+        declared.extend(europe::CATEGORIES.iter().copied());
+        declared.extend(global::CATEGORIES.iter().copied());
+        let only_live: Vec<_> = live.difference(&declared).copied().collect();
+        let only_declared: Vec<_> = declared.difference(&live).copied().collect();
+        assert!(
+            only_live.is_empty() && only_declared.is_empty(),
+            "category lists drifted: only in patterns()={only_live:?}, only in CATEGORIES={only_declared:?}",
+        );
     }
 
     #[test]

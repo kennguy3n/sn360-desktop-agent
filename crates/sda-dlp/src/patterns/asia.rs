@@ -13,6 +13,31 @@ use super::validators::{
 };
 use super::PatternDef;
 
+/// Stable category identifiers for the Asia region. Listed
+/// independently of [`patterns`] so that callers (e.g.
+/// `is_builtin_category`) can enumerate the catalogue without paying
+/// the regex-compilation cost of the full pattern set. The
+/// `category_list_matches_pattern_catalogue` test in `patterns::mod`
+/// guards against drift between this list and the live `patterns()`.
+pub(crate) const CATEGORIES: &[&str] = &[
+    "pii.vn_cccd",
+    "pii.vn_mst",
+    "pii.vn_bhxh",
+    "pii.th_national_id",
+    "pii.th_tax_id",
+    "pii.sg_nric",
+    "pii.sg_uen",
+    "pii.my_mykad",
+    "pii.cn_resident_id",
+    "pii.jp_my_number",
+    "pii.kr_rrn",
+    "pii.in_aadhaar",
+    "pii.in_pan",
+    "pii.id_nik",
+    "pii.ph_philsys",
+    "pii.hk_hkid",
+];
+
 /// Returns every pattern in the Asia region.
 pub(crate) fn patterns() -> Vec<PatternDef> {
     vec![

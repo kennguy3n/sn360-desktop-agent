@@ -6,6 +6,17 @@ use regex::bytes::Regex;
 use super::validators::{luhn_check, mod97_check, parse_ascii_digits, parse_ascii_u32};
 use super::PatternDef;
 
+pub(crate) const CATEGORIES: &[&str] = &[
+    "pii.ae_emirates_id",
+    "pii.ae_trn",
+    "pii.qa_qid",
+    "pii.sa_national_id",
+    "pii.kw_civil_id",
+    "pii.bh_cpr",
+    "pii.om_civil_id",
+    "pci.gcc_iban",
+];
+
 /// Returns every pattern in the GCC region.
 pub(crate) fn patterns() -> Vec<PatternDef> {
     vec![

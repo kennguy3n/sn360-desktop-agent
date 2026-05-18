@@ -8,6 +8,22 @@ use super::validators::{
 };
 use super::PatternDef;
 
+pub(crate) const CATEGORIES: &[&str] = &[
+    "pii.uk_ni",
+    "pii.ch_ahv",
+    "pii.ch_uid",
+    "pci.ch_iban",
+    "pii.de_steuer_id",
+    "pii.fr_nir",
+    "pii.nl_bsn",
+    "pii.es_dni",
+    "pii.it_cf",
+    "pii.se_personnummer",
+    "pii.pl_pesel",
+    "pii.eu_vat",
+    "pci.eu_iban",
+];
+
 /// Returns every pattern in the Europe region.
 pub(crate) fn patterns() -> Vec<PatternDef> {
     vec![
@@ -50,8 +66,10 @@ pub(crate) fn patterns() -> Vec<PatternDef> {
             category: "pii.fr_nir",
             region: "europe",
             name: "France INSEE / NIR",
+            // Department slot is two digits OR Corsica's `2A`/`2B`.
+            // Validator substitutes 2A→19 and 2B→18 before mod-97.
             regex: Regex::new(
-                r"\b[12]\d{2}(?:0[1-9]|1[0-2]|[2-9]\d)\d{2}\d{3}\d{3}\d{2}\b",
+                r"\b[12]\d{2}(?:0[1-9]|1[0-2]|[2-9]\d)(?:\d{2}|2[AB])\d{3}\d{3}\d{2}\b",
             )
             .expect("fr_nir regex"),
             validator: validate_fr_nir,
@@ -236,26 +254,50 @@ fn validate_de_steuer_id(s: &[u8]) -> bool {
     iso7064_mod11_10(s) && de_steuer_id_structure(s)
 }
 
-/// France INSEE / NIR: take the 13-digit number (sex + year + month +
-/// dept + commune + serial); check digit = 97 - (number mod 97).
+/// France INSEE / NIR: 15-character ID covering sex + year + month +
+/// department + commune + serial + 2-digit check. The check digit is
+/// `97 - (body mod 97)` where `body` is the 13-digit prefix.
+///
+/// Positions 5–6 are the department code. Most departments encode as
+/// two digits, but Corsica uses `2A` / `2B`. Per INSEE, those are
+/// substituted with `19` / `18` respectively before the mod-97
+/// computation; the rest of the ID stays untouched.
 fn validate_fr_nir(s: &[u8]) -> bool {
-    if s.len() != 15 || !s.iter().all(|b| b.is_ascii_digit()) {
+    if s.len() != 15 {
         return false;
     }
-    // Build the 13-digit body and the 2-digit check.
-    let Some(d) = parse_ascii_digits(s) else {
+    // Body positions 0–4 (sex + year + month) and 7–12 (commune +
+    // serial) plus the 2-digit check at 13–14 are always decimal.
+    if !s[..5].iter().all(|b| b.is_ascii_digit()) || !s[7..].iter().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    // Department slot accepts either two digits or Corsica's 2A/2B.
+    let (dept_d5, dept_d6) = match (s[5], s[6]) {
+        (b'2', b'A') => (b'1', b'9'),
+        (b'2', b'B') => (b'1', b'8'),
+        (a, b) if a.is_ascii_digit() && b.is_ascii_digit() => (a, b),
+        _ => return false,
+    };
+    // Materialise the 13-digit body with the substitution applied.
+    let mut body = [0u8; 13];
+    body[..5].copy_from_slice(&s[..5]);
+    body[5] = dept_d5;
+    body[6] = dept_d6;
+    body[7..].copy_from_slice(&s[7..13]);
+    let Some(d) = parse_ascii_digits(&body) else {
         return false;
     };
+    // Month field: 01–12 for known months, 20–99 for unknown / pseudonymised.
     let month = d[3] as u32 * 10 + d[4] as u32;
     if !(1..=12).contains(&month) && !(20..=99).contains(&month) {
         return false;
     }
     let mut number: u64 = 0;
-    for &digit in &d[..13] {
+    for &digit in &d {
         number = number * 10 + digit as u64;
     }
     let expected = (97 - (number % 97)) as u32;
-    let check = (d[13] as u32) * 10 + d[14] as u32;
+    let check = (s[13] - b'0') as u32 * 10 + (s[14] - b'0') as u32;
     check == expected
 }
 
@@ -368,6 +410,11 @@ fn validate_it_cf(s: &[u8]) -> bool {
 
 /// Sweden Personnummer: 10-digit core with optional `-` / `+` between
 /// year and serial. The 10 digits are Luhn-protected.
+///
+/// Also accepts samordningsnummer (coordination numbers): the day
+/// field is offset by +60 so the legal range becomes 61..=91. They
+/// share the personnummer structure and Luhn-check digit, and the
+/// Swedish Tax Agency treats both as the same number space.
 fn validate_se_personnummer(s: &[u8]) -> bool {
     let mut compact = Vec::with_capacity(10);
     for &b in s {
@@ -380,10 +427,11 @@ fn validate_se_personnummer(s: &[u8]) -> bool {
         return false;
     }
     // Birth month/day sanity (positions 2..6 in the compact form
-    // encode MMDD).
+    // encode MMDD; samordningsnummer add 60 to DD).
     let month = (compact[2] - b'0') as u32 * 10 + (compact[3] - b'0') as u32;
     let day = (compact[4] - b'0') as u32 * 10 + (compact[5] - b'0') as u32;
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+    let day_ok = (1..=31).contains(&day) || (61..=91).contains(&day);
+    if !(1..=12).contains(&month) || !day_ok {
         return false;
     }
     luhn_check(&compact)
@@ -587,6 +635,24 @@ mod tests {
     }
 
     #[test]
+    fn fr_nir_accepts_corsica_department_codes() {
+        let p = find_pattern("pii.fr_nir");
+        // Corsica-du-Sud (2A): body 17506·2A·005·001 → after 2A→19
+        // substitution the 13-digit body is 1750619005001 and the
+        // check digit is 97 - (n mod 97) = 72.
+        assert!(p.validate(b"175062A00500172"));
+        // Haute-Corse (2B): body 17506·2B·005·001 → after 2B→18
+        // substitution the body is 1750618005001 and the check is 02.
+        assert!(p.validate(b"175062B00500102"));
+        // Off-by-one breaks the mod-97 check.
+        assert!(!p.validate(b"175062A00500173"));
+        assert!(!p.validate(b"175062B00500103"));
+        // Letters outside the Corsica positions are rejected.
+        assert!(!p.validate(b"17506AA00500172"));
+        assert!(!p.validate(b"175062C00500172"));
+    }
+
+    #[test]
     fn nl_bsn_eleven_test() {
         let p = find_pattern("pii.nl_bsn");
         assert!(p.validate(b"123456782")); // weighted sum 154, ÷11
@@ -620,6 +686,26 @@ mod tests {
         assert!(!p.validate(b"640823-3235"));
         // Invalid month.
         assert!(!p.validate(b"641323-3234"));
+    }
+
+    #[test]
+    fn se_personnummer_accepts_samordningsnummer() {
+        // Samordningsnummer (coordination number): birth day is
+        // shifted by +60, so a legal value is 61..=91. The Luhn-check
+        // digit is computed over the raw 10 digits, including the
+        // +60 offset — Skatteverket treats personnummer and
+        // samordningsnummer as one number space.
+        let p = find_pattern("pii.se_personnummer");
+        // Day 20 + 60 = 80 (samordningsnummer for someone born on the
+        // 20th of October 1985). 8510801239 is Luhn-valid.
+        assert!(p.validate(b"851080-1239"));
+        assert!(p.validate(b"8510801239"));
+        // Off-by-one Luhn rejection.
+        assert!(!p.validate(b"8510801238"));
+        // Day outside both personnummer (1..=31) and samordningsnummer
+        // (61..=91) ranges.
+        assert!(!p.validate(b"851050-1234"));
+        assert!(!p.validate(b"851092-1234"));
     }
 
     #[test]
