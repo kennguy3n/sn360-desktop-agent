@@ -32,6 +32,7 @@ the gate.
 | FIM scan CPU peak (1 000-file burst) | < 3 % |
 | Memory-scanner idle RSS (per module) | < 4 MB |
 | Memory-scanner per-scan CPU window | < 1 % over 60 s |
+| DLP full-catalogue scan (1 MiB buffer, ≈ 50 patterns, release) | < 500 ms |
 
 All numbers are measured on Linux x86_64. Windows and macOS budgets
 are within 10 % on equivalent hardware; per-OS numbers are tracked
@@ -202,6 +203,42 @@ Results land in
 `target/benchmark-regression/benchmark-regression.txt` and are
 uploaded as the `benchmark-regression` CI artefact from the nightly
 schedule.
+
+### 5.1 DLP catalogue scan gate
+
+The full DLP pattern catalogue (≈ 50 region-diverse PII / PCI /
+secrets detectors — see [`edr.md` § 6.1](./edr.md#61-pattern-set))
+is compiled per-pattern with each `regex::bytes::Regex` running
+its own Aho-Corasick literal prefilter. Patterns with strong
+literal anchors (e.g. `AKIA`, `ghp_`, `BEGIN`, `service_account`)
+scan a 1 MiB buffer in microseconds; unanchored numeric patterns
+(SSN, PAN, every national-ID detector) traverse the buffer
+linearly. Structural validators only run on the regex pre-filter
+hits (typically < 0.1 % of bytes), so adding validators has
+negligible cost relative to the regex pass.
+
+The gate is enforced by the
+`scanner::tests::full_catalogue_scans_1mib` test in
+`crates/sda-dlp`. It scans a 1 MiB buffer of mixed plain text +
+synthetic candidates (SSN, PAN, NRIC, email, phone) with every
+built-in pattern enabled and asserts the wall-clock scan time
+stays under **500 ms** in release mode. The test is marked
+`#[ignore]` so it does not block the PR-gate `cargo test --all
+--lib` (debug-mode regex is ~25× slower than release and would
+make any wall-clock gate meaningless). Run it via:
+
+```sh
+make test-dlp-bench
+# equivalent to:
+cargo test --release -p sda-dlp --lib \
+  scanner::tests::full_catalogue_scans_1mib -- --ignored --nocapture
+```
+
+`make test-full` includes `test-dlp-bench`. Future perf work —
+factoring the literal prefixes of every pattern into a single
+Aho-Corasick automaton ahead of the per-pattern regex pass —
+will let us tighten this gate toward the original aspirational
+< 10 ms target.
 
 ---
 

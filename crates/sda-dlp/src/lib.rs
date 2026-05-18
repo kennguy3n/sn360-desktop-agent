@@ -171,8 +171,8 @@ async fn run(
     }
 
     let mode = DlpMode::parse(&cfg.mode);
-    let dropped: Vec<String> = cfg
-        .patterns
+    let selectors = resolve_selectors(&cfg);
+    let dropped: Vec<String> = selectors
         .iter()
         .filter(|p| !patterns::is_builtin_category(p))
         .cloned()
@@ -184,7 +184,7 @@ async fn run(
         );
     }
 
-    let scanner = Arc::new(Scanner::new(patterns::select(&cfg.patterns)));
+    let scanner = Arc::new(Scanner::new(patterns::select(&selectors)));
     info!(
         mode = ?mode,
         patterns = scanner.pattern_count(),
@@ -218,6 +218,27 @@ async fn run(
 
     status.store(STATUS_STOPPED, Ordering::Relaxed);
     Ok(())
+}
+
+/// Resolve the effective pattern selector list from a `DlpConfig`.
+///
+/// Precedence:
+/// 1. Explicit `patterns` selectors (when non-empty) win outright.
+/// 2. Otherwise, the `region` shorthand expands into the matching
+///    glob (e.g. `region: "asia"` ⇒ `["asia.*"]`).
+/// 3. Falling through to an empty list lets `patterns::select`
+///    return every built-in pattern.
+fn resolve_selectors(cfg: &DlpConfig) -> Vec<String> {
+    if !cfg.patterns.is_empty() {
+        return cfg.patterns.clone();
+    }
+    if let Some(region) = cfg.region.as_deref() {
+        if let Some(globs) = patterns::expand_region(region) {
+            return globs;
+        }
+        warn!(region, "DLP config: unknown region shorthand; ignoring");
+    }
+    Vec::new()
 }
 
 /// Return the file path embedded in an `EventBus` event when it is
@@ -376,6 +397,7 @@ mod tests {
             enabled: true,
             mode: mode.to_string(),
             patterns: vec![],
+            region: None,
             inspect_file_writes: true,
             inspect_clipboard: false,
             max_bytes_per_file: 2 * 1024 * 1024,

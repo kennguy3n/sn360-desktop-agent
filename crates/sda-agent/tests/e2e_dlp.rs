@@ -50,6 +50,7 @@ fn cfg(mode: &str) -> DlpConfig {
         enabled: true,
         mode: mode.to_string(),
         patterns: vec![],
+        region: None,
         inspect_file_writes: true,
         inspect_clipboard: false,
         max_bytes_per_file: 2 * 1024 * 1024,

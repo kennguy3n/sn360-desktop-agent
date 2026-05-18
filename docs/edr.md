@@ -326,27 +326,110 @@ content is never serialised to the bus or to the control plane.**
 
 ### 6.1 Pattern set
 
-The shipped baseline pattern catalogue covers PII, PCI, and
-secrets categories. Each pattern is a `regex::bytes::Regex` (so
-non-UTF-8 input is byte-correctly scanned) plus an optional
-structural validator:
+The shipped baseline catalogue is a ≈ 50-pattern set covering PII,
+PCI, and developer-secret detectors across four region groups —
+Asia, GCC, Europe, and Global. Each entry is a
+`regex::bytes::Regex` (so non-UTF-8 input is byte-correctly
+scanned) wrapped around a region-specific structural validator
+implementing the published check-digit / format algorithm.
+
+#### Asia (16 patterns)
 
 | Category | Pattern example | Structural validator |
 |---|---|---|
-| `pii.ssn` | `\b\d{3}-\d{2}-\d{4}\b` | US SSN block / group / serial rules |
-| `pii.uk_ni` | `\b[A-Z]{2}\d{6}[A-Z]\b` | HMRC NI prefix allow-list |
-| `pii.email` | RFC 5321 simplified | — |
-| `pci.pan_luhn` | 13–19 contiguous digits | Luhn-10 checksum |
-| `secrets.aws_access_key` | `\bAKIA[0-9A-Z]{16}\b` | — |
-| `secrets.private_key` | `-----BEGIN [A-Z ]+PRIVATE KEY-----` | — |
+| `pii.vn_cccd` | `\b\d{12}\b` | Vietnam CCCD province code + birth year |
+| `pii.vn_mst` | `\b\d{10}(-\d{3})?\b` | Vietnam MST mod-11 weighted checksum |
+| `pii.vn_bhxh` | `\b[A-Z]{2}\d{10}\b` | Vietnam BHXH province prefix allow-list |
+| `pii.th_national_id` | `\b\d{13}\b` | Thailand mod-11 check digit |
+| `pii.th_tax_id` | `\b\d{13}\b` | Same mod-11 as national ID |
+| `pii.sg_nric` | `\b[STFGM]\d{7}[A-Z]\b` | Singapore per-series check letter |
+| `pii.sg_uen` | three published shapes | Singapore UEN format + check character |
+| `pii.my_mykad` | `\b\d{6}-\d{2}-\d{4}\b` | Malaysia JPN state code + DOB |
+| `pii.cn_resident_id` | `\b\d{17}[\dX]\b` | GB 11643-1999 mod-11-2 weighted checksum |
+| `pii.jp_my_number` | `\b\d{12}\b` | Japan 番号法 weighted mod-11 |
+| `pii.kr_rrn` | `\b\d{6}-[1-4]\d{6}\b` | Korea weighted mod-11 + DOB |
+| `pii.in_aadhaar` | `\b\d{4}\s?\d{4}\s?\d{4}\b` | India Verhoeff check digit |
+| `pii.in_pan` | `\b[A-Z]{5}\d{4}[A-Z]\b` | India PAN holder-type code |
+| `pii.id_nik` | `\b\d{16}\b` | Indonesia Kemendagri province + DOB |
+| `pii.ph_philsys` | `\b\d{4}-\d{4}-\d{4}\b` | Philippines Luhn check |
+| `pii.hk_hkid` | `\b[A-Z]{1,2}\d{6}\([0-9A]\)\b` | Hong Kong mod-11 with letter weights |
 
-The catalogue is configurable. An empty `patterns: []` selects the
-full baseline set (default behaviour); to disable scanning
-entirely, set `enabled: false`.
+#### GCC (8 patterns)
+
+| Category | Pattern example | Structural validator |
+|---|---|---|
+| `pii.ae_emirates_id` | `\b784-?\d{4}-?\d{7}-?\d\b` | UAE 784 prefix + Luhn |
+| `pii.ae_trn` | `\b\d{15}\b` | UAE TRN `100` prefix |
+| `pii.qa_qid` | `\b\d{11}\b` | Qatar QID nationality digit + birth year |
+| `pii.sa_national_id` | `\b[12]\d{9}\b` | Saudi nationality digit + Luhn |
+| `pii.kw_civil_id` | `\b\d{12}\b` | Kuwait century digit + DOB |
+| `pii.bh_cpr` | `\b\d{9}\b` | Bahrain birth year + mod-11 |
+| `pii.om_civil_id` | `\b\d{8,9}\b` | Oman length-bound structural check |
+| `pci.gcc_iban` | AE/QA/SA/KW/BH/OM IBANs | ISO 7064 mod-97 |
+
+#### Europe (13 patterns)
+
+| Category | Pattern example | Structural validator |
+|---|---|---|
+| `pii.uk_ni` | `\b[A-Z]{2}\d{6}[A-Z]\b` | HMRC NI prefix allow-list |
+| `pii.ch_ahv` | `\b756\.\d{4}\.\d{4}\.\d{2}\b` | Swiss AHV 756 prefix + EAN-13 |
+| `pii.ch_uid` | `\bCHE-?\d{3}\.\d{3}\.\d{3}\b` | Swiss UID mod-11 check digit |
+| `pci.ch_iban` | `\bCH\d{2}…\b` | Swiss IBAN ISO 7064 mod-97 |
+| `pii.de_steuer_id` | `\b\d{11}\b` | Germany ISO 7064 mod 11,10 + structure |
+| `pii.fr_nir` | `\b[12]\d{12}\d{2}\b` | France INSEE NIR mod-97 |
+| `pii.nl_bsn` | `\b\d{9}\b` | Netherlands BSN eleven-test |
+| `pii.es_dni` | `\b(\d{8}[A-Z]|[XYZ]\d{7}[A-Z])\b` | Spain DNI/NIE letter lookup |
+| `pii.it_cf` | Codice Fiscale | Italy odd/even check character |
+| `pii.se_personnummer` | `\b\d{6}[-+]?\d{4}\b` | Sweden Luhn + DOB |
+| `pii.pl_pesel` | `\b\d{11}\b` | Poland weighted mod-10 + DOB |
+| `pii.eu_vat` | per-country VAT prefixes | Per-country check digit algorithm |
+| `pci.eu_iban` | `\b[A-Z]{2}\d{2}[\dA-Z]+\b` | ISO 7064 mod-97 + per-country length table |
+
+#### Global (13 patterns)
+
+| Category | Pattern example | Structural validator |
+|---|---|---|
+| `pii.ssn` | `\b\d{3}-\d{2}-\d{4}\b` | US SSA area/group/serial rules |
+| `pci.pan_luhn` | 13–19 contiguous digits | Luhn-10 checksum |
+| `pii.email` | RFC 5321 simplified | Local-part / domain edge cases |
+| `pii.phone_e164` | `\+\d{7,15}` | ITU country code prefix validation |
+| `pii.passport_mrz` | ICAO 9303 TD3 MRZ | Per-field + composite check digits |
+| `secrets.aws_access_key` | `\b(AKIA|ASIA|AIDA|…)[0-9A-Z]{16}\b` | ASCII pre-filter only |
+| `secrets.private_key` | `-----BEGIN [A-Z ]+PRIVATE KEY-----` | PEM armor token |
+| `secrets.github_pat` | `\bgh[pousr]_[A-Za-z0-9]{36}\b` | ASCII pre-filter only |
+| `secrets.slack_token` | `\bxox[baprse]-[A-Za-z0-9-]{10,}\b` | Three-segment shape |
+| `secrets.gcp_service_key` | `"type"\s*:\s*"service_account"` | JSON marker |
+| `secrets.azure_client_secret` | `…8Q~…` modern Azure secret | ASCII pre-filter only |
+| `secrets.jwt` | `\beyJ…\.eyJ…\.…\b` | Base64-decoded header check |
+| `secrets.generic_api_key` | `apikey = "…"` heuristic | Mixed-alphabet entropy check |
+
+The catalogue is configurable. Operators select patterns via the
+[`modules.dlp.patterns`](./configuration-reference.md#modulesdlp)
+field or the [`modules.dlp.region`](./configuration-reference.md#modulesdlp)
+shorthand. Supported selectors:
+
+- **Exact category** — e.g. `"pii.ssn"`, `"pci.pan_luhn"`.
+- **Regional glob** — `"asia.*"`, `"gcc.*"`, `"europe.*"`, `"global.*"`.
+- **Category-tag glob** — `"pii.*"`, `"pci.*"`, `"secrets.*"`.
+- **Wildcard** — `"*"` or `"all"`.
+
+An empty `patterns: []` selects the full catalogue (default
+behaviour); to disable scanning entirely, set `enabled: false`.
+
+Each pattern compiles to its own `regex::bytes::Regex` with the
+regex crate's per-pattern Aho-Corasick literal prefilter, so the
+patterns with strong literal anchors (e.g. `AKIA`, `ghp_`, `BEGIN`,
+`service_account`) scan a 1 MiB buffer in microseconds. Structural
+validators only run on the candidate pre-filter matches (typically
+< 0.1 % of bytes), so adding validators has negligible cost
+relative to the regex pass. The benchmark gate is **a full-
+catalogue scan of a 1 MiB buffer in < 500 ms (release mode)**;
+see [`benchmarks.md`](./benchmarks.md) § 5.1 for the rationale,
+the `#[ignore]` semantics, and the long-term performance target.
 
 ### 6.2 Bounded scanning
 
-DLP only inspects files up to `max_bytes_per_file` (default 1 MiB).
+DLP only inspects files up to `max_bytes_per_file` (default 2 MiB).
 Larger files are skipped and an `AgentVitals` info event is
 emitted. The scanner reads the file via `take().read_to_end()` to
 honour the bound exactly, even on streams that return short reads.

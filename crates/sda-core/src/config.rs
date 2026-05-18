@@ -2520,11 +2520,24 @@ pub struct DlpConfig {
     /// `"enforce"` (additionally quarantine the file).
     #[serde(default = "default_dlp_mode")]
     pub mode: String,
-    /// Active pattern categories. Each entry must match a pattern
-    /// registered in `sda-dlp::patterns`. Defaults to the bundled
-    /// SSN / UK-NI / PAN-Luhn set.
+    /// Active pattern selectors. Each entry must be one of:
+    ///   - an exact pattern category (e.g. `"pii.ssn"`),
+    ///   - a regional glob (`"asia.*" | "gcc.*" | "europe.*" | "global.*"`),
+    ///   - a category-tag glob (`"pii.*" | "pci.*" | "secrets.*"`), or
+    ///   - the wildcard `"*"` / `"all"`.
+    ///
+    /// Defaults to the empty list, which the scanner interprets as
+    /// "every built-in pattern". Use this field for fine-grained
+    /// per-pattern selection; use `region` as the convenience
+    /// shorthand when you just want every pattern in one geography.
     #[serde(default = "default_dlp_patterns")]
     pub patterns: Vec<String>,
+    /// Convenience shorthand for `patterns`. Set to one of
+    /// `"asia"`, `"gcc"`, `"europe"`, `"global"`, or `"all"` to
+    /// enable every pattern in that region. Ignored when an
+    /// explicit `patterns` selection is provided.
+    #[serde(default)]
+    pub region: Option<String>,
     /// Inspect content of files reported as Created / Modified by FIM.
     #[serde(default = "default_true")]
     pub inspect_file_writes: bool,
@@ -2545,6 +2558,7 @@ impl Default for DlpConfig {
             enabled: false,
             mode: default_dlp_mode(),
             patterns: default_dlp_patterns(),
+            region: None,
             inspect_file_writes: true,
             inspect_clipboard: false,
             max_bytes_per_file: default_dlp_max_bytes_per_file(),
@@ -2556,11 +2570,10 @@ fn default_dlp_mode() -> String {
     "monitor".to_string()
 }
 fn default_dlp_patterns() -> Vec<String> {
-    vec![
-        "pii.ssn".to_string(),
-        "pii.uk_ni".to_string(),
-        "pci.pan_luhn".to_string(),
-    ]
+    // Empty == "every built-in pattern". Callers expand the
+    // `region` shorthand and explicit selectors through
+    // `sda-dlp::patterns::select`.
+    Vec::new()
 }
 fn default_dlp_max_bytes_per_file() -> usize {
     // 2 MiB per file. Matches the resource budget cap from
