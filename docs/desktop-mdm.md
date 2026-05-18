@@ -250,8 +250,8 @@ Desktop MDM is the highest-impact module in the agent —
 security invariants:
 
 1. **Same 10-step signed-job validation** as Device Control
-   ([§ 4 above](#4-signed-job-lifecycle); also documented in
-   `architecture.md` § 3.2).
+   ([`device-control.md` § 4](./device-control.md#4-signed-job-lifecycle);
+   also documented in `architecture.md` § 3.2).
 2. **Two-of-N approver signatures for irreversible actions** —
    `RemoteWipe` requires two distinct approver Ed25519 signatures
    with two distinct `key_id`s.
