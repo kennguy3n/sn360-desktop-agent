@@ -8,7 +8,7 @@
 //! (or the legacy single-key
 //! [`SoftwareConfig::pinned_signing_key_hex`](sda_core::config::SoftwareConfig::pinned_signing_key_hex))
 //! before any artefact is exposed to the action orchestrator. Per
-//! `docs/device-control/PHASES.md` task 2.6 the manifest carries:
+//! `docs/device-control.md` § 6 (Approved software catalogue) the manifest carries:
 //!
 //! - An Ed25519 detached signature over the canonical-JSON pre-image
 //!   (`signature` field replaced by an empty string, key sort).
@@ -119,7 +119,7 @@ pub enum ManifestError {
 }
 
 /// Approved-software catalogue manifest. Mirrors the structure
-/// described in `docs/device-control/ARCHITECTURE.md` § 2.5.
+/// described in `docs/device-control.md` § 6 (Approved software catalogue).
 ///
 /// `signature` is the lowercase-hex Ed25519 detached signature over
 /// the canonical pre-image (this same struct serialised to canonical

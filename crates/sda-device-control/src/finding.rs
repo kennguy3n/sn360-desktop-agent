@@ -1,6 +1,6 @@
 //! `Finding` — an observation produced by the agent.
 //!
-//! Mirrors `docs/device-control/SCHEMAS.md` § 5.
+//! Mirrors `docs/wire-protocols/device-control.md` § 5.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

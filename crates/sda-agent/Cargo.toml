@@ -13,8 +13,9 @@ path = "src/main.rs"
 # The default build ships the legacy SIEM (Wazuh-compatible)
 # transport adapter alongside the SN360 native-protocol building
 # blocks. A proprietary-only distribution can compile the legacy
-# adapter out with `--no-default-features`; see
-# `docs/proprietary-licensing-rationale.md` for the rationale.
+# adapter out with `--no-default-features`; see `docs/licensing.md`
+# for the proprietary-distribution rationale and the clean-room
+# stance on the legacy adapter.
 default = ["legacy-siem"]
 
 # Forwarded to `sda-comms/legacy-siem` so the enrolment, connection,

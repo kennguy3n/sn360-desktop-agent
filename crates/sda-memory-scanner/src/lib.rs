@@ -203,7 +203,7 @@ impl MemoryAlertKind {
 }
 
 /// Wire shape of a `MemoryScanAlert` payload
-/// (`docs/edr-parity/ARCHITECTURE.md` § 8).
+/// (`docs/edr.md` § 4 — Memory scanning and fileless detection).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct MemoryScanAlertPayload {

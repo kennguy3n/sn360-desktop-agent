@@ -466,7 +466,7 @@ async fn pal_not_supported_ends_session_cleanly() {
 /// repository must not contain *mobile* MDM code. Asserted by
 /// walking the Cargo workspace and ensuring no crate name matches
 /// the mobile-MDM naming patterns. `sda-mdm` (Desktop MDM,
-/// `docs/desktop-mdm/PROPOSAL.md`) is explicitly allowed.
+/// `docs/desktop-mdm.md`) is explicitly allowed.
 #[test]
 fn no_mobile_mdm_crate_in_workspace() {
     let workspace_root = workspace_root();

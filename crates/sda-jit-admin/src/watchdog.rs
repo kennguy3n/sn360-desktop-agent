@@ -1,6 +1,6 @@
 //! Revocation watchdog (Phase 3.3).
 //!
-//! See `docs/device-control/PROPOSAL.md` § 9.3 — revocation triggers:
+//! See `docs/device-control.md` § 7 (Just-in-Time admin) — revocation triggers:
 //!
 //! 1. **Timer expiry** — a Tokio sleep until `grant.until`.
 //! 2. **Heartbeat loss** — if the control plane has not been heard

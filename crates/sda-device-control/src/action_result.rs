@@ -1,7 +1,7 @@
 //! `ActionResult` — the agent's structured report of what happened
 //! when a `SignedActionJob` ran.
 //!
-//! Mirrors `docs/device-control/SCHEMAS.md` § 8.
+//! Mirrors `docs/wire-protocols/device-control.md` § 8.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

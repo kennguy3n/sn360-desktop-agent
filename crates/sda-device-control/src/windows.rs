@@ -1,8 +1,8 @@
 //! Maintenance window + quiet-hours policy evaluator (Phase 2.8).
 //!
-//! Mirrors `docs/device-control/PROPOSAL.md` § 11 and step 9 of
-//! the validation pipeline in `docs/device-control/ARCHITECTURE.md`
-//! § 4.3.
+//! Mirrors `docs/device-control.md` § 4 (Signed-job lifecycle) and
+//! step 9 of the validation pipeline in
+//! `docs/wire-protocols/device-control.md` § 7.4.
 //!
 //! # Semantics
 //!

@@ -2,7 +2,7 @@
 //!
 //! Handles inbound [`sda_device_control::signed_job::SignedActionJob`]s
 //! whose [`sda_device_control::types::ActionKind`] is `RemoteLock`.
-//! See `docs/desktop-mdm/ARCHITECTURE.md` § 3.2.
+//! See `docs/desktop-mdm.md` § 4.1 (Lock).
 //!
 //! Flow:
 //!

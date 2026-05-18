@@ -18,7 +18,7 @@
 //! finish in tens of milliseconds — `make e2e-process-telemetry`
 //! is safe to run on every CI host without privileges.
 //!
-//! Coverage (≥ 12 tests per `docs/edr-parity/PHASES.md` § E1.8):
+//! Coverage (≥ 12 tests for `docs/edr.md` § 2.1 — Process telemetry):
 //!
 //! 1. Process monitor disabled → no events leak on the bus.
 //! 2. `Created` event surfaces as `EventKind::ProcessCreated`

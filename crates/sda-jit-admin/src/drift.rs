@@ -6,7 +6,7 @@
 //! [`Drift`] entries; the supervisor renders each one as a
 //! [`FindingKind::AdminDrift`] payload on the agent event bus and
 //! emits a paired [`EvidenceRecord`] per
-//! `docs/device-control/PROPOSAL.md` § 9.3.
+//! `docs/device-control.md` § 7 (Just-in-Time admin).
 //!
 //! Two failure modes are reported:
 //!

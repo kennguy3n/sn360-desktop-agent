@@ -16,7 +16,7 @@
 //! cpu / matcher dependencies come from the `test-support` mocks in
 //! `sda-memory-scanner::mock`.
 //!
-//! Coverage (≥ 6 tests per `docs/edr-parity/PHASES.md` § E4.8):
+//! Coverage (≥ 6 tests for `docs/edr.md` § 4 — Memory scanning and fileless detection):
 //!
 //! 1. Disabled module never publishes any `MemoryScanAlert` events.
 //! 2. Synthetic RWX region with a known byte pattern flows through

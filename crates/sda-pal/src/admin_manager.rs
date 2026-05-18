@@ -17,8 +17,9 @@
 //! invoked through a [`CommandRunner`] indirection so that the per-OS
 //! grant/revoke logic can be unit-tested without root.
 //!
-//! See `docs/device-control/ARCHITECTURE.md` § 5 for the trait
-//! definition and `docs/device-control/SCHEMAS.md` § 5 for how the
+//! See `docs/architecture.md` § 4.1 (Trait surface) for the trait
+//! definition and `docs/wire-protocols/device-control.md` § 5
+//! (Finding) for how the
 //! types here surface on the wire as `Finding` / `Recommendation`
 //! payloads.
 
@@ -104,7 +105,7 @@ pub struct GrantHandle {
 /// Cross-platform admin/root account inventory and JIT-admin control.
 ///
 /// The full trait is the binding spec from
-/// `docs/device-control/ARCHITECTURE.md` § 5. Phase 1 only requires
+/// `docs/architecture.md` § 4.1 (Trait surface). Phase 1 only requires
 /// `list_admins` to be functional; the grant/revoke/observed methods
 /// land in Phase 3.
 pub trait AdminManager: Send + Sync {

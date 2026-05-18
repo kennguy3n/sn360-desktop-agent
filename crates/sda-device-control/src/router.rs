@@ -1,7 +1,8 @@
 //! 10-step signed-job validation pipeline.
 //!
-//! Mirrors `docs/device-control/ARCHITECTURE.md` § 4.3 and
-//! `docs/device-control/SCHEMAS.md` § 7.4.
+//! Mirrors `docs/device-control.md` § 4 (Signed-job lifecycle) and
+//! `docs/wire-protocols/device-control.md` § 7.4 (Validation
+//! rules).
 //!
 //! Phase 1 scope: this module implements the *deterministic* steps
 //! of the pipeline (parse, schema version, window check, tenant /
@@ -225,7 +226,7 @@ pub fn validate<H: JobValidationHooks>(
     // operator-initiated and disruptive, but they are **reversible**
     // (an admin can unlock or exit lost mode on the next
     // round-trip) and they do not destroy data. Per
-    // `docs/desktop-mdm/ARCHITECTURE.md` § 4.4, only an
+    // `docs/desktop-mdm.md` § 9 (Security model), only an
     // irreversible / data-destructive primitive earns the
     // round-trip cost of dual control. The accepted residual risk
     // is that a single compromised approver key can lock or

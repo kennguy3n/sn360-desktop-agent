@@ -1,9 +1,11 @@
 //! Schema version constants for Device Control.
 //!
-//! Mirrors `docs/device-control/SCHEMAS.md` § 11 ("Versioning and
-//! compatibility"). Bumping any of these constants is a major
-//! protocol change requiring a new ADR per
-//! `docs/device-control/ADR-001-functional-port.md`.
+//! Mirrors `docs/wire-protocols/device-control.md` § 10
+//! ("Versioning"). Bumping any of these constants is a major
+//! protocol change requiring a new clean-room ADR per
+//! `docs/licensing.md` § 7.3 (Device Control — clean-room
+//! rationale) and `docs/device-control.md` § 11 (Clean-room
+//! policy).
 
 /// Schema version stamped on every emitted `Finding`.
 pub const FINDING_SCHEMA_VERSION: u16 = 1;

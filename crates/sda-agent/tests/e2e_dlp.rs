@@ -14,7 +14,7 @@
 //! published onto the bus exactly the way the real `sda-fim`
 //! module would publish it.
 //!
-//! Coverage (≥ 6 tests per `docs/edr-parity/PHASES.md` § E5.8):
+//! Coverage (≥ 6 tests for `docs/edr.md` § 6 — Data Loss Prevention):
 //!
 //! 1. Module disabled → no findings even when a juicy file is published.
 //! 2. SSN file → emits `pii.ssn` finding with the file path

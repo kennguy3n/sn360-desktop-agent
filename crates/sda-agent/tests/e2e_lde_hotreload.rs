@@ -18,7 +18,7 @@
 //! internet, and finish in under a second — `make e2e-lde-hotreload`
 //! is safe to run on every CI host without privileges.
 //!
-//! Coverage (≥ 6 tests per `docs/edr-parity/PHASES.md` § E2.6):
+//! Coverage (≥ 6 tests for `docs/edr.md` § 7 — Rule distribution / Hot reload):
 //!
 //! 1. Pristine LDE pulls + applies a valid signed bundle within
 //!    the short pull window.

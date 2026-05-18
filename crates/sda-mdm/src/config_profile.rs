@@ -1,8 +1,7 @@
 //! Declarative-config-profile sub-module (Phase M3.1–M3.3).
 //!
 //! Implements signed config-profile loading and enforcement per
-//! `docs/desktop-mdm/PROPOSAL.md` § 3.5 and
-//! `docs/desktop-mdm/ARCHITECTURE.md` § 3.5.
+//! `docs/desktop-mdm.md` § 7 (Configuration profiles).
 //!
 //! Pipeline:
 //!

@@ -102,7 +102,8 @@ e2e-compat:
 
 # Performance regression gate used by CI. Exits non-zero if idle RSS,
 # idle CPU, binary size, or FIM burst CPU exceed the thresholds in
-# benchmark-results.md. Results land in target/benchmark-regression/.
+# `docs/architecture.md` § 5 (Resource budgets). Results land in
+# target/benchmark-regression/.
 benchmark-ci:
 	bash tests/scripts/benchmark-regression.sh
 

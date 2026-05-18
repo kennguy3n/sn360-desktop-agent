@@ -120,7 +120,7 @@ impl From<ProcessAncestor> for WireAncestor {
 }
 
 /// Wire-shape of a `ProcessCreated` payload (see
-/// `docs/edr-parity/ARCHITECTURE.md` § 8).
+/// `docs/edr.md` § 2.1 — Process telemetry).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ProcessCreatedPayload {

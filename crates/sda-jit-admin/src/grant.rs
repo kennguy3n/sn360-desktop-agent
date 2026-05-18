@@ -1,8 +1,9 @@
 //! `GrantRecord` and friends — the persistent representation of a
 //! JIT-admin grant on the agent.
 //!
-//! See `docs/device-control/PROPOSAL.md` § 9.3 (state machine) and
-//! `docs/device-control/SCHEMAS.md` § 8 (wire payload).
+//! See `docs/device-control.md` § 7 (Just-in-Time admin — state
+//! machine) and `docs/wire-protocols/device-control.md` § 8
+//! (wire payload).
 
 use chrono::{DateTime, Utc};
 use sda_pal::admin_manager::{GrantHandle, UserRef};

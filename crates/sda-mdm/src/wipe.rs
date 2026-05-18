@@ -2,8 +2,8 @@
 //!
 //! Handles inbound [`sda_device_control::signed_job::SignedActionJob`]s
 //! whose [`sda_device_control::types::ActionKind`] is `RemoteWipe`.
-//! See `docs/desktop-mdm/ARCHITECTURE.md` § 3.1 (evidence-before-
-//! action) and § 4.4 (dual-control validation).
+//! See `docs/desktop-mdm.md` § 3 (Remote wipe) for the
+//! evidence-before-action and dual-control invariants.
 //!
 //! Dual-control enforcement (`signatures.len() >= 2` from distinct
 //! approvers) lives in [`sda_device_control::router::validate`];

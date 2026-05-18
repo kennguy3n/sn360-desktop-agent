@@ -13,8 +13,8 @@
 //! - corrupt-on-power-loss is mitigated by writing through a
 //!   `tempfile` + atomic rename.
 //!
-//! See `docs/device-control/PROPOSAL.md` § 9.3 for the wire/audit
-//! schema.
+//! See `docs/device-control.md` § 7 (Just-in-Time admin) for the
+//! wire/audit schema.
 
 use std::fs;
 use std::io::{self, Write};

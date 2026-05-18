@@ -20,7 +20,7 @@ use tracing::warn;
 /// Best-effort IP-geolocation report attached to `AgentVitals`.
 ///
 /// Wire schema: `(lat, lon, accuracy_m, reported_at)` — see
-/// `docs/desktop-mdm/ARCHITECTURE.md` § 3.7.
+/// `docs/desktop-mdm.md` § 4.2 (Lost mode).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LastKnownLocation {
