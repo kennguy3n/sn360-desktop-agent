@@ -1,4 +1,4 @@
-//! macOS SystemExtension backend (Phase E6.3).
+//! macOS SystemExtension backend.
 //!
 //! Production architecture (NOT exercised in CI — requires the
 //! `com.apple.developer.endpoint-security.client` entitlement, an
@@ -18,7 +18,7 @@
 //! Build pipeline: `packaging/macos/build-pkg.sh` already produces
 //! the agent installer; extending it to embed the SystemExtension
 //! bundle is documented as a manual step in
-//! `docs/edr-parity/PRODUCTISATION-MACOS.md` (Phase E6.3 work).
+//! `docs/kernel-drivers.md` § 3.3 (Build / sign / notarise pipeline).
 //!
 //! In CI we exercise [`MockMacosKernelChannel`] which uses the
 //! same line-delimited JSON wire shape as the eBPF / WDK mocks so
@@ -114,7 +114,7 @@ pub fn attach_to_system_extension() -> AttachResult<Box<dyn KernelChannel>> {
         // Real implementation would open an XPC connection to
         // `com.sn360.endpoint-security` here. The bundle build /
         // notarisation pipeline is documented in
-        // `docs/edr-parity/PRODUCTISATION-MACOS.md`.
+        // `docs/kernel-drivers.md` § 3.3.
         Err(AttachError::NotPresent(
             "SystemExtension bundle not yet shipped; falling back to user-mode ES client".into(),
         ))
