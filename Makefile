@@ -73,8 +73,16 @@ test-e2e-all:
 	$(CARGO) test --package sda-agent --test e2e_identity -- --nocapture
 	$(CARGO) test --package sda-agent --test e2e_dlp -- --nocapture
 
+# DLP catalogue performance benchmark (see docs/benchmarks.md § 5.1).
+# Runs the 1 MiB full-catalogue scan in release mode with the
+# `--ignored` flag so the perf-gated test executes. Kept out of the
+# default PR-gate test set because debug-mode regex is ~25× slower
+# than release and would make any gate meaningless.
+test-dlp-bench:
+	$(CARGO) test --release -p sda-dlp --lib scanner::tests::full_catalogue_scans_1mib -- --ignored --nocapture
+
 # Full: everything — unit + integration + all E2E + shell E2E + benchmarks.
-test-full: test-integration test-e2e-all e2e e2e-compat security-e2e benchmark-ci
+test-full: test-integration test-e2e-all e2e e2e-compat security-e2e benchmark-ci test-dlp-bench
 
 # PR gate: lint + unit tests only (fast).
 test-pr: lint test-unit

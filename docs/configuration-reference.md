@@ -323,12 +323,21 @@ modules:
   dlp:
     enabled: false                       # default — opt-in
     mode: "monitor"                      # "monitor" (default) | "enforce"
-    patterns:                            # baseline regex pattern set
-      - pii.ssn                          # US Social Security Number
-      - pii.uk_ni                        # UK National Insurance Number
-      - pci.pan_luhn                     # Payment card PAN + Luhn validation
+
+    # Pattern selection. Empty == "every built-in pattern".
+    # Each entry is either an exact category ID, a regional glob,
+    # a category-tag glob, or the "*" / "all" wildcard. Unknown
+    # selectors are dropped at startup with a warn-level log.
+    patterns: []
+
+    # Convenience shorthand. Set to one of "asia" | "gcc" |
+    # "europe" | "global" | "all" to enable every pattern in
+    # that region. Ignored when `patterns` is non-empty.
+    region: null
+
     inspect_file_writes: true            # subscribe to FileCreated / FileModified
     inspect_clipboard: false             # feature-gated — requires `dlp-clipboard` Cargo feature
+    max_bytes_per_file: 2097152          # 2 MiB read cap per file write
 ```
 
 **Redaction invariant (mandatory).** DLP findings never carry the
@@ -351,15 +360,56 @@ event payload.
   primitives. Nothing in the DLP code path writes to the
   filesystem directly.
 
-`patterns` is the list of pattern category IDs to load from the
-TRDS-distributed pattern bundle (or the embedded baseline if no
-bundle is available). Custom patterns can be added by extending
-`crates/sda-dlp/src/patterns.rs` and re-publishing the bundle.
+**Pattern selectors.** `patterns` accepts any combination of:
+
+- **Exact category** — `"pii.ssn"`, `"pci.pan_luhn"`, `"secrets.jwt"`, …
+- **Regional glob** — `"asia.*"`, `"gcc.*"`, `"europe.*"`, `"global.*"`.
+- **Category-tag glob** — `"pii.*"`, `"pci.*"`, `"secrets.*"`.
+- **Wildcard** — `"*"` or `"all"`.
+
+The full catalogue (≈ 50 patterns covering Asia, GCC, Europe, and
+Global PII / PCI / secrets) is documented in
+[`edr.md` § 6.1](./edr.md#61-pattern-set). Empty `patterns: []` —
+the default — selects every built-in pattern.
+
+`region` is a convenience shorthand: setting `region: "europe"` is
+equivalent to `patterns: ["europe.*"]`. The shorthand is ignored
+when an explicit `patterns` list is provided so explicit selection
+always wins.
+
+Examples:
+
+```yaml
+# Every Asian PII pattern + every PCI pattern.
+patterns:
+  - asia.*
+  - pci.*
+```
+
+```yaml
+# Just the singapore IDs + PAN.
+patterns:
+  - pii.sg_nric
+  - pii.sg_uen
+  - pci.pan_luhn
+```
+
+```yaml
+# All Europe patterns via the shorthand.
+region: europe
+```
+
+```yaml
+# Everything (explicit wildcard).
+patterns: ["*"]
+```
 
 `inspect_file_writes` is the default DLP input source —
 subscribing to `EventKind::FileCreated` and `FileModified` and
-performing a bounded read (1 MiB cap) on each event. Files larger
-than the cap are skipped without an error.
+performing a bounded read (`max_bytes_per_file`) on each event.
+Files larger than the cap are skipped without an error.
+`max_bytes_per_file` defaults to 2 MiB, matching the resource
+budget in [`architecture.md`](./architecture.md) § 5.2.
 
 `inspect_clipboard` requires the optional `dlp-clipboard` Cargo
 feature (off by default) and a display server (X11 / Wayland on
