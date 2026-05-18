@@ -1,8 +1,7 @@
 //! Recovery-key escrow sub-module (Phase M1.3).
 //!
 //! Implements the once-per-boot escrow described in
-//! `docs/desktop-mdm/PROPOSAL.md` § 3.6 and
-//! `docs/desktop-mdm/ARCHITECTURE.md` § 3.3.
+//! `docs/desktop-mdm.md` § 5 (Recovery-key escrow).
 //!
 //! Wire format:
 //!

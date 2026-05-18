@@ -1,7 +1,7 @@
 //! Evidence emission for software install / update / uninstall /
 //! rollback actions (Task 2.11).
 //!
-//! Per `docs/device-control/SCHEMAS.md` § 9 every software action
+//! Per `docs/wire-protocols/device-control.md` § 9 every software action
 //! the agent executes — successful or otherwise — produces an
 //! [`EvidenceRecord`] hash-linked into the device's evidence chain.
 //! This module is the software-side wrapper around the canonical

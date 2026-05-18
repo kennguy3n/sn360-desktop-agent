@@ -500,7 +500,8 @@ async fn main() -> Result<()> {
     //                    /etc/shadow + /proc/kcore access (Linux
     //                    T1003.008 / T1003), and keychain access
     //                    (macOS T1555.001). See E5 in
-    //                    `docs/edr-parity/PHASES.md`.
+    //                    `docs/edr.md` § 5 (Identity attack
+    //                    detection).
     if config.modules.identity_monitor.enabled {
         info!("starting identity monitor module");
         let im_handle = sda_identity_monitor::IdentityMonitorModule::start(

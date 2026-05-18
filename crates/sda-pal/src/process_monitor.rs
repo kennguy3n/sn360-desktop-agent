@@ -1,11 +1,11 @@
 //! Cross-platform process telemetry PAL trait.
 //!
 //! Backs the `sda-process-monitor` module (Phase E1 of the EDR
-//! Parity workstream). See `docs/edr-parity/ARCHITECTURE.md` § 5
-//! for the trait spec and per-OS implementation matrix, and
-//! `docs/security-audit.md` § "EDR Parity License Audit" for the
-//! clean-room posture (no CrowdStrike / SentinelOne / Defender
-//! source vendored).
+//! Parity workstream). See `docs/architecture.md` § 4 (Platform
+//! abstraction layer) for the trait spec and per-OS implementation
+//! matrix, and `docs/security.md` § 5 (License audit) +
+//! § 6.1 (EDR clean-room policy) for the clean-room posture (no
+//! CrowdStrike / SentinelOne / Defender source vendored).
 //!
 //! Per-OS production implementations:
 //!
@@ -87,9 +87,11 @@ impl Default for ProcessMonitorOpts {
 
 /// A single process telemetry event surfaced by the PAL.
 ///
-/// The shape mirrors `docs/edr-parity/ARCHITECTURE.md` § 8 (wire
-/// schema) so the owning module can serialise it to a canonical-JSON
-/// payload without per-platform glue.
+/// The shape mirrors the wire schema described in
+/// `docs/edr.md` § 2.1 (Process telemetry) and serialised per
+/// `docs/architecture.md` § 6 (Wire protocols), so the owning module
+/// can serialise it to a canonical-JSON payload without per-platform
+/// glue.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ProcessEvent {

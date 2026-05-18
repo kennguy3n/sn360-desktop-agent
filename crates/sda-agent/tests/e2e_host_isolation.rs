@@ -11,7 +11,7 @@
 //! - the `HostIsolationSubmitter` mailbox shared with the
 //!   device-control router in production wiring.
 //!
-//! Coverage (≥ 6 tests per `docs/edr-parity/PHASES.md` § E3.12):
+//! Coverage (≥ 6 tests for `docs/edr.md` § 8.1 — Host isolation):
 //!
 //! 1. `IsolateHost` SignedActionJob → `HostIsolationStateChanged
 //!    { isolated: true }` on the bus and the PAL is in the

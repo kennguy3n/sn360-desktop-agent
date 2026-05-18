@@ -1,8 +1,8 @@
 //! `sda-jit-admin` — just-in-time admin grant lifecycle + revocation
 //! watchdog + drift detector (Phase 3.2 / 3.3 / 3.5).
 //!
-//! See `docs/device-control/PROPOSAL.md` § 9.3 and
-//! `docs/device-control/ARCHITECTURE.md` § 5 for the full
+//! See `docs/device-control.md` § 7 (Just-in-Time admin) and
+//! `docs/architecture.md` § 4 (PAL traits) for the full
 //! specification.
 //!
 //! The crate ships five public pieces:

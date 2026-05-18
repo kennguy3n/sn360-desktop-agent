@@ -234,8 +234,8 @@ async fn publish_software_inventory_delta(bus: &EventBus, payload: String) {
 /// event with a canonical-JSON payload, in addition to the existing
 /// [`EventKind::EnhancedInventoryUpdate`]. This bridges the existing
 /// inventory pipeline into the Device Control event surface
-/// (`docs/device-control/ARCHITECTURE.md` § 2,
-/// `docs/device-control/PHASES.md` task 1.10).
+/// (`docs/device-control.md` § 2 — Modules and § 6 — Approved
+/// software catalogue).
 async fn run_running_software_tick(
     bus: &EventBus,
     state: &mut RunningSoftwareState,

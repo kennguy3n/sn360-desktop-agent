@@ -19,7 +19,7 @@
 //! of milliseconds — `make e2e-identity` is safe to run on every CI
 //! host without privileges.
 //!
-//! Coverage (≥ 6 tests per `docs/edr-parity/PHASES.md` § E5.8):
+//! Coverage (≥ 6 tests for `docs/edr.md` § 5 — Identity attack detection):
 //!
 //! 1. Identity monitor disabled → no events leak on the bus.
 //! 2. LSASS access surfaces with MITRE technique `T1003.001` and the

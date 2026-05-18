@@ -3,7 +3,7 @@
 //! This module is the cross-platform PAL surface for the
 //! Device Control Phase-4 remote-support feature. The
 //! [`RemoteSupportProvider`] trait is the binding spec from
-//! `docs/device-control/ARCHITECTURE.md` § 5; per-OS implementations
+//! `docs/architecture.md` § 4.1 (Trait surface); per-OS implementations
 //! ship in this crate behind `cfg`-gates.
 //!
 //! Phase 4 scope (this file): every per-OS implementation is a

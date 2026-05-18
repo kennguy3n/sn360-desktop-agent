@@ -20,8 +20,8 @@
 //! The supervisor signs every attempt with an in-memory Ed25519
 //! ephemeral key generated at startup. The key is only ever used
 //! locally (it is not provisioned to the control plane), and per
-//! `docs/desktop-mdm/ARCHITECTURE.md` § 4.4 step 12 the router
-//! restricts it to the three idempotent posture-fix actions.
+//! `docs/desktop-mdm.md` § 9 (Security model) the router restricts
+//! it to the three idempotent posture-fix actions.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -51,13 +51,13 @@ use crate::module::MODULE_SOURCE;
 /// snapshot tick, swamping the bus and the control plane's
 /// incident pipeline. One hour is the same upper bound the agent
 /// uses for posture-rule re-evaluation in
-/// `docs/desktop-mdm/ARCHITECTURE.md` § 3.6, so a single failure
-/// surfaces ~24x per day instead of ~288x.
+/// `docs/desktop-mdm.md` § 8 (Auto-remediation), so a single
+/// failure surfaces ~24x per day instead of ~288x.
 const FAILURE_DEBOUNCE_SECS: u64 = 3600;
 
 /// Wire payload published on
 /// [`EventKind::MdmAutoRemediationResult`]. Stable on-the-wire
-/// shape — see `docs/desktop-mdm/ARCHITECTURE.md` § 3.6.
+/// shape — see `docs/desktop-mdm.md` § 8 (Auto-remediation).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MdmAutoRemediationResultPayload {
@@ -242,8 +242,8 @@ impl AutoRemediator {
     /// auto-remediation disabled produces 3 `Disabled` events every
     /// 5 minutes — ~864 events / device / day. This is below the
     /// event-bus back-pressure budget documented in
-    /// `docs/desktop-mdm/ARCHITECTURE.md` § 3.6; tenants with very
-    /// large fleets can shorten retention server-side or set the
+    /// `docs/desktop-mdm.md` § 8 (Auto-remediation); tenants with
+    /// very large fleets can shorten retention server-side or set the
     /// posture interval higher.
     async fn maybe_run<F>(&self, kind: RemediateKind, enabled: bool, op: F)
     where

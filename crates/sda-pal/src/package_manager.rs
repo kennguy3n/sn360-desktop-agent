@@ -1,7 +1,8 @@
 //! Cross-platform package management — the PAL surface that backs
 //! the Phase 2 `sda-software` module.
 //!
-//! Mirrors `docs/device-control/ARCHITECTURE.md` § 5. Every concrete
+//! Mirrors `docs/architecture.md` § 4 (PAL) and
+//! `docs/device-control.md` § 2.1 (PAL traits). Every concrete
 //! `PackageManager` impl is `cfg`-gated to its host OS; callers
 //! always go through the trait so the same `sda-software` action
 //! orchestrator can drive WinGet on Windows, a clean-room Munki-style
@@ -98,7 +99,8 @@ pub struct InstallOpts {
 
 /// Cross-platform package management trait.
 ///
-/// See `docs/device-control/ARCHITECTURE.md` § 5 for the binding
+/// See `docs/architecture.md` § 4 (PAL) and
+/// `docs/device-control.md` § 2.1 (PAL traits) for the binding
 /// trait spec. Implementations are expected to be cheap to construct
 /// and stateless beyond a possibly-cached path lookup of the
 /// underlying CLI.

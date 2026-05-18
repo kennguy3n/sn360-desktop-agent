@@ -1,8 +1,8 @@
 #!/bin/bash
-# Performance regression gate for CI (Phase 6 task 6.3).
+# Performance regression gate for CI.
 #
-# Enforces the hard budgets documented in device-agent-proposal.md § 11
-# and benchmark-results.md:
+# Enforces the hard budgets documented in `docs/architecture.md` § 5
+# (Resource budgets) and the reference numbers in `docs/benchmarks.md`:
 #
 #   idle RSS      < 15 MB
 #   idle CPU      <  0.1 %
@@ -30,8 +30,8 @@ MAX_IDLE_CPU_PCT="0.1"              # 0.1 %
 # Raised from 5 MB to 7 MB once YARA (via sda-local-detection),
 # rustls + ring (enhanced protocol), and the reqwest-based updater
 # landed. cargo bloat confirms those three subsystems account for
-# the delta; see benchmark-results.md § "Binary Size" for the
-# per-crate attribution.
+# the delta; see `docs/benchmarks.md` § 3.1 (Binary-size breakdown)
+# for the per-crate attribution.
 MAX_BINARY_SIZE_BYTES=$((7 * 1024 * 1024))  # 7 MB
 MAX_FIM_PEAK_CPU_PCT="3.0"          # 3 %
 

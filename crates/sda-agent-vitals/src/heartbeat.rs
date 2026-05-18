@@ -59,7 +59,7 @@ pub fn snapshot_to_event_kind(snap: &VitalsSnapshot) -> EventKind {
         "last_seen": snap.last_seen.to_rfc3339(),
     });
     if let Some(loc) = snap.last_known_location {
-        // Additive field — see `docs/desktop-mdm/ARCHITECTURE.md` § 3.7.
+        // Additive field — see `docs/desktop-mdm.md` § 4.2 (Lost mode).
         // Devices that never entered lost mode omit the field
         // entirely so the existing wire schema is unchanged.
         body["last_known_location"] = json!({

@@ -11,8 +11,8 @@
 //! `modules.updater.enabled: true` and configuring a
 //! `modules.updater.server_url` in the agent config.
 //!
-//! See [`device-agent-proposal.md`](../../../device-agent-proposal.md) § 12 / Phase 5 for the
-//! full design.
+//! See [`docs/architecture.md`](../../../docs/architecture.md) § 1
+//! (Overview) and § 6.3 (Bundle distribution) for the full design.
 
 pub mod checker;
 pub mod installer;

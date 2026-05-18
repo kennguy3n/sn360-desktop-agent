@@ -3,8 +3,8 @@
 //! Pulls signed rule bundles from a remote TRDS endpoint over HTTPS,
 //! verifies their Ed25519 signature against a locally pinned key
 //! rotation set, and surfaces the verified [`RuleBundle`] for atomic
-//! hot-reload into the LDE pipeline.  See Phase E2.1 / E2.2 in
-//! `docs/edr-parity/PHASES.md`.
+//! hot-reload into the LDE pipeline. See `docs/edr.md` § 7
+//! (Rule distribution — TRDS) for the full protocol.
 //!
 //! The signed envelope is JSON-encoded for simplicity (the bundle
 //! itself remains MessagePack):

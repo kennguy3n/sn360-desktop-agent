@@ -2,7 +2,8 @@
 //!
 //! This module hosts the cross-platform PAL surface for binary
 //! authorization / application control — the Phase-4 capability
-//! described in `docs/device-control/ARCHITECTURE.md` § 5 and § 9.
+//! described in `docs/architecture.md` § 4.1 (Trait surface) and
+//! `docs/device-control.md` § 8 (Application control).
 //!
 //! Phase-4 scope is intentionally limited:
 //!

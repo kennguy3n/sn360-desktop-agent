@@ -8,7 +8,7 @@
 //!
 //! The control plane owns the canonical
 //! `Recommendation` schema (see
-//! `docs/device-control/SCHEMAS.md` § 6); on the agent side we only
+//! `docs/wire-protocols/device-control.md` § 6); on the agent side we only
 //! need to *emit* equivalent JSON via `EventKind::DeviceControlRecommendation`,
 //! so this module builds the JSON value directly through `serde_json`
 //! rather than taking a dependency on `sda-device-control`. This keeps

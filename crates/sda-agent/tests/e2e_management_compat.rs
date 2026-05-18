@@ -2,8 +2,8 @@
 //!
 //! Hermetic exercises of the [`sda_management_compat`] shim that
 //! translates Fleet-flavoured GitOps YAML into SDA-native
-//! [`AgentConfig`] sections. Phase 5 acceptance criteria from
-//! `docs/device-control/PHASES.md`:
+//! [`AgentConfig`] sections. Acceptance criteria from
+//! `docs/device-control.md` and `docs/configuration-reference.md`:
 //!
 //!   1. No agent-side change required to onboard MSP tenant —
 //!      verified by `fleet_yaml_round_trips_into_loadable_agent_config`,

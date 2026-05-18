@@ -1,8 +1,8 @@
 //! ShieldNet Desktop MDM PAL trait.
 //!
 //! Cross-platform surface that backs the `sda-mdm` module. See
-//! `docs/desktop-mdm/ARCHITECTURE.md` § 2 for the trait spec and per-OS
-//! implementation matrix.
+//! `docs/architecture.md` § 4 (PAL) and `docs/desktop-mdm.md` for
+//! the trait spec and per-OS implementation matrix.
 //!
 //! Phase M1-M3 scope: every method on every platform must invoke a real
 //! OS-native tool via `std::process::Command` (or the platform crate
@@ -149,8 +149,8 @@ pub struct SignedConfigProfile {
 
 /// Cross-platform MDM provider.
 ///
-/// See `docs/desktop-mdm/ARCHITECTURE.md` § 2 for the binding spec and
-/// per-OS implementation matrix.
+/// See `docs/architecture.md` § 4 (PAL) and `docs/desktop-mdm.md`
+/// for the binding spec and per-OS implementation matrix.
 pub trait MdmProvider: Send + Sync {
     fn wipe(&self, opts: &WipeOpts) -> Result<WipeOutcome>;
     fn lock(&self, message: &str) -> Result<()>;

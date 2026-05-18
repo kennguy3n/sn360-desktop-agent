@@ -1,6 +1,7 @@
 //! Shared type appendix for the Device Control schemas.
 //!
-//! Mirrors `docs/device-control/SCHEMAS.md` § 3 ("Type appendix").
+//! Mirrors the encoding conventions, identifiers, time, and bounded-
+//! size rules in `docs/wire-protocols/device-control.md` §§ 1–4.
 //! These types are the canonical Rust representations of the wire
 //! shapes; they are serialised via `serde` (camel-case for enum
 //! tags is `rename_all = "snake_case"`, matching the wire spec).

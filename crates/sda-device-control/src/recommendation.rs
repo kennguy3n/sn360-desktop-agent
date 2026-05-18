@@ -1,7 +1,7 @@
 //! `Recommendation` — control-plane suggestion attached to one or
 //! more findings.
 //!
-//! Mirrors `docs/device-control/SCHEMAS.md` § 6.
+//! Mirrors `docs/wire-protocols/device-control.md` § 6.
 //!
 //! The agent does **not** produce `Recommendation`s — they are
 //! emitted by the control-plane Risk Engine. We define the type
