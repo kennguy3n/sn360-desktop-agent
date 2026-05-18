@@ -35,6 +35,7 @@
 //!    * Battery defer via
 //!      [`MemoryScannerConfig::defer_on_battery`] +
 //!      [`sda_pal::power::PowerMonitor`].
+//!
 //!    These together match the `ARCHITECTURE.md § 7.2` budget
 //!    (peak 4 MB RSS / 1% CPU during a scan window).
 //!
