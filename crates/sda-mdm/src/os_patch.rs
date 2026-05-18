@@ -1,8 +1,7 @@
 //! OS-patch orchestration sub-module (Phase M1.4).
 //!
 //! Implements the maintenance-window driven OS-patch loop per
-//! `docs/desktop-mdm/PROPOSAL.md` § 3.7 and
-//! `docs/desktop-mdm/ARCHITECTURE.md` § 3.4.
+//! `docs/desktop-mdm.md` § 6 (OS patch orchestration).
 //!
 //! Phase M1 scope:
 //!
@@ -106,7 +105,7 @@ pub fn config_to_opts(cfg: &OsPatchConfig) -> OsUpdateOpts {
 /// `InstallOsUpdateArgs` to the PAL enum.
 ///
 /// Wire values `"never" | "if_required" | "force"` (per
-/// `docs/desktop-mdm/ARCHITECTURE.md` § 4.2 and validated by
+/// `docs/desktop-mdm.md` § 9 and validated by
 /// `sda_device_control::signed_job::JobArgs::parse`) translate to:
 ///
 /// * `"never"` → [`RebootPolicy::Never`] — agent surfaces

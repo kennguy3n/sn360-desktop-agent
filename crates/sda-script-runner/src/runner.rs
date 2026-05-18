@@ -1,7 +1,7 @@
 //! Script execution engine for `sda-script-runner`.
 //!
-//! See `docs/device-control/PROPOSAL.md` § 14.2 and
-//! `docs/device-control/ARCHITECTURE.md` § 8.2.
+//! See `docs/device-control.md` § 2 (Modules — `sda-script-runner`)
+//! and § 4 (Signed-job lifecycle).
 //!
 //! [`ScriptRunner::run`] is the only public entry point. It:
 //!

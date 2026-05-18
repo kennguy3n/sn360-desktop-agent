@@ -1,22 +1,22 @@
 # SN360 EDR Minifilter Driver Packaging
 
 This directory contains the Windows build + signing pipeline for the
-optional EDR minifilter driver shipped with Phases E6.1 (build) and
-E6.2 (WHQL signing) of the EDR Parity workstream.
+optional EDR minifilter driver.
 
 The minifilter driver replaces the user-mode ETW process / network
 backends with tamper-resistant kernel-mode callbacks
 (`PsSetCreateProcessNotifyRoutineEx` + WFP). It is **optional** —
-agents without the signed driver continue to use the Phase E1 / E3
-user-mode backends.
+agents without the signed driver continue to use the default
+user-mode backends. See [`docs/kernel-drivers.md`](../../docs/kernel-drivers.md)
+for the full driver overview.
 
 ## Scripts
 
 - [`build-driver.ps1`](./build-driver.ps1) — invokes msbuild via the
   WDK + Visual Studio Build Tools toolchain. Requires a manually
   installed WDK and a `sda-edr-minifilter.vcxproj` generated from the
-  WDK template wizard (see "Driver scaffolding" in
-  [`docs/edr-parity/PRODUCTISATION-WINDOWS.md`](../../docs/edr-parity/PRODUCTISATION-WINDOWS.md)).
+  WDK template wizard (see the Windows section of
+  [`docs/kernel-drivers.md`](../../docs/kernel-drivers.md)).
 
 - [`sign-driver.ps1`](./sign-driver.ps1) — applies the local
   attestation signature with the team's EV code-signing certificate
@@ -69,7 +69,7 @@ side stays under test even though the kernel side does not.
 
 ## Reference
 
-- [`docs/edr-parity/PRODUCTISATION-WINDOWS.md`](../../docs/edr-parity/PRODUCTISATION-WINDOWS.md)
-- [`docs/device-control/PRODUCTISATION-WINDOWS.md`](../../docs/device-control/PRODUCTISATION-WINDOWS.md)
-  (the WHCP pipeline shared with the Phase D2.3 device-control driver)
+- [`docs/kernel-drivers.md`](../../docs/kernel-drivers.md) —
+  canonical reference for the optional kernel-mode telemetry
+  channels (Windows minifilter, macOS SystemExtension, Linux eBPF).
 - [Microsoft: Driver signing](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/driver-signing)

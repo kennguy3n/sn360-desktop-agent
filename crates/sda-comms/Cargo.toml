@@ -10,7 +10,8 @@ license.workspace = true
 # and the legacy SIEM protocol adapter. A proprietary-only
 # distribution can compile out the legacy adapter with
 # `--no-default-features` (which disables the `legacy-siem` feature);
-# see docs/proprietary-licensing-rationale.md for the rationale.
+# see `docs/licensing.md` for the proprietary-distribution rationale
+# and the clean-room stance on the legacy adapter.
 default = ["legacy-siem"]
 
 # When enabled, compiles the legacy SIEM protocol adapter (TCP/UDP +

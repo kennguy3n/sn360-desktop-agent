@@ -112,7 +112,7 @@ impl IdentityAlertKind {
 }
 
 /// Wire shape of an `IdentityAlert` payload
-/// (`docs/edr-parity/ARCHITECTURE.md` § 8).
+/// (`docs/edr.md` § 5 — Identity attack detection).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct IdentityAlertPayload {

@@ -12,8 +12,8 @@
 //!                                                      └──drift───▶ DriftDetected
 //! ```
 //!
-//! See `docs/device-control/PROPOSAL.md` § 9.3 for the canonical
-//! diagram.
+//! See `docs/device-control.md` § 7 (Just-in-Time admin) for the
+//! canonical diagram.
 
 use chrono::{DateTime, Utc};
 use thiserror::Error;

@@ -30,7 +30,8 @@ pub struct SidecarBudget {
 }
 
 impl SidecarBudget {
-    /// Defaults from `docs/device-control/ARCHITECTURE.md` § 6.4.
+    /// Defaults from `docs/configuration-reference.md` (Query /
+    /// osquery sidecar section).
     pub const fn default_phase1() -> Self {
         Self {
             max_rss_mb: 60,

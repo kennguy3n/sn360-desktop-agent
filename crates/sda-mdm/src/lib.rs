@@ -1,8 +1,9 @@
 //! `sda-mdm` — ShieldNet Desktop MDM module (Phases M1–M3).
 //!
 //! This crate is the agent-side implementation of the cross-platform
-//! MDM surface specified in `docs/desktop-mdm/PROPOSAL.md` and
-//! `docs/desktop-mdm/ARCHITECTURE.md`. It bundles seven sub-modules
+//! MDM surface specified in `docs/desktop-mdm.md` (with the cross-
+//! surface architecture in `docs/architecture.md` § 4 and § 7).
+//! It bundles seven sub-modules
 //! that share one [`sda_pal::mdm::MdmProvider`] instance, an
 //! [`sda_event_bus::EventBus`] for surfacing results, and the
 //! [`sda_device_control::router`] pipeline for inbound

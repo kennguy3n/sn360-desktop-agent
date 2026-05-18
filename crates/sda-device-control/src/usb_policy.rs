@@ -1,8 +1,7 @@
 //! USB / removable-media policy enforcement (Phase D2).
 //!
 //! Implements the agent-side half of the SN360 Device Control
-//! workstream defined in
-//! [`sn360-security-platform/docs/device-control/PROPOSAL.md`][prop].
+//! workstream defined in [`docs/device-control.md`][prop].
 //!
 //! The control plane authors policies in the `device_policies`
 //! table, the TRDS-compiler embeds them into the per-tenant signed
@@ -32,7 +31,7 @@
 //! [`crate::usb_macos`] respectively, all of which delegate to
 //! [`DevicePolicySet::evaluate`] for the decision.
 //!
-//! [prop]: https://github.com/kennguy3n/sn360-security-platform/blob/main/docs/device-control/PROPOSAL.md
+//! [prop]: https://github.com/kennguy3n/sn360-desktop-agent/blob/main/docs/device-control.md
 
 use std::sync::Arc;
 

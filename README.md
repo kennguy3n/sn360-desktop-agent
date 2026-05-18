@@ -3,44 +3,80 @@
 [![License: Proprietary](https://img.shields.io/badge/License-Proprietary-lightgrey.svg)](./LICENSE)
 [![CI](https://github.com/kennguy3n/sn360-desktop-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/kennguy3n/sn360-desktop-agent/actions/workflows/ci.yml)
 
-A lightweight, cross-platform security agent for desktop and laptop endpoints, built in Rust. SDA is purpose-built for end-user devices, targeting sub-15 MB RAM, <0.1% idle CPU, and near-invisible operation. It supports interoperability with common SIEM manager protocols via an optional legacy adapter.
+A lightweight, cross-platform security and device-management agent
+for desktops and laptops, built in Rust. SDA targets sub-15 MB
+resident memory, sub-0.1 % idle CPU, and near-invisible operation
+on end-user devices. It speaks the SN360 native protocol (TLS 1.3,
+MessagePack, HTTP/2) and ships an optional adapter for legacy SIEM
+manager protocols.
 
-> Crates use the `sda-` prefix (historical; the product name is SN360 Desktop Agent / SDA).
-
-See [`device-agent-proposal.md`](./device-agent-proposal.md) for the full architecture and implementation proposal.
+> Crates use the `sda-` prefix. Some legacy internal identifiers
+> use the `wda-` prefix; these are code-only and the product is
+> always referred to as SDA / SN360 Desktop Agent.
 
 ## Features
 
-- **USB / Removable-Media Device Policy Enforcement** — atomic CAS-applied `DevicePolicySet` evaluator with priority-ordered matching, per-OS adapters (Linux udev + UDS, Windows SetupDi + named pipe, macOS IOKit + UDS), closed-by-default fallback (Phase D2)
-- **ShieldNet Desktop MDM** — default-on auto-remediation supervisor (disk encryption / firewall / screen lock), one-time-per-boot recovery key escrow (BitLocker / FileVault / LUKS) with ChaCha20-Poly1305 + Ed25519, OS patch orchestration with battery-aware deferral, dual-control remote wipe, remote lock, lost mode with IP geolocation reporting, and declarative configuration profile enforcement via Ed25519-signed bundle slices (Phase M1–M3; default on)
-- **File Integrity Monitoring (FIM)** — real-time filesystem watching via inotify / FSEvents / ReadDirectoryChangesW
-- **Log Collection** — file tailing, systemd journal, Windows Event Log, macOS unified logging
-- **System Inventory** — packages, network interfaces, hardware, OS info (syscollector-compatible)
-- **Security Configuration Assessment (SCA)** — YAML policy evaluation
-- **Active Response** — IP blocking, process termination, script execution
-- **Rootkit Detection** — signature scanning, hidden process detection, binary integrity checks
-- **Local Detection Engine** — edge IOC matching, behavioral rules, YARA scanning. **Default-ON** since the EDR Parity Phase E2 landing — fresh installs ship with the embedded baseline rule bundle live; TRDS bundle hot-reloads are atomic CAS swaps over a `Arc<ArcSwap<DetectionPipeline>>` and are gated on Ed25519 signature verification against a pinned key rotation set
-- **EDR Process Telemetry** — cross-platform process create / terminate / image-load monitoring (Linux `cn_proc` netlink, Windows ETW `Microsoft-Windows-Kernel-Process`, macOS Endpoint Security framework) with parent-chain enrichment and `parent_chain_regex` behavioral rules (Office→PowerShell, wmiprvse→rundll32, non-system `lsass.exe` access) (Phase E1; default off)
-- **EDR Network + DNS Telemetry** — TCP / UDP connection monitoring (Linux `/proc/net/*` poller, Windows ETW `Microsoft-Windows-Kernel-Network`, macOS Network Extension) and DNS query logging with PID attribution, bounded dedup ring, and per-second UDP flow sampler; remote-IP + domain IOC matching wired into the LDE (Phase E3; default off)
-- **EDR Host Isolation** — network containment via per-OS firewall primitives (Linux nftables `sn360_isolation` table, Windows `netsh advfirewall` + WFP, macOS `pfctl` anchor `com.sn360.host_isolation`); activated by `IsolateHost` / `UnisolateHost` `SignedActionJob`s; safety invariants enforce that control-plane CIDRs and loopback are always in the allow-list (Phase E3; default off)
-- **EDR Memory Scanning** — periodic RWX-region scanning with in-memory YARA (Linux `/proc/<pid>/maps` + `/proc/<pid>/mem`, Windows `VirtualQueryEx` + `ReadProcessMemory`, macOS `task_for_pid` + `mach_vm_region` + `mach_vm_read_overwrite`); self-pid exclusion is enforced at the trait + rule-engine level; idle-CPU gated with a configurable scan window; optional `amsi` Cargo feature wires Windows AMSI provider output through the same alert path (Phase E4; default off)
-- **EDR Identity Attack Detection** — credential-theft signal via Windows LSASS access (`Microsoft-Windows-Threat-Intelligence` ETW + `NtOpenProcess` on `lsass.exe`, MITRE `T1003.001`), Linux `/etc/shadow` (FIM-fed, `T1003.008`) and `/proc/kcore` (audit-fed, `T1003`), macOS keychain access by non-Apple-signed binaries (Endpoint Security `ES_EVENT_TYPE_NOTIFY_OPEN`, `T1555.001`); system-principal events are filtered at the module publish boundary (Phase E5; default off)
-- **EDR DLP Content Inspection** — regex-based PII (`pii.ssn`, `pii.uk_ni`) + PCI (`pci.pan_luhn` with Luhn validation) scanner over `EventKind::FileCreated` / `FileModified` payloads; output respects the redaction invariant (no matched bytes on the bus — only category, byte offset, length, and Blake3 fingerprint of the surrounding window); `monitor` mode publishes `medium`-severity findings, `enforce` mode escalates to `high` so `sda-active-response` can quarantine; optional `dlp-clipboard` Cargo feature for X11 / Wayland / Win32 / `NSPasteboard` taps (Phase E5; default off)
-- **EDR Kernel Drivers (optional, feature-gated)** — kernel-mode telemetry backends gated behind the `kernel-windows` (WDK minifilter with `PsSetCreateProcessNotifyRoutineEx` + WFP callouts), `kernel-macos` (signed SystemExtension), and `kernel-linux-ebpf` (Aya eBPF kprobes + perf-buffer ring) feature flags; supervisor automatically falls back to user-mode telemetry from E1 / E3 if the kernel backend is missing, mis-signed, or the kernel is older than 5.8 on Linux (Phase E6; off by default)
-- **Enhanced Inventory** — running software, browser extensions, CycloneDX SBOM generation
-- **Adaptive scheduling** — power- and idle-aware module cadence (battery / AC, user idle)
+The agent is organised around five capability surfaces.
+
+**Endpoint Detection & Response (EDR)** — file integrity
+monitoring, process telemetry, network and DNS telemetry, host
+isolation via per-OS firewall primitives, periodic memory scanning
+with in-memory YARA, identity-attack detection (LSASS access on
+Windows, `/etc/shadow` and `/proc/kcore` on Linux, keychain access
+on macOS), and regex-based DLP scanning of file writes with
+Blake3 fingerprinting. The local detection engine (LDE) does edge
+IOC matching, behavioural rules, and YARA against live process
+memory; rule bundles are Ed25519-signed and hot-swap atomically
+over a `Arc<ArcSwap<DetectionPipeline>>`. See
+[`docs/edr.md`](./docs/edr.md).
+
+**Device Control** — atomic CAS-applied USB and removable-media
+policy enforcement, signed-action-job ingestion with a 10-step
+validation pipeline, append-only Ed25519-chained evidence records,
+and an SME-targeted Finding / Recommendation / SignedActionJob /
+ActionResult / EvidenceRecord schema set. See
+[`docs/device-control.md`](./docs/device-control.md).
+
+**Desktop MDM** — default-on auto-remediation supervisor (disk
+encryption, firewall, screen lock), one-time-per-boot recovery key
+escrow (BitLocker, FileVault, LUKS) with ChaCha20-Poly1305 +
+Ed25519, OS patch orchestration with battery-aware deferral,
+dual-control remote wipe, remote lock, lost mode with IP-based
+geolocation, and Ed25519-signed declarative configuration
+profiles. See [`docs/desktop-mdm.md`](./docs/desktop-mdm.md).
+
+**Optional kernel-mode telemetry** — feature-gated backends for
+tamper-resistant telemetry: Windows WDK minifilter, signed macOS
+SystemExtension, and Aya-based Linux eBPF. User-mode telemetry is
+the default everywhere; kernel backends are opt-in via Cargo
+feature flags and packaging changes. See
+[`docs/kernel-drivers.md`](./docs/kernel-drivers.md).
+
+**Foundational endpoint hygiene** — log collection (file tailing,
+systemd journal, Windows Event Log, macOS unified logging), system
+inventory (packages, network interfaces, hardware, OS), enhanced
+inventory (running software, browser extensions, CycloneDX SBOM),
+security configuration assessment (SCA) with YAML policy
+evaluation, active response (IP blocking, process termination,
+script execution), rootkit detection, and posture snapshots (disk
+encryption, firewall, screen lock, OS patch level). Adaptive
+scheduling backs off scans on battery and during user activity.
 
 ## Prerequisites
 
 - **Rust 1.75+** (install via [rustup](https://rustup.rs/))
-- **Linux:** `pkg-config`, `libssl-dev`, `libyara-dev` (or the equivalents for your distro)
+- **Linux:** `pkg-config`, `libssl-dev`, `libyara-dev` (or the
+  equivalents for your distro)
 - **macOS:** Xcode Command Line Tools, `brew install yara`
-- **Windows:** Visual Studio Build Tools (MSVC), a prebuilt YARA for Windows
-- **Cross-compilation:** [`cross`](https://github.com/cross-rs/cross) (`cargo install cross`)
+- **Windows:** Visual Studio Build Tools (MSVC), a prebuilt YARA
+  for Windows
+- **Cross-compilation:** [`cross`](https://github.com/cross-rs/cross)
+  (`cargo install cross`)
 
-YARA is a **required** runtime dependency of the Local Detection Engine (it is not feature-gated); build hosts must have YARA development headers available.
+YARA is a **required** runtime dependency of the Local Detection
+Engine. Build hosts must have YARA development headers available.
 
-## Quick Start
+## Quick start
 
 ```bash
 # Clone the repository
@@ -53,14 +89,14 @@ make build
 # Run the agent against a test config
 cargo run --bin sda-agent -- --config ./tests/sda-test-config.yaml
 
-# Release build (optimized for size)
+# Release build (optimised for size)
 make release
 ```
 
 ## Testing
 
 ```bash
-# PR gate — lint + unit tests only (fast, what CI runs on every PR)
+# PR gate — lint + unit tests only (fast; what CI runs on every PR)
 make test-pr
 
 # Unit tests only
@@ -72,34 +108,34 @@ make test-integration
 # All workspace tests including sda-agent E2E (legacy / backward compat)
 make test
 
-# All 7 hermetic Device Control E2E suites
+# All hermetic Device Control and EDR E2E suites
 make test-e2e-all
 
 # Full suite — unit + integration + all E2E + shell E2E + benchmarks
 make test-full
 
 # Individual E2E suites (hermetic, no external server required)
-make e2e-device-control
-make e2e-software
-make e2e-jit-admin
-make e2e-app-control
-make e2e-remote-support
-make e2e-management-compat
-make e2e-device-policy
-make e2e-mdm                 # Phase M1 (auto-remediation, recovery escrow, OS patch)
-make e2e-mdm-actions         # Phase M2 (wipe / lock / lost-mode)
-make e2e-mdm-profile         # Phase M3 (config profile push + enforcement)
-make e2e-process-telemetry   # Phase E1 (process create / terminate / image-load + parent-chain rules)
-make e2e-lde-hotreload       # Phase E2 (TRDS hot-reload + Ed25519 signature verification)
-make e2e-network-telemetry   # Phase E3 (TCP / UDP connections + DNS queries + IOC matching)
-make e2e-host-isolation      # Phase E3 (IsolateHost / UnisolateHost SignedActionJobs)
-make e2e-memory-scan         # Phase E4 (RWX-region scanning + in-memory YARA + self-pid exclusion)
-make e2e-identity            # Phase E5 (LSASS / shadow / kcore / keychain access detection)
-make e2e-dlp                 # Phase E5 (PII / PCI regex on FileCreated / FileModified, redaction-safe)
+make e2e-device-control      # USB / removable-media policy + signed jobs
+make e2e-software            # signed software catalogue
+make e2e-jit-admin           # just-in-time admin lifecycle
+make e2e-app-control         # binary authorisation (Monitor / Enforce)
+make e2e-remote-support      # operator remote-support sessions
+make e2e-management-compat   # Fleet GitOps → SDA AgentConfig translation
+make e2e-device-policy       # closed-by-default device policy fallback
+make e2e-mdm                 # auto-remediation, recovery escrow, OS patch
+make e2e-mdm-actions         # remote wipe / lock / lost-mode
+make e2e-mdm-profile         # config profile push + enforcement
+make e2e-process-telemetry   # process create / terminate / image-load
+make e2e-lde-hotreload       # TRDS hot-reload + Ed25519 verification
+make e2e-network-telemetry   # TCP / UDP connections + DNS + IOC matching
+make e2e-host-isolation      # IsolateHost / UnisolateHost
+make e2e-memory-scan         # RWX memory scanning + in-memory YARA
+make e2e-identity            # LSASS / shadow / kcore / keychain
+make e2e-dlp                 # PII / PCI regex on FileCreated / FileModified
 
 # Shell-based E2E (requires Docker)
 make e2e              # Linux E2E against local SIEM manager
-make e2e-compat       # Same suite against Wazuh 4.x
+make e2e-compat       # Same suite against legacy 4.x manager
 make security-e2e     # Security-focused scenarios
 
 # Platform-specific E2E
@@ -110,23 +146,24 @@ make e2e-windows
 make lint
 ```
 
-Test results are generated by CI and can be reproduced locally with the commands above. See [`PROGRESS.md`](./PROGRESS.md) for the current pass counts and [`tests/README.md`](./tests/README.md) for harness details.
+See [`tests/README.md`](./tests/README.md) for harness details and
+[`docs/benchmarks.md`](./docs/benchmarks.md) for the performance
+budgets and current numbers.
 
-### CI Tiers
+### CI tiers
 
 | Trigger | What runs | Speed |
-|---------|-----------|-------|
+|---|---|---|
 | Every PR (non-docs) | `make lint` + `make test-unit` | Fast (~2 min) |
 | PR with `ci:full` label | Above + `make test-integration` + `make test-e2e-all` + `make benchmark-ci` | Slow |
 | Push to `main` or `develop` | Above + `make test-integration` + `make test-e2e-all` + `make benchmark-ci` | Slow |
 | Manual dispatch | Above (toggle `run_full_suite` / `run_benchmark`) | Slow |
 
-Docs-only changes (`docs/**`, `*.md`, `LICENSE`) skip CI entirely. By default
-every PR runs only the fast lane. To run the full suite + benchmark on a PR,
-add the `ci:full` label — remove and re-add it to re-trigger. Pushes to
-`main` and `develop` always run the full lane, and `Run workflow` on the CI
-page can opt into either lane individually via `run_full_suite` /
-`run_benchmark` inputs.
+Docs-only changes (`docs/**`, `*.md`, `LICENSE`) skip CI entirely.
+By default every PR runs only the fast lane. To run the full suite
++ benchmark on a PR, add the `ci:full` label — remove and re-add
+it to re-trigger. Pushes to `main` and `develop` always run the
+full lane.
 
 ## Architecture
 
@@ -168,43 +205,47 @@ page can opt into either lane individually via `run_full_suite` /
 +-------------------------------------------------------------+
 ```
 
-## Workspace Layout
+See [`docs/architecture.md`](./docs/architecture.md) for the full
+crate map, event flow, PAL traits, configuration schema, resource
+budgets, and security model.
+
+## Workspace layout
 
 | Crate | Responsibility |
 |---|---|
 | `sda-agent` | Main binary — entry point, module orchestration, wire-format mapping |
 | `sda-core` | Shared types, YAML config loading, agent lifecycle, power broadcast |
-| `sda-pal` | Platform Abstraction Layer (filesystem, power, service, firewall) |
+| `sda-pal` | Platform Abstraction Layer (filesystem, power, service, firewall, process / network / DNS / memory / kernel channels) |
 | `sda-event-bus` | Async event bus with priority queues and back-pressure |
 | `sda-comms` | Communication layer — SN360 native protocol (TLS 1.3, MessagePack, HTTP/2) and optional legacy SIEM protocol adapter |
 | `sda-fim` | File Integrity Monitoring module |
 | `sda-logcollector` | Log collection module (file, journald, Event Log, OSLog) |
-| `sda-inventory` | System inventory module (syscollector-compatible) |
+| `sda-inventory` | System inventory module (packages, network, hardware, OS) |
 | `sda-sca` | Security Configuration Assessment module |
 | `sda-active-response` | Active response module |
 | `sda-rootcheck` | Rootkit detection module |
 | `sda-local-detection` | Local Detection Engine (Aho-Corasick + IOC bloom + YARA + offline queue) |
 | `sda-enhanced-inventory` | Running software, browser extensions, CycloneDX SBOM |
-| `sda-updater` | Self-update module — periodic signed-manifest poll, Ed25519 + pinned SHA-256 verification, atomic binary swap with `.bak` rollback on smoke-test failure (Phase 3.1; default off) |
-| `sda-device-control` | ShieldNet Device Control router — `SignedActionJob` validation, `Finding` / `Recommendation` / `ActionResult` / `EvidenceRecord` schemas, the maintenance-window + quiet-hours policy from Phase 2, **plus the Phase D2 USB / removable-media policy enforcement supervisor (`usb_policy.rs`, `usb_supervisor.rs`, `usb_module.rs`) and per-OS adapters (`usb_linux.rs` udev + UDS, `usb_windows.rs` SetupDi + named-pipe, `usb_macos.rs` IOKit + UDS)** (Phase 1 + 2 + D2; default off) |
-| `sda-mdm` | ShieldNet Desktop MDM — auto-remediation supervisor, recovery key escrow, OS patch orchestration, remote wipe/lock/lost-mode, declarative config profiles (Phase M1–M3; default on) |
-| `sda-query` | osquery sidecar wrapper — scheduled host queries with bounded resource budget (Phase 1; default off) |
-| `sda-posture` | Cross-platform device-posture snapshots (disk encryption, firewall, screen-lock, OS patch level) with delta + power-aware scheduling (Phase 1; default off) |
-| `sda-agent-vitals` | Agent vitals — heartbeat, queue depth, watchdog faults emitted as `AgentVitals` events (Phase 1; default off) |
-| `sda-software` | Software lifecycle — signed catalogue manifest verifier (Ed25519 + pinned SHA-256, key rotation, expiry), approval-state surfacing, rollback orchestrator, and chain-linked evidence emission for install / update / uninstall / rollback (Phase 2; default off) |
-| `sda-script-runner` | Bounded script runner — Ed25519-verified scripts, glob-allow-list canonical names, hard wall-clock + output ceilings, `ScriptRunResult` + `EvidenceRecord` emission (Phase 2; default off) |
-| `sda-jit-admin` | Just-in-Time admin lifecycle — grant state machine + on-disk store + revocation watchdog (timer / power / heartbeat-loss) + boot-sweep + drift detector (Phase 3; default off) |
-| `sda-remote-support` | Operator remote-support sessions — `Pending → ConsentRequested → Active → Ended` state machine, pluggable consent prompt (default `StubConsentPrompt` denies), clean-room MeshCentral-style protocol (MessagePack frames + HKDF-SHA256 per-session keys), bus events on start / end (Phase 4; default off, Phase-4 PAL stubs return `NotSupported`) |
-| `sda-app-control` | Binary authorization / application control — Ed25519-signed policy verification (`policy.rs`), Monitor mode (Phase-4 default; logs allow / deny), Enforce mode with single-step `DualControlRollback` (`enforce.rs`), Windows WDAC + AppLocker backend (`wdac.rs`), Linux clean-room dm-verity-aware backend (`linux.rs`), macOS Santa wrapper, bus events on policy apply / decision (Phase 4; default off) |
-| `sda-management-compat` | Fleet GitOps YAML → SDA `AgentConfig` translation shim. Maps Fleet `queries` / `policies` / `software` / `scripts` / `agent_options` / `labels` per the [PROPOSAL.md § 4.1 mapping](./docs/device-control/PROPOSAL.md), rejects every Fleet EE / do-not-port feature per [ADR-001](./docs/device-control/ADR-001-functional-port.md), and enforces tenant-id matching as the agent-side belt-and-braces check on top of control-plane row-level security. Library-only — no runtime module, zero idle footprint by construction (Phase 5; called by the catalogue producer or a GitOps pipeline, not the agent at boot) |
-| `sda-process-monitor` | EDR Parity Phase E1 process telemetry module — subscribes to `sda-pal::ProcessMonitor` (Linux `cn_proc` netlink, Windows ETW `Microsoft-Windows-Kernel-Process`, macOS Endpoint Security), enriches each event with the parent chain up to configured depth, deduplicates and bounds the bus volume via mpsc + drop-oldest back-pressure, emits `ProcessCreated` / `ProcessTerminated` / `ImageLoaded` (Phase E1; default off) |
-| `sda-network-monitor` | EDR Parity Phase E3 network + DNS telemetry module — subscribes to `sda-pal::NetworkMonitor` (Linux `/proc/net/*` poller with `to_ne_bytes()` endian-correct IP parsing, Windows ETW `Microsoft-Windows-Kernel-Network`, macOS Network Extension) and `sda-pal::DnsMonitor`, runs a bounded LRU-ish dedup ring and a 4-per-second UDP flow sampler, emits `NetworkConnection` and `DnsQuery` (Phase E3; default off) |
-| `sda-host-isolation` | EDR Parity Phase E3 host isolation module — consumes `IsolateHost` / `UnisolateHost` `SignedActionJob`s through the same 10-step validation pipeline as `sda-device-control`, builds the allow-list (control-plane CIDRs + loopback + DNS + extras), invokes `sda-pal::HostIsolation` (Linux nftables `sn360_isolation`, Windows `netsh advfirewall` + WFP, macOS `pfctl` anchor `com.sn360.host_isolation`), emits `HostIsolationStateChanged` (Phase E3; default off) |
-| `sda-memory-scanner` | EDR Parity Phase E4 periodic RWX-region scanner — invokes `sda-pal::MemoryScanner` (Linux `/proc/<pid>/maps` + `/proc/<pid>/mem` with `CAP_SYS_PTRACE`, Windows `VirtualQueryEx` + `ReadProcessMemory` under `SeDebugPrivilege`, macOS `task_for_pid` + `mach_vm_region` + `mach_vm_read_overwrite` with `com.apple.security.cs.debugger`), self-pid exclusion at trait + rule-engine level, idle-CPU gating, optional `amsi` Cargo feature for the Windows AMSI provider, emits `MemoryScanAlert` (Phase E4; default off) |
-| `sda-identity-monitor` | EDR Parity Phase E5 identity-attack detector — Windows `Microsoft-Windows-Threat-Intelligence` ETW + `NtOpenProcess` instrumentation on `lsass.exe` (`T1003.001`), Linux `/etc/shadow` (FIM-fed, `T1003.008`) + `/proc/kcore` (audit-fed, `T1003`), macOS Endpoint Security `ES_EVENT_TYPE_NOTIFY_OPEN` on `*/Library/Keychains/*` filtered by non-Apple code signature (`T1555.001`); system-principal filtering happens at the module publish boundary; emits `IdentityAlert` (Phase E5; default off) |
-| `sda-dlp` | EDR Parity Phase E5 DLP content inspector — regex-based PII (`pii.ssn`, `pii.uk_ni`) + PCI (`pci.pan_luhn` with Luhn validation) scanner over `EventKind::FileCreated` / `FileModified` payloads; redaction-safe output (no matched bytes — only category, byte offset, length, and Blake3 fingerprint of the surrounding 32-byte window); `monitor` mode publishes `medium`-severity findings, `enforce` mode escalates to `high` to drive `sda-active-response` quarantine; optional `dlp-clipboard` feature for X11 / Wayland / Win32 / `NSPasteboard` taps; emits `LocalDetectionAlert` with `rule_type: "dlp"` (Phase E5; default off) |
+| `sda-updater` | Self-update — signed-manifest poll, Ed25519 + pinned SHA-256 verification, atomic binary swap with `.bak` rollback on smoke-test failure |
+| `sda-device-control` | Device Control router — `SignedActionJob` validation, Finding / Recommendation / ActionResult / EvidenceRecord, maintenance + quiet hours, and the USB / removable-media policy supervisor |
+| `sda-mdm` | Desktop MDM — auto-remediation, recovery key escrow, OS patch, remote wipe / lock / lost-mode, declarative config profiles |
+| `sda-query` | osquery sidecar wrapper — scheduled host queries with a bounded resource budget |
+| `sda-posture` | Cross-platform device-posture snapshots (disk encryption, firewall, screen-lock, OS patch level) with delta + power-aware scheduling |
+| `sda-agent-vitals` | Agent vitals — heartbeat, queue depth, watchdog faults emitted as `AgentVitals` events |
+| `sda-software` | Software lifecycle — signed catalogue manifest verifier, approval-state surfacing, rollback orchestrator, chain-linked evidence emission |
+| `sda-script-runner` | Bounded script runner — Ed25519-verified scripts, glob allow-list canonical names, hard wall-clock + output ceilings, `ScriptRunResult` + `EvidenceRecord` emission |
+| `sda-jit-admin` | Just-in-Time admin lifecycle — grant state machine, on-disk store, revocation watchdog (timer / power / heartbeat-loss), boot-sweep, drift detector |
+| `sda-remote-support` | Operator remote-support sessions — `Pending → ConsentRequested → Active → Ended` state machine, pluggable consent prompt, clean-room MeshCentral-style protocol (MessagePack frames + HKDF-SHA256 per-session keys) |
+| `sda-app-control` | Binary authorisation — Ed25519-signed policy verification, Monitor / Enforce with single-step `DualControlRollback`, Windows WDAC + AppLocker, Linux dm-verity-aware backend, macOS Santa wrapper |
+| `sda-management-compat` | Fleet GitOps YAML → SDA `AgentConfig` translation shim. Library-only; zero runtime footprint |
+| `sda-process-monitor` | Process telemetry — subscribes to `sda-pal::ProcessMonitor` (cn_proc / ETW / Endpoint Security), enriches each event with the parent chain, emits `ProcessCreated` / `ProcessTerminated` / `ImageLoaded` |
+| `sda-network-monitor` | Network + DNS telemetry — subscribes to `sda-pal::NetworkMonitor` and `sda-pal::DnsMonitor`, runs a bounded dedup ring and a per-second UDP flow sampler, emits `NetworkConnection` and `DnsQuery` |
+| `sda-host-isolation` | Network containment — consumes `IsolateHost` / `UnisolateHost` `SignedActionJob`s, builds the allow-list, invokes `sda-pal::HostIsolation`, emits `HostIsolationStateChanged` |
+| `sda-memory-scanner` | Periodic RWX-region scanner — calls `sda-pal::MemoryScanner`, runs in-memory YARA, enforces self-pid exclusion, idle-CPU gates, optional Windows AMSI provider, emits `MemoryScanAlert` |
+| `sda-identity-monitor` | Identity-attack detector — LSASS access (Windows, `T1003.001`), `/etc/shadow` and `/proc/kcore` (Linux, `T1003.008` / `T1003`), keychain access by non-Apple-signed binaries (macOS, `T1555.001`); system-principal filtering at the publish boundary; emits `IdentityAlert` |
+| `sda-dlp` | DLP content inspector — regex PII (`pii.ssn`, `pii.uk_ni`) + PCI (`pci.pan_luhn`) scanner over `FileCreated` / `FileModified`; redaction-safe output (no matched bytes — only category, byte offset, length, Blake3 fingerprint); Monitor publishes `medium`, Enforce escalates to `high`; emits `LocalDetectionAlert` with `rule_type: "dlp"` |
 
-## Cross-Compilation
+## Cross-compilation
 
 Build for all supported targets using `cross`:
 
@@ -223,50 +264,40 @@ make all-targets
 
 ## Configuration
 
-SN360 Desktop Agent (SDA) uses YAML configuration files. See the test configs for working examples:
+SDA uses YAML configuration files. See the test configs for
+working examples:
 
 - [`tests/sda-test-config.yaml`](./tests/sda-test-config.yaml) — Linux
 - [`tests/sda-test-config-macos.yaml`](./tests/sda-test-config-macos.yaml) — macOS
 - [`tests/sda-test-config-windows.yaml`](./tests/sda-test-config-windows.yaml) — Windows
 
-For the full configuration reference, see the [Configuration section in `device-agent-proposal.md`](./device-agent-proposal.md#11-configuration--deployment).
-
-## Project Status
-
-**Phases 1–6 complete.** Phase 5 platform hardening (self-update, privilege separation, tamper protection, installers), Phase 5.6 enhanced protocol (opt-in TLS 1.3 / MessagePack / HTTP/2), and Phase 6 testing & release infrastructure — expanded CI matrix, benchmark regression gate, `cargo audit` gate, nightly `cargo-fuzz` matrix, tag-triggered multi-OS release workflow, and the [`docs/release-process.md`](./docs/release-process.md) runbook — have all landed.
-
-**ShieldNet EDR Parity** — agent-side Phases E0–E6 are all complete. Phase E0 (architecture & schema sign-off) added 8 new `EventKind` variants and matching `MessageType` encoder arms; Phase E1 (process telemetry) added the `sda-pal::ProcessMonitor` trait + per-OS implementations + the `sda-process-monitor` crate + behavioral `parent_chain_regex` rules; Phase E2 (LDE maturity) shipped real TRDS hot-reload with Ed25519 signature verification, atomic `Arc<ArcSwap<DetectionPipeline>>` swap, an embedded default bundle, and flipped `local_detection.enabled` to `true` by default; Phase E3 (network telemetry + host isolation) added the `sda-pal::NetworkMonitor` / `DnsMonitor` / `HostIsolation` traits + per-OS implementations + the `sda-network-monitor` and `sda-host-isolation` crates with `IsolateHost` / `UnisolateHost` `SignedActionJob` flow; Phase E4 (memory scanning + fileless detection) added the `sda-pal::MemoryScanner` trait + Linux `/proc/<pid>/maps` + `/proc/<pid>/mem`, Windows `VirtualQueryEx` + `ReadProcessMemory`, macOS `task_for_pid` + `mach_vm_region` + `mach_vm_read_overwrite` implementations + the `sda-memory-scanner` crate with periodic RWX-region scan loop, in-memory YARA, optional `amsi` feature for the Windows AMSI provider, self-pid exclusion enforced at trait + rule-engine level; Phase E5 (identity / DLP) added the `sda-identity-monitor` crate (LSASS access on Windows = `T1003.001`, `/etc/shadow` + `/proc/kcore` on Linux = `T1003.008` / `T1003`, keychain access on macOS = `T1555.001`) and the `sda-dlp` crate (regex-based SSN + UK NI + PAN+Luhn over `FileCreated` / `FileModified` with Blake3 fingerprinting and the redaction invariant — no matched bytes on the bus); Phase E6 (kernel productisation) landed the platform-agnostic `sda-pal::kernel` channel module with per-platform mocks (Windows WDK minifilter named-pipe transport, macOS SystemExtension XPC mach port, Linux Aya eBPF perf-buffer ring) gated behind `kernel-windows`, `kernel-macos`, and `kernel-linux-ebpf` Cargo features (all off by default) plus full per-platform productisation runbooks under [`docs/edr-parity/PRODUCTISATION-WINDOWS.md`](./docs/edr-parity/PRODUCTISATION-WINDOWS.md), [`PRODUCTISATION-MACOS.md`](./docs/edr-parity/PRODUCTISATION-MACOS.md), and [`PRODUCTISATION-LINUX.md`](./docs/edr-parity/PRODUCTISATION-LINUX.md) and the WHCP submission scripts in [`packaging/windows-driver/`](./packaging/windows-driver/). Three new hermetic E2E suites: `make e2e-memory-scan` (10 tests), `make e2e-identity` (10 tests), `make e2e-dlp` (11 tests). Server-side ⚙️ tasks (TRDS process-rule compilation, agent-gateway NATS subjects, dashboard isolation button, full rule CRUD + delta distribution) remain Not Started; see [`docs/edr-parity/PROGRESS.md`](./docs/edr-parity/PROGRESS.md) for the per-task ledger. The WHQL-signed Windows driver binary, the Apple-notarised macOS SystemExtension, and the production-grade Linux eBPF programs are gated on the per-platform pipelines documented above.
-
-**ShieldNet Desktop MDM** — all agent-side Desktop MDM work (Phases M1–M3) is complete; the `sda-mdm` crate ships default-on with auto-remediation, one-time-per-boot recovery key escrow, OS patch orchestration, dual-control remote wipe, remote lock, lost mode, and Ed25519-signed declarative configuration profile enforcement. Server-side control-plane tasks (Risk Engine MDM rules, SMI `mdm_compliance` sub-score, Desktop MDM service) remain Not Started; see [`docs/desktop-mdm/PROGRESS.md`](./docs/desktop-mdm/PROGRESS.md) for the per-task ledger.
-
-**ShieldNet Device Control** — all agent-side Device Control work (Phases 0–5 + D2) is complete. **All control-plane ⚙️ tasks have also landed** (`sn360-security-platform` PRs [#85](https://github.com/kennguy3n/sn360-security-platform/pull/85) and [#86](https://github.com/kennguy3n/sn360-security-platform/pull/86)) including the Risk Engine / Approval / Action Orchestrator services, the Android / Apple DDM / ChromeOS MDM connector triplet, and the full Phase 5 MSP / GA-prep slate (tenant catalogues, MSP-tier approval routing, white-label evidence exports, MSP cross-tenant dashboard, cross-tenant templates, billing / onboarding / pricing-tier scaffold). See [`docs/device-control/PROGRESS.md`](./docs/device-control/PROGRESS.md) for the per-phase task ledger, test counts, and changelog.
-
-The beta tag push (`v0.9.0-beta.1`) and signed-binary publication are gated on release credentials and signing keys outside automation; see [`PROGRESS.md`](./PROGRESS.md) for the detailed status, test results (433 passing / 0 failed, 14/14 base E2E, 10/10 security E2E), and benchmarks. This repository contains only the agent-side (on-device) code. Server-side Control Plane components (Agent Gateway, TRDS, IOCFS, SIS) are implemented in [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform).
+The full configuration schema lives in
+[`docs/configuration-reference.md`](./docs/configuration-reference.md).
 
 ## Documentation
 
-- [**docs/user-guide.md**](./docs/user-guide.md) — Per-host install, enrolment, and troubleshooting
-- [**docs/admin-guide.md**](./docs/admin-guide.md) — Fleet deployment, module tuning, upgrades, legacy migration
-- [**docs/architecture.md**](./docs/architecture.md) — Crate map, event flow, PAL design, protocol details
-- [**docs/configuration-reference.md**](./docs/configuration-reference.md) — Full YAML schema reference
-- [**docs/platform-testing.md**](./docs/platform-testing.md) — CI matrix + Fedora/Arch manual procedures
-- [**docs/security-audit.md**](./docs/security-audit.md) — `cargo audit` + `cargo-fuzz` setup
-- [**docs/integration.md**](./docs/integration.md) — Integration with the SN360 Security Platform, non-Wazuh components
-- [**docs/device-control/README.md**](./docs/device-control/README.md) — ShieldNet Device Control module overview, architecture, and roadmap
-- [**docs/device-control/ADR-001-functional-port.md**](./docs/device-control/ADR-001-functional-port.md) — ADR-001: SDA Device Control is a clean-room functional port (no Fleet source vendored)
-- [**docs/device-control/fleet-capability-mapping.md**](./docs/device-control/fleet-capability-mapping.md) — Fleet → SDA / SN360 capability map and do-not-port list
-- [**docs/device-control/SCHEMAS.md**](./docs/device-control/SCHEMAS.md) — canonical, versioned wire spec for `Finding`, `Recommendation`, `SignedActionJob`, `ActionResult`, `EvidenceRecord`
-- [**docs/desktop-mdm/PROPOSAL.md**](./docs/desktop-mdm/PROPOSAL.md) — ShieldNet Desktop MDM technical proposal
-- [**docs/desktop-mdm/ARCHITECTURE.md**](./docs/desktop-mdm/ARCHITECTURE.md) — Desktop MDM architecture reference (PAL trait, data flows, config schema, module startup order)
-- [**docs/desktop-mdm/PROGRESS.md**](./docs/desktop-mdm/PROGRESS.md) — Desktop MDM development progress
-- [**TEST_RESULTS.md**](./TEST_RESULTS.md) — Latest unit / E2E / security E2E results (with a Non-Wazuh Component Verification section)
-- [**CHANGELOG.md**](./CHANGELOG.md) — Release notes
-- [**device-agent-proposal.md**](./device-agent-proposal.md) — Original architecture & implementation proposal
-- [**PROGRESS.md**](./PROGRESS.md) — Phase status, test results, known gaps, and next steps
-- [**benchmark-results.md**](./benchmark-results.md) — Performance benchmarks vs. a reference legacy SIEM agent
-- [**tests/README.md**](./tests/README.md) — Test harness, Docker setup, and E2E reference
+| Document | Purpose |
+|---|---|
+| [`docs/user-guide.md`](./docs/user-guide.md) | Per-host install, enrolment, troubleshooting |
+| [`docs/admin-guide.md`](./docs/admin-guide.md) | Fleet deployment, module tuning, upgrades, legacy migration |
+| [`docs/architecture.md`](./docs/architecture.md) | Crate map, event flow, PAL design, protocol details, resource budgets, security model |
+| [`docs/configuration-reference.md`](./docs/configuration-reference.md) | Full YAML schema reference |
+| [`docs/edr.md`](./docs/edr.md) | EDR module reference — FIM, process / network / DNS telemetry, host isolation, memory scanning, identity, DLP |
+| [`docs/device-control.md`](./docs/device-control.md) | Device Control architecture and lifecycle |
+| [`docs/desktop-mdm.md`](./docs/desktop-mdm.md) | Desktop MDM architecture and lifecycle |
+| [`docs/kernel-drivers.md`](./docs/kernel-drivers.md) | Optional kernel-mode telemetry — WDK minifilter, SystemExtension, eBPF |
+| [`docs/wire-protocols/device-control.md`](./docs/wire-protocols/device-control.md) | Canonical Device Control wire schemas |
+| [`docs/security.md`](./docs/security.md) | Threat model, crypto posture, dependency audit, fuzzing, clean-room policy |
+| [`docs/licensing.md`](./docs/licensing.md) | Licensing posture and clean-room interoperability statement |
+| [`docs/integration.md`](./docs/integration.md) | Integration with the SN360 Security Platform |
+| [`docs/platform-testing.md`](./docs/platform-testing.md) | CI matrix and manual procedures |
+| [`docs/release-process.md`](./docs/release-process.md) | Release runbook |
+| [`docs/benchmarks.md`](./docs/benchmarks.md) | Performance budgets and current numbers |
+| [`CHANGELOG.md`](./CHANGELOG.md) | Release notes |
+| [`CONTRIBUTING.md`](./CONTRIBUTING.md) | Branching, commits, tests, code review |
+| [`SECURITY.md`](./SECURITY.md) | Reporting a vulnerability |
 
-## Related Repositories
+## Related repositories
 
 | Repo | Purpose |
 |---|---|
@@ -277,4 +308,9 @@ The beta tag push (`v0.9.0-beta.1`) and signed-binary publication are gated on r
 
 ## License
 
-SN360 Proprietary — see [`LICENSE`](./LICENSE) for the full license terms. Copyright (c) 2026 SN360 Inc. All rights reserved. For licensing inquiries, contact [licensing@sn360.com](mailto:licensing@sn360.com). See [`docs/proprietary-licensing-rationale.md`](./docs/proprietary-licensing-rationale.md) for the licensing posture and clean-room interoperability statement.
+SN360 Proprietary — see [`LICENSE`](./LICENSE) for the full
+license terms. Copyright (c) 2026 SN360 Inc. All rights reserved.
+For licensing inquiries, contact
+[licensing@sn360.com](mailto:licensing@sn360.com). See
+[`docs/licensing.md`](./docs/licensing.md) for the licensing
+posture and clean-room interoperability statement.

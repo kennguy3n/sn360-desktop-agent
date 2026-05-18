@@ -2,8 +2,8 @@
 //!
 //! Backs the DNS half of the `sda-network-monitor` module
 //! (Phase E3 of the EDR Parity workstream). See
-//! `docs/edr-parity/ARCHITECTURE.md` § 5 for the trait spec and
-//! per-OS implementation matrix.
+//! `docs/architecture.md` § 4 (Platform abstraction layer) for the
+//! trait spec and per-OS implementation matrix.
 //!
 //! Per-OS production implementations:
 //!
@@ -77,7 +77,9 @@ impl Default for DnsMonitorOpts {
 
 /// A single DNS query observation.
 ///
-/// The shape mirrors `docs/edr-parity/ARCHITECTURE.md` § 8.
+/// The shape mirrors the wire schema described in
+/// `docs/edr.md` § 2.2 (Network telemetry) and serialised per
+/// `docs/architecture.md` § 6 (Wire protocols).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DnsEvent {

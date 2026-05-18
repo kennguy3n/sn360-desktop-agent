@@ -1,7 +1,7 @@
 //! Lost-mode sub-module (Phase M2.3).
 //!
 //! Implements the `EnterLostMode` / `ExitLostMode` handlers per
-//! `docs/desktop-mdm/ARCHITECTURE.md` § 3.7.
+//! `docs/desktop-mdm.md` § 4.2 (Lost mode).
 //!
 //! Lost-mode is a soft state: it does not destroy data, it pins the
 //! device to a kiosk-style display message and unlocks only via an

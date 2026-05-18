@@ -262,17 +262,18 @@ pub struct ModulesConfig {
     // --- Desktop MDM module (Phase M1–M3) ---
     //
     // Unlike every other Phase-1+ module, MDM defaults to `enabled =
-    // true` per `docs/desktop-mdm/ARCHITECTURE.md` § 5. Operators that
-    // need to disable it must explicitly set `modules.mdm.enabled =
-    // false` in their config.
+    // true` per `docs/desktop-mdm.md` § 1 (Product loop) and the
+    // Desktop MDM section of `docs/configuration-reference.md`.
+    // Operators that need to disable it must explicitly set
+    // `modules.mdm.enabled = false` in their config.
     #[serde(default)]
     pub mdm: MdmConfig,
 
     // --- EDR Parity modules (Phase E1-E3) ---
     //
     // Each EDR module defaults to `enabled: false` per the lazy
-    // module-loading principle. See `docs/edr-parity/ARCHITECTURE.md`
-    // § 6 for the full schema.
+    // module-loading principle. See `docs/configuration-reference.md`
+    // (Modules — EDR section) for the full schema.
     #[serde(default)]
     pub process_monitor: ProcessMonitorConfig,
     #[serde(default)]
@@ -450,7 +451,7 @@ pub struct RootcheckConfig {
 /// The LDE evaluates detection rules locally at the edge — IOC matching
 /// via Aho-Corasick + bloom filters, behavioral rule state machines,
 /// and YARA file scanning — without a server round-trip. See
-/// [`device-agent-proposal.md`](../../../device-agent-proposal.md) § 5.x / Phase 4 tasks 4.1–4.6.
+/// [`docs/edr.md`](../../../docs/edr.md) § 3 (Local Detection Engine).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalDetectionConfig {
     /// Whether the LDE is enabled.
@@ -545,7 +546,8 @@ pub struct LocalDetectionConfig {
 /// The enhanced inventory extends the base inventory with running
 /// software monitoring (task 4.7), browser extension enumeration
 /// (task 4.8), and CycloneDX SBOM generation (task 4.9). See
-/// [`device-agent-proposal.md`](../../../device-agent-proposal.md) § 13.2 for design details.
+/// [`docs/architecture.md`](../../../docs/architecture.md) § 7
+/// (Module reference) for design details.
 ///
 /// The module is **off by default** — operators opt in explicitly
 /// because running-software snapshots touch `/proc` on Linux and the
@@ -1210,7 +1212,7 @@ impl Default for LoggingConfig {
 //
 // All structs in this section default to `enabled: false`. The
 // canonical source of truth for these knobs is
-// `docs/device-control/ARCHITECTURE.md` § 6.
+// `docs/configuration-reference.md` (Device Control section).
 
 /// Device Control core configuration.
 ///
@@ -1563,14 +1565,14 @@ pub struct JitAdminConfig {
     pub state_path: Option<PathBuf>,
     /// Revoke an active grant when no heartbeat has been observed
     /// from the control plane for this many seconds. Defaults to
-    /// 120 s per `docs/device-control/PROPOSAL.md` § 9.3.
+    /// 120 s per `docs/device-control.md` § 7 (Just-in-Time admin).
     #[serde(default = "default_jit_heartbeat_loss_secs")]
     pub heartbeat_loss_secs: u64,
     /// How often the JIT-admin supervisor runs a drift scan
     /// (`AdminManager::list_admins` vs the active grant ledger). The
     /// supervisor emits a `FindingKind::AdminDrift` payload + paired
     /// `EvidenceRecord` for each discrepancy. Defaults to 300 s
-    /// (Phase 3.5 / `docs/device-control/PROPOSAL.md` § 9.3).
+    /// (Phase 3.5 / `docs/device-control.md` § 7 — Just-in-Time admin).
     #[serde(default = "default_jit_drift_check_interval_secs")]
     pub drift_check_interval_secs: u64,
 }
@@ -1633,9 +1635,9 @@ impl Default for ScriptRunnerConfig {
 /// Application-control module configuration (Phase 4).
 ///
 /// Defaults to disabled. The Phase-4 default mode is `Monitor` per
-/// `docs/device-control/PHASES.md` Phase 4 acceptance criteria #2 —
+/// `docs/device-control.md` § 8 (Application control) —
 /// `Enforce` requires explicit tenant opt-in plus dual-control
-/// rollback per PROPOSAL.md § 9.6.
+/// rollback per the same section.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppControlConfig {
     /// Master enable switch.
@@ -1831,13 +1833,13 @@ fn default_software_refresh_interval_secs() -> u64 {
 
 /// Default manifest expiry threshold — 7 days. Matches the
 /// "manifest must be re-signed at least weekly" guidance in
-/// `docs/device-control/PROPOSAL.md` § 14.1.
+/// `docs/device-control.md` § 6 (Approved software catalogue).
 fn default_manifest_max_age_secs() -> u64 {
     7 * 24 * 3600
 }
 
 /// Default JIT-admin heartbeat-loss revoke window. Matches
-/// `docs/device-control/PROPOSAL.md` § 9.3 (120 s).
+/// `docs/device-control.md` § 7 (Just-in-Time admin) (120 s).
 fn default_jit_heartbeat_loss_secs() -> u64 {
     120
 }
@@ -1845,19 +1847,19 @@ fn default_jit_heartbeat_loss_secs() -> u64 {
 /// Default JIT-admin drift-scan cadence. Matches `default_posture_interval_secs`
 /// (300 s) so the drift detector runs on the same cadence as posture
 /// snapshots without piling up on top of the watchdog tick. See
-/// `docs/device-control/PROPOSAL.md` § 9.3.
+/// `docs/device-control.md` § 7 (Just-in-Time admin).
 fn default_jit_drift_check_interval_secs() -> u64 {
     300
 }
 
 /// Default per-script wall-clock cap (90 s) per
-/// `docs/device-control/PROPOSAL.md` § 14.2.
+/// `docs/device-control.md` § 2 (Modules — `sda-script-runner`).
 fn default_script_max_duration_secs() -> u64 {
     90
 }
 
 /// Default per-script combined stdout+stderr cap (1 MiB) per
-/// `docs/device-control/PROPOSAL.md` § 14.2.
+/// `docs/device-control.md` § 2 (Modules — `sda-script-runner`).
 fn default_script_max_output_bytes() -> usize {
     1024 * 1024
 }
@@ -1883,8 +1885,9 @@ fn default_remote_support_max_session_minutes() -> u32 {
 // -------------------------------------------------------------------------
 // ShieldNet Desktop MDM (Phase M1–M3) — configuration schema.
 //
-// Mirrors `docs/desktop-mdm/ARCHITECTURE.md` § 5 verbatim. The
-// distinguishing property versus every other Phase-1+ module config
+// Mirrors the Desktop MDM section of `docs/configuration-reference.md`
+// verbatim. The distinguishing property versus every other
+// Phase-1+ module config
 // is that `MdmConfig::default()` produces `enabled = true` with every
 // `auto_remediate.*` flag also `true`. This is the documented
 // "defaults-on" posture per ARCHITECTURE.md § 5.
@@ -1943,7 +1946,7 @@ impl Default for MdmConfig {
     /// "upgraded but mis-configured" fleets indistinguishable from
     /// "intentionally lax" ones, and the operator has no audit
     /// signal that the agent _could_ have remediated but did not.
-    /// Per `docs/desktop-mdm/ARCHITECTURE.md` § 5 the design
+    /// Per `docs/desktop-mdm.md` § 8 (Auto-remediation) the design
     /// requires a single explicit opt-out by tenants who do not
     /// want this behaviour.
     ///
@@ -2231,7 +2234,8 @@ fn default_mdm_bundle_path() -> PathBuf {
 // All four EDR modules default to `enabled = false` per the lazy-
 // module-loading principle — the agent's idle footprint is bit-for-
 // bit identical to the pre-EDR baseline when every flag is left at
-// its default. See `docs/edr-parity/ARCHITECTURE.md` § 6.
+// its default. See `docs/configuration-reference.md` (Modules — EDR
+// section).
 // ===========================================================================
 
 /// Process Telemetry (Phase E1) configuration.

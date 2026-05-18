@@ -11,7 +11,8 @@
 //! Spawning the child process and connecting to its Thrift
 //! extension socket is Phase 2 work and lives behind
 //! [`client::UnavailableClient`] for now. See
-//! `docs/device-control/PHASES.md` task 1.5 for the delivery plan.
+//! `docs/device-control.md` § 2 (Modules — `sda-query`) for the
+//! delivery plan.
 //!
 //! [osquery]: https://osquery.io/
 

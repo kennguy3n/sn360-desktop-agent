@@ -18,7 +18,7 @@
 //! of milliseconds — `make e2e-network-telemetry` is safe to run on
 //! every CI host without privileges.
 //!
-//! Coverage (≥ 9 tests per `docs/edr-parity/PHASES.md` § E3.12):
+//! Coverage (≥ 9 tests for `docs/edr.md` § 2.2 — Network telemetry):
 //!
 //! 1. Network monitor disabled → no `NetworkConnection` events leak.
 //! 2. DNS monitor disabled → no `DnsQuery` events leak.

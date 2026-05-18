@@ -54,7 +54,7 @@ Exit codes:
 | `scripts/run-security-e2e.sh` | Linux security E2E harness (10 attack scenarios, injects `<active-response>` blocks) |
 | `scripts/run-e2e-macos.sh` | macOS E2E harness |
 | `scripts/run-e2e-windows.ps1` | Windows E2E harness |
-| `scripts/fim-burst-bench.sh` | FIM scan CPU benchmark (reproduces the numbers in `benchmark-results.md`) |
+| `scripts/fim-burst-bench.sh` | FIM scan CPU benchmark (reproduces the numbers in [`docs/benchmarks.md`](../docs/benchmarks.md)) |
 
 ## What each suite validates
 
@@ -69,9 +69,9 @@ Exit codes:
   IPv4 + IPv6, unauthorized package install, system-binary tampering,
   and account-disable AR.
 
-See [`PROGRESS.md`](../PROGRESS.md) for the current pass counts and
-known gaps (including the macOS FIM burst test that is currently
-skipped on CI).
+The macOS FIM burst test is currently skipped on CI; see
+[`docs/known-issues/fim-burst-workload-macos-ci.md`](../docs/known-issues/fim-burst-workload-macos-ci.md)
+for the root-cause analysis and mitigation.
 
 ## Troubleshooting
 

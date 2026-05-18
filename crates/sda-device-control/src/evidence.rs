@@ -1,7 +1,7 @@
 //! `EvidenceRecord` — append-only audit projection of an
 //! `ActionResult` plus the `SignedActionJob` it executed.
 //!
-//! Mirrors `docs/device-control/SCHEMAS.md` § 9.
+//! Mirrors `docs/wire-protocols/device-control.md` § 9.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

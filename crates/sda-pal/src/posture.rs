@@ -3,11 +3,11 @@
 //!
 //! This is the cross-platform PAL surface that backs the
 //! `sda-posture` module. The trait shape comes from
-//! `docs/device-control/ARCHITECTURE.md` § 5; the snapshot fields
+//! `docs/architecture.md` § 4.1 (Trait surface); the snapshot fields
 //! line up 1:1 with the `Finding` evidence shapes for the
 //! `disk_encryption_off`, `firewall_disabled`, `screen_lock_off`, and
 //! `os_patch_outdated` `FindingKind` variants documented in
-//! `docs/device-control/SCHEMAS.md` § 5.
+//! `docs/wire-protocols/device-control.md` § 5 (Finding).
 //!
 //! Phase 1 scope: every platform must produce a non-panicking
 //! `PostureSnapshot`. Best-effort detection is acceptable —
@@ -79,8 +79,8 @@ impl Default for PostureSnapshot {
 
 /// Cross-platform device-posture snapshot provider.
 ///
-/// See `docs/device-control/ARCHITECTURE.md` § 5 for the binding
-/// trait spec.
+/// See `docs/architecture.md` § 4.1 (Trait surface) for the
+/// binding trait spec.
 pub trait DevicePostureProvider: Send + Sync {
     fn snapshot(&self) -> Result<PostureSnapshot, PostureError>;
 }

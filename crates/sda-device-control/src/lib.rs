@@ -2,8 +2,7 @@
 //! schemas for the SN360 Desktop Agent.
 //!
 //! This crate ships the Phase 1 scaffold of the Device Control
-//! feature set described in `docs/device-control/PROPOSAL.md`. It
-//! contains:
+//! feature set described in `docs/device-control.md`. It contains:
 //!
 //! * The five canonical schemas: [`Finding`], [`Recommendation`],
 //!   [`SignedActionJob`], [`ActionResult`], [`EvidenceRecord`].
@@ -18,8 +17,9 @@
 //! parks on the shutdown signal so a `modules.device_control.enabled`
 //! flag can be flipped on without any executable side effects.
 //!
-//! All wire types match `docs/device-control/SCHEMAS.md` exactly.
-//! Diverging from that document is a major-version protocol break.
+//! All wire types match `docs/wire-protocols/device-control.md`
+//! exactly. Diverging from that document is a major-version
+//! protocol break.
 
 pub mod action_result;
 pub mod canonicalize;

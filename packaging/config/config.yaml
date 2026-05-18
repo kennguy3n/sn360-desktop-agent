@@ -1,6 +1,7 @@
 # SN360 Desktop Agent — default configuration installed by packages.
 #
-# See device-agent-proposal.md §11 for the complete configuration reference.
+# See `docs/configuration-reference.md` for the complete configuration
+# reference and `docs/architecture.md` for the overall design.
 
 server:
   address: "wazuh-server.example.com"

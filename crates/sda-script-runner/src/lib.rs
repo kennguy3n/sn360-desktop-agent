@@ -1,8 +1,8 @@
 //! `sda-script-runner` — signed-script execution module for SDA
 //! Device Control (Phase 2.7).
 //!
-//! See `docs/device-control/PROPOSAL.md` § 14.2 and
-//! `docs/device-control/ARCHITECTURE.md` § 8.2.
+//! See `docs/device-control.md` § 2 (Modules — `sda-script-runner`)
+//! and § 4 (Signed-job lifecycle).
 //!
 //! The script runner accepts canonically-named, Ed25519-signed
 //! scripts (e.g. `sn360.diagnostics.tcp_ping`) from the control

@@ -5,7 +5,8 @@
 //! out of them, plus per-OS implementations and a `MockMemoryScanner`
 //! for unit / E2E tests.
 //!
-//! Safety invariants (see `docs/edr-parity/ARCHITECTURE.md` § 9.4):
+//! Safety invariants (see `docs/architecture.md` § 8.3
+//! — Memory-scanner safety):
 //!
 //! * The PAL **NEVER** enumerates the agent's own pid. The
 //!   per-OS implementations all short-circuit `enumerate(self_pid)`
@@ -816,7 +817,7 @@ pub mod macos_imp {
             Err(io::Error::new(
                 io::ErrorKind::Unsupported,
                 "macOS task_for_pid requires com.apple.security.cs.debugger; \
-                 see docs/edr-parity/PRODUCTISATION-MACOS.md (Phase E6.3)",
+                 see docs/kernel-drivers.md § 3.2 (Entitlements)",
             ))
         }
 

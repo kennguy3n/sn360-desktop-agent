@@ -11,7 +11,7 @@
 //! bus so the control plane (and the local detection engine) can
 //! observe the new posture.
 //!
-//! Safety invariants from `docs/edr-parity/ARCHITECTURE.md` § 11:
+//! Safety invariants from `docs/edr.md` § 8.1 (Host isolation):
 //!
 //! 1. `allow_ips` always includes
 //!    `modules.host_isolation.control_plane_cidrs`.

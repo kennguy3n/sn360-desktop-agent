@@ -1,8 +1,9 @@
 //! Cross-platform host-isolation PAL trait.
 //!
 //! Backs the `sda-host-isolation` module (Phase E3 of the EDR
-//! Parity workstream). See `docs/edr-parity/ARCHITECTURE.md` § 5
-//! for the trait spec and per-OS implementation matrix.
+//! Parity workstream). See `docs/architecture.md` § 4 (Platform
+//! abstraction layer) for the trait spec and per-OS implementation
+//! matrix.
 //!
 //! Per-OS production implementations:
 //!
@@ -70,7 +71,8 @@ pub type Result<T> = std::result::Result<T, HostIsolationError>;
 ///   intentionally CI stubs that read the in-memory cache; the real
 ///   `netsh advfirewall` / WFP COM API and `pfctl` anchor wiring
 ///   land alongside the per-OS production follow-ups tracked in
-///   `docs/edr-parity/PHASES.md`. They are correct under the current
+///   `docs/architecture.md` § 4.2 (Per-OS implementation matrix).
+///   They are correct under the current
 ///   architecture because the owning [`crate::host_isolation`]
 ///   module independently tracks the last applied state for
 ///   transition detection (`last_state` in `sda-host-isolation`).
@@ -334,8 +336,9 @@ mod windows_impl {
             // the call.  The production-grade `netsh advfirewall`
             // + WFP COM API path (rule group `sn360_isolation`)
             // lands alongside the Windows production follow-up
-            // (docs/edr-parity/PHASES.md — see the per-OS
-            // production-implementation entries under Phase E3).
+            // (docs/architecture.md § 4.2 — the Per-OS
+            // implementation matrix records the production-grade
+            // follow-ups for the Phase E3 host-isolation surface).
             let mut g = self.state.lock().unwrap();
             g.isolated = true;
             g.allow_ips = allow;
@@ -353,7 +356,8 @@ mod windows_impl {
         /// path will query WFP for filters in the
         /// `sn360_isolation` provider context to satisfy the
         /// source-of-truth contract on the trait — see the trait
-        /// doc and `docs/edr-parity/PHASES.md`.
+        /// doc and `docs/architecture.md` § 4.2 (Per-OS
+        /// implementation matrix).
         fn is_isolated(&self) -> Result<bool> {
             Ok(self.state.lock().unwrap().isolated)
         }
@@ -399,9 +403,9 @@ mod macos_impl {
             // CI stub: cache the state so harnesses can observe
             // the call.  The production-grade `pfctl` anchor
             // `com.sn360.host_isolation` path lands alongside the
-            // macOS production follow-up (docs/edr-parity/PHASES.md
-            // — see the per-OS production-implementation entries
-            // under Phase E3).
+            // macOS production follow-up (docs/architecture.md
+            // § 4.2 — the Per-OS implementation matrix records the
+            // production-grade follow-ups for Phase E3 host-isolation).
             let mut g = self.state.lock().unwrap();
             g.isolated = true;
             g.allow_ips = allow;
@@ -419,7 +423,8 @@ mod macos_impl {
         /// path will run `pfctl -a com.sn360.host_isolation -s
         /// rules` and check that an anchor is present to satisfy
         /// the source-of-truth contract on the trait — see the
-        /// trait doc and `docs/edr-parity/PHASES.md`.
+        /// trait doc and `docs/architecture.md` § 4.2 (Per-OS
+        /// implementation matrix).
         fn is_isolated(&self) -> Result<bool> {
             Ok(self.state.lock().unwrap().isolated)
         }

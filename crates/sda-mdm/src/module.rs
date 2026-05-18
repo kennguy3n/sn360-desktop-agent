@@ -1,7 +1,7 @@
 //! Top-level [`MdmModule`] — orchestrator for the seven Desktop MDM
 //! sub-modules.
 //!
-//! Per `docs/desktop-mdm/ARCHITECTURE.md` § 6, the agent registers
+//! Per `docs/desktop-mdm.md` § 2 (Sub-modules), the agent registers
 //! the MDM module at startup-position 10 (immediately after Device
 //! Control). On `start()` the module:
 //!

@@ -1,7 +1,7 @@
 //! `SignedActionJob` — Ed25519-signed instruction the agent will
 //! execute.
 //!
-//! Mirrors `docs/device-control/SCHEMAS.md` § 7.
+//! Mirrors `docs/wire-protocols/device-control.md` § 7.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

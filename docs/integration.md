@@ -115,10 +115,12 @@ For the per-service detail, see the platform repo's
 | Platform regression | `cd ../sn360-security-platform && make regression` | Path A + Path C end-to-end (89 cases) |
 | Top-10 security on platform | `cd ../sn360-security-platform && tests/regression/security-scenarios/run-top10-security-e2e.sh` | Top-10 against the SN360 stack with a stock Wazuh agent sidecar |
 
-The latest device-side numbers (and the explicit "Non-Wazuh
-Component Verification" section explaining why enhanced-inventory
-assertions use agent-log oracles) live in
-[`TEST_RESULTS.md`](../TEST_RESULTS.md) at the repo root.
+Enhanced-inventory assertions use agent-log oracles rather than
+`analysisd` decoder hits because Wazuh's `syscollector` decoder
+rejects the `enhanced_inventory` envelope outright. The E2E harness
+([`tests/scripts/run-e2e.sh`](../tests/scripts/run-e2e.sh)) documents
+this at lines 481–488 and the three matching agent-log assertions
+follow from that contract.
 
 ---
 
@@ -128,5 +130,5 @@ assertions use agent-log oracles) live in
   [`sn360-security-platform/docs/INTEGRATION_ASSESSMENT.md`](https://github.com/kennguy3n/sn360-security-platform/blob/main/docs/INTEGRATION_ASSESSMENT.md).
 - Canonical Non-Wazuh component reference:
   [`sn360-security-platform/docs/NON_WAZUH_COMPONENTS.md`](https://github.com/kennguy3n/sn360-security-platform/blob/main/docs/NON_WAZUH_COMPONENTS.md).
-- Original device-side design rationale (preserved for history):
-  [`device-agent-proposal.md`](../device-agent-proposal.md) §13.
+- Device-side architecture and PAL design:
+  [`architecture.md`](./architecture.md).

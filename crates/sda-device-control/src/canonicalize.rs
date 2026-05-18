@@ -1,9 +1,9 @@
 //! RFC 8785 canonical JSON serializer.
 //!
 //! Used as the signature pre-image for `SignedActionJob` and
-//! `EvidenceRecord` per `docs/device-control/SCHEMAS.md` § 7.2 and
-//! § 9.2. The canonical form is what the control plane signs and
-//! what the agent re-derives to verify.
+//! `EvidenceRecord` per `docs/wire-protocols/device-control.md`
+//! § 7.2 and § 9.2. The canonical form is what the control plane
+//! signs and what the agent re-derives to verify.
 //!
 //! Algorithm summary (RFC 8785, simplified for our subset):
 //!

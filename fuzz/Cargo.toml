@@ -1,4 +1,4 @@
-# Fuzzing harness for SDA (Phase 6 task 6.4).
+# Fuzzing harness for SDA.
 #
 # This is a standalone crate (own [workspace]) so the main workspace
 # build on stable Rust is unaffected. To run:
@@ -7,7 +7,8 @@
 #   cd fuzz
 #   cargo +nightly fuzz run protocol_decode
 #
-# See docs/security-audit.md for the full per-target guide.
+# See `docs/security.md` § 4 (Differential fuzzing) for the
+# per-target guide, corpus management, and coverage goals.
 
 [package]
 name = "sda-fuzz"

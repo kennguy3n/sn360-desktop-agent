@@ -1,5 +1,5 @@
 # Sign the SN360 EDR minifilter driver via the Windows Hardware
-# Compatibility Program (WHCP) (Phase E6.2).
+# Compatibility Program (WHCP).
 #
 # Production signing pipeline — requires:
 #   * A Microsoft-issued kernel-mode code-signing certificate
@@ -10,8 +10,8 @@
 #     resulting CAB to WHCP for cross-signing.
 #
 # This is NOT exercised in CI. See
-# `docs/edr-parity/PRODUCTISATION-WINDOWS.md` § "WHQL pipeline" for
-# the full process including the WHCP submission UI walkthrough.
+# `docs/kernel-drivers.md` § 2.3 (Build / sign / package pipeline)
+# for the full process including the WHCP submission UI walkthrough.
 
 [CmdletBinding()]
 param(

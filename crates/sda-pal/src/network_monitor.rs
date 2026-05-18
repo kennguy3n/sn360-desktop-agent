@@ -1,8 +1,9 @@
 //! Cross-platform network telemetry PAL trait.
 //!
 //! Backs the `sda-network-monitor` module (Phase E3 of the EDR
-//! Parity workstream). See `docs/edr-parity/ARCHITECTURE.md` § 5
-//! for the trait spec and per-OS implementation matrix.
+//! Parity workstream). See `docs/architecture.md` § 4 (Platform
+//! abstraction layer) for the trait spec and per-OS implementation
+//! matrix.
 //!
 //! Per-OS production implementations:
 //!
@@ -105,9 +106,11 @@ impl Default for NetworkMonitorOpts {
 
 /// A single network telemetry event surfaced by the PAL.
 ///
-/// The shape mirrors `docs/edr-parity/ARCHITECTURE.md` § 8 (wire
-/// schema) so the owning module can serialise it to a canonical-JSON
-/// payload without per-platform glue.
+/// The shape mirrors the wire schema described in
+/// `docs/edr.md` § 2.2 (Network telemetry) and serialised per
+/// `docs/architecture.md` § 6 (Wire protocols), so the owning module
+/// can serialise it to a canonical-JSON payload without per-platform
+/// glue.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum NetworkEvent {

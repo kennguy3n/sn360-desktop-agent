@@ -59,8 +59,8 @@ automatically (`prerelease: true`).
    ```
 
    This exits non-zero if idle RSS, idle CPU, binary size, or FIM
-   burst peak exceed the budgets in `benchmark-results.md`. Do not
-   tag unless this passes.
+   burst peak exceed the budgets in [`benchmarks.md`](./benchmarks.md).
+   Do not tag unless this passes.
 
 4. **Create and sign the tag.** Tags must be signed with a
    maintainer's GPG / SSH key.

@@ -215,7 +215,8 @@ pub enum EventKind {
     // `sda-mdm` crate is the only producer; consumers (sda-comms,
     // sda-event-bus subscribers in tests) treat the payload as
     // opaque. Wire schemas live in
-    // `docs/desktop-mdm/ARCHITECTURE.md` § 4.
+    // `docs/desktop-mdm.md` (and the Desktop MDM wire payloads in
+    // `docs/architecture.md` § 6.1 — Native protocol).
     /// Result of a `RemoteWipe` action — status (started/success/
     /// failure) + timing. High priority.
     MdmWipeResult { payload: String },
@@ -242,7 +243,7 @@ pub enum EventKind {
     // payload produced by the owning EDR crate (`sda-process-monitor`,
     // `sda-network-monitor`, `sda-host-isolation`). The bus treats
     // the payload as opaque; wire schemas live in
-    // `docs/edr-parity/ARCHITECTURE.md` § 8.
+    // `docs/edr.md` § 2 (Telemetry sources).
     /// A new process was created. Payload includes pid, ppid, name,
     /// exe_path, cmdline, user, and parent_chain.
     ProcessCreated { payload: String },
