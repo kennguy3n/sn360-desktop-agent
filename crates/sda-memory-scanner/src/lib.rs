@@ -551,7 +551,7 @@ async fn run(
 fn build_allow_list(cfg: &MemoryScannerConfig) -> HashSet<String> {
     let mut set: HashSet<String> = cfg.allow_list_processes.iter().cloned().collect();
     // The agent process is ALWAYS in the allow-list (compile-time
-    // invariant per docs/architecture.md § 8.3). We add it both as the
+    // invariant per `docs/architecture.md` § 8.3). We add it both as the
     // canonical binary name (`sn360-desktop-agent`) and as the comm
     // truncation that Linux exposes via `/proc/<pid>/comm`.
     set.insert("sn360-desktop-agent".to_string());
@@ -680,7 +680,7 @@ fn is_interesting_region(region: &MemoryRegion) -> bool {
     // RWX always wins; anonymous + JIT mappings are scanned even
     // if they aren't currently executable because attackers stage
     // shellcode in RW pages before flipping them to RX. See
-    // docs/architecture.md § 3.
+    // `docs/architecture.md` § 3.
     region.is_interesting()
 }
 

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 /// Severity ladder, aligned with `crates/sda-local-detection`.
 ///
-/// docs/wire-protocols/device-control.md § 3.1.
+/// `docs/wire-protocols/device-control.md` § 3.1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Severity {
@@ -23,7 +23,7 @@ pub enum Severity {
 
 /// Operating-system family.
 ///
-/// docs/wire-protocols/device-control.md § 3.2.
+/// `docs/wire-protocols/device-control.md` § 3.2.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PlatformOs {
@@ -34,7 +34,7 @@ pub enum PlatformOs {
 
 /// CPU architecture.
 ///
-/// docs/wire-protocols/device-control.md § 3.2.
+/// `docs/wire-protocols/device-control.md` § 3.2.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PlatformArch {
@@ -47,7 +47,7 @@ pub enum PlatformArch {
 
 /// Platform descriptor recorded with every `EvidenceRecord`.
 ///
-/// docs/wire-protocols/device-control.md § 3.2.
+/// `docs/wire-protocols/device-control.md` § 3.2.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Platform {
@@ -60,7 +60,7 @@ pub struct Platform {
 
 /// Agent version captured at execution time.
 ///
-/// docs/wire-protocols/device-control.md § 3.3.
+/// `docs/wire-protocols/device-control.md` § 3.3.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AgentVersion {
@@ -71,7 +71,7 @@ pub struct AgentVersion {
 
 /// Closed enumeration of finding kinds.
 ///
-/// docs/wire-protocols/device-control.md § 3.4. Phase 1 shipped the first eight variants;
+/// `docs/wire-protocols/device-control.md` § 3.4. Phase 1 shipped the first eight variants;
 /// `AdminDrift` was added in Phase 3 to surface JIT-admin drift
 /// findings emitted by `sda-jit-admin::drift::DriftDetector`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -110,7 +110,7 @@ pub enum FindingKind {
 
 /// What a `SignedActionJob` will do.
 ///
-/// docs/wire-protocols/device-control.md § 3.5.
+/// `docs/wire-protocols/device-control.md` § 3.5.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ActionKind {
@@ -142,7 +142,7 @@ pub enum ActionKind {
 
 /// Outcome of a `SignedActionJob` execution.
 ///
-/// docs/wire-protocols/device-control.md § 3.6.
+/// `docs/wire-protocols/device-control.md` § 3.6.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ActionStatus {
@@ -154,7 +154,7 @@ pub enum ActionStatus {
 
 /// Refusal reason; present only when `ActionStatus = Refused`.
 ///
-/// docs/wire-protocols/device-control.md § 8.3. The wire spelling MUST NOT change without a
+/// `docs/wire-protocols/device-control.md` § 8.3. The wire spelling MUST NOT change without a
 /// major version bump — the customer-facing UI surfaces these
 /// reasons verbatim.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -409,7 +409,7 @@ mod tests {
 
     #[test]
     fn job_refused_wire_spelling_matches_schema() {
-        // docs/wire-protocols/device-control.md § 8.3 — these wire spellings are part of the
+        // `docs/wire-protocols/device-control.md` § 8.3 — these wire spellings are part of the
         // public contract. Any change here is a major version bump.
         let cases = [
             (JobRefused::SchemaParseError, "schema_parse_error"),

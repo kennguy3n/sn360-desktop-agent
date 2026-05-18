@@ -13,7 +13,7 @@
 //! The emitted payload is the canonical JSON of [`VitalsSnapshot`];
 //! it is wrapped in [`EventKind::AgentVitals`] (which carries an
 //! already-serialised payload string per the wire schema in
-//! `docs/architecture.md § 6`).
+//! `docs/architecture.md` § 6).
 
 use std::time::Duration;
 
@@ -41,7 +41,7 @@ pub enum TickOutcome {
 /// Wrap a snapshot into an [`EventKind::AgentVitals`] payload.
 ///
 /// The wire schema is canonical JSON; we use `serde_json::to_string`
-/// here because the manifest schema (docs/architecture.md § 6) does not
+/// here because the manifest schema (`docs/architecture.md` § 6) does not
 /// require RFC 8785 byte-equality for vitals events — the control
 /// plane parses the payload as-is. Keeping this on a deterministic
 /// path (no maps with arbitrary keys; struct fields are

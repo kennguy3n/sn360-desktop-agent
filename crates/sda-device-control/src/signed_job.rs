@@ -71,7 +71,7 @@ pub struct AdditionalSignature {
 /// before the router pipeline runs.
 ///
 /// These errors map onto the [`crate::types::JobRefused`] reasons in
-/// docs/wire-protocols/device-control.md § 8.3 — see [`crate::router`] for the mapping.
+/// `docs/wire-protocols/device-control.md` § 8.3 — see [`crate::router`] for the mapping.
 #[derive(Debug, thiserror::Error)]
 pub enum SignedJobError {
     #[error("schema_version is {0}; this build only understands version 1")]
@@ -85,7 +85,7 @@ pub enum SignedJobError {
 }
 
 impl SignedActionJob {
-    /// Validate the structural invariants from docs/wire-protocols/device-control.md § 7 that
+    /// Validate the structural invariants from `docs/wire-protocols/device-control.md` § 7 that
     /// don't require external state (key store, clock, tenant id).
     /// Run inside `router::validate` after step 2.
     pub fn validate_structure(&self) -> Result<(), SignedJobError> {
@@ -113,7 +113,7 @@ impl SignedActionJob {
     }
 
     /// Parse `args` against the per-`ActionKind` strict struct
-    /// (docs/wire-protocols/device-control.md § 7.3). Step 10 of the validation pipeline.
+    /// (`docs/wire-protocols/device-control.md` § 7.3). Step 10 of the validation pipeline.
     pub fn parse_args(&self) -> Result<JobArgs, SignedJobError> {
         JobArgs::parse(self.action, &self.args).map_err(|detail| SignedJobError::ArgsParseError {
             action: self.action,

@@ -31,7 +31,7 @@ pub struct Finding {
     /// Human-readable, SME-targeted explanation; ≤ 512 chars.
     pub plain_english: String,
     /// Compact structured detail; ≤ 16 KiB serialised. Shape is
-    /// determined by `kind` (see docs/wire-protocols/device-control.md § 5.3).
+    /// determined by `kind` (see `docs/wire-protocols/device-control.md` § 5.3).
     pub evidence: serde_json::Value,
     /// When the agent observed the underlying state.
     pub observed_at: DateTime<Utc>,
@@ -41,7 +41,7 @@ pub struct Finding {
     pub source_refs: Option<Vec<SourceRef>>,
 }
 
-/// Forensic re-walk reference (docs/wire-protocols/device-control.md § 5.1).
+/// Forensic re-walk reference (`docs/wire-protocols/device-control.md` § 5.1).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SourceRef {
@@ -49,10 +49,10 @@ pub struct SourceRef {
     pub reference: String,
 }
 
-/// Hard cap on `Finding.plain_english` (docs/wire-protocols/device-control.md § 2.4).
+/// Hard cap on `Finding.plain_english` (`docs/wire-protocols/device-control.md` § 2.4).
 pub const FINDING_PLAIN_ENGLISH_MAX: usize = 512;
 
-/// Hard cap on `Finding.evidence` serialised size (docs/wire-protocols/device-control.md § 2.4).
+/// Hard cap on `Finding.evidence` serialised size (`docs/wire-protocols/device-control.md` § 2.4).
 pub const FINDING_EVIDENCE_MAX_BYTES: usize = 16 * 1024;
 
 /// Errors detected when building a `Finding` locally before it
@@ -76,7 +76,7 @@ pub enum FindingError {
 }
 
 impl Finding {
-    /// Validate the structural invariants from docs/wire-protocols/device-control.md § 5.2.
+    /// Validate the structural invariants from `docs/wire-protocols/device-control.md` § 5.2.
     ///
     /// This deliberately does **not** check semantic invariants
     /// (e.g. `tenant_id == self_tenant_id`). Those are bus / router
@@ -117,7 +117,7 @@ impl Finding {
 }
 
 /// Validate that `evidence` matches the per-kind shape table in
-/// docs/wire-protocols/device-control.md § 5.3.
+/// `docs/wire-protocols/device-control.md` § 5.3.
 ///
 /// Phase 1 enforces *structural* presence of the required keys
 /// (e.g. `package` for `OutdatedApp`), not full type correctness —

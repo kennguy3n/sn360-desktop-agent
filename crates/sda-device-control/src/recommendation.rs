@@ -34,7 +34,7 @@ pub struct Recommendation {
     pub valid_until: Option<DateTime<Utc>>,
 }
 
-/// Hard cap on `Recommendation.plain_english` (docs/wire-protocols/device-control.md § 2.4).
+/// Hard cap on `Recommendation.plain_english` (`docs/wire-protocols/device-control.md` § 2.4).
 pub const RECOMMENDATION_PLAIN_ENGLISH_MAX: usize = 512;
 
 #[derive(Debug, thiserror::Error)]
@@ -50,7 +50,7 @@ pub enum RecommendationError {
 }
 
 impl Recommendation {
-    /// Validate the structural invariants from docs/wire-protocols/device-control.md § 6.2.
+    /// Validate the structural invariants from `docs/wire-protocols/device-control.md` § 6.2.
     pub fn validate(&self) -> Result<(), RecommendationError> {
         if self.schema_version != crate::version::RECOMMENDATION_SCHEMA_VERSION {
             return Err(RecommendationError::SchemaVersionUnsupported(

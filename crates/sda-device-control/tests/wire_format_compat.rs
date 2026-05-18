@@ -307,7 +307,7 @@ fn evidence_record_json_shape_matches_schemas_md() {
     let v: Value = serde_json::from_str(&serde_json::to_string(&er).unwrap()).unwrap();
     let obj = v.as_object().unwrap();
 
-    // Pin the canonical key set the agent emits. docs/wire-protocols/device-control.md § 9.
+    // Pin the canonical key set the agent emits. `docs/wire-protocols/device-control.md` § 9.
     let expected_keys: &[&str] = &[
         "evidence_id",
         "tenant_id",
@@ -331,7 +331,7 @@ fn evidence_record_json_shape_matches_schemas_md() {
         assert!(obj.contains_key(*k), "EvidenceRecord must emit key {k:?}");
     }
 
-    // docs/wire-protocols/device-control.md § 6: `output_sha256` and `prev_record_hash` are
+    // `docs/wire-protocols/device-control.md` § 6: `output_sha256` and `prev_record_hash` are
     // 32-byte SHA-256 values, encoded as lowercase hex on the
     // canonical-JSON path (the `byte_array_32` serde wrapper).
     assert!(v["output_sha256"].is_string());

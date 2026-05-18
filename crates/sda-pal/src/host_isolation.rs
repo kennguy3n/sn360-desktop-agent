@@ -336,7 +336,7 @@ mod windows_impl {
             // the call.  The production-grade `netsh advfirewall`
             // + WFP COM API path (rule group `sn360_isolation`)
             // lands alongside the Windows production follow-up
-            // (docs/architecture.md § 4.2 — the Per-OS
+            // (`docs/architecture.md` § 4.2 — the Per-OS
             // implementation matrix records the production-grade
             // follow-ups for the Phase E3 host-isolation surface).
             let mut g = self.state.lock().unwrap();

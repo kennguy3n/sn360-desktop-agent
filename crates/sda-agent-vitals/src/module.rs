@@ -8,7 +8,7 @@
 //! The Phase 1 module:
 //!
 //! 1. Spawns a [`tokio::time::Interval`] at the configured cadence
-//!    (default 60s — `Priority::Low` per docs/architecture.md § 3.1).
+//!    (default 60s — `Priority::Low` per `docs/architecture.md` § 3.1).
 //! 2. Subscribes to the [`PowerProfileReceiver`] so the cadence is
 //!    paused entirely on [`PowerProfile::CriticalBattery`].
 //! 3. Calls [`run_tick`] on every fire.
@@ -16,7 +16,7 @@
 //!
 //! When `device_control.enabled = false` the agent never spawns this
 //! task, which keeps idle CPU at zero (the lazy-module-loading
-//! invariant from docs/architecture.md § 3).
+//! invariant from `docs/architecture.md` § 3).
 
 use std::sync::atomic::{AtomicU64, AtomicUsize};
 use std::sync::Arc;
@@ -32,7 +32,7 @@ use tracing::{debug, info, warn};
 use crate::collector::DefaultCollector;
 use crate::heartbeat::{effective_interval, run_tick};
 
-/// Default cadence for the heartbeat (docs/architecture.md § 3.1).
+/// Default cadence for the heartbeat (`docs/architecture.md` § 3.1).
 pub const DEFAULT_HEARTBEAT_INTERVAL_SECS: u64 = 60;
 
 /// Counters that the supervisor and the collector share. The
@@ -224,7 +224,7 @@ mod tests {
 
     #[test]
     fn default_heartbeat_interval_matches_arch_md() {
-        // docs/architecture.md § 3.1 lists AgentVitals as Priority::Low
+        // `docs/architecture.md` § 3.1 lists AgentVitals as Priority::Low
         // with a default 60-second cadence. Lock that in so a future
         // refactor cannot silently change it.
         assert_eq!(DEFAULT_HEARTBEAT_INTERVAL_SECS, 60);

@@ -15,7 +15,7 @@
 //!
 //! The pipeline returns `Result<(), JobRefused>`; on `Err(reason)`
 //! the caller MUST emit an `ActionResult` with `status = Refused`
-//! and `refused_reason = Some(reason)` per docs/wire-protocols/device-control.md § 8.3.
+//! and `refused_reason = Some(reason)` per `docs/wire-protocols/device-control.md` § 8.3.
 //!
 //! This module also exposes [`process_job`], the higher-level entry
 //! point that the agent's job dispatcher calls. `process_job` runs
@@ -472,7 +472,7 @@ fn phase2_window_deferred_ack(job: &SignedActionJob, now: DateTime<Utc>) -> Acti
 /// payloads for a [`ProcessedJob`] onto the event bus.
 ///
 /// Both events use [`Priority::High`] per the Phase 0 sign-off
-/// (docs/architecture.md § 5.2 — Device Control results sit just below
+/// (`docs/architecture.md` § 5.2 — Device Control results sit just below
 /// `Critical`). Failures to enqueue onto the server-bound queue are
 /// logged at WARN; we deliberately do **not** call `bus.publish`
 /// again afterwards because `EventBus::publish_to_server` already
@@ -1081,7 +1081,7 @@ mod tests {
 
     #[test]
     fn process_job_first_record_uses_zero_sentinel_prev_hash() {
-        // docs/wire-protocols/device-control.md § 9.1 — the very first evidence record on a
+        // `docs/wire-protocols/device-control.md` § 9.1 — the very first evidence record on a
         // device's chain MUST link to FIRST_RECORD_PREV_HASH (32
         // bytes of zero).
         let mut chain = EvidenceChain::new();

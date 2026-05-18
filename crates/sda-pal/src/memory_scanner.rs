@@ -817,7 +817,7 @@ pub mod macos_imp {
             Err(io::Error::new(
                 io::ErrorKind::Unsupported,
                 "macOS task_for_pid requires com.apple.security.cs.debugger; \
-                 see docs/kernel-drivers.md § 3.2 (Entitlements)",
+                 see `docs/kernel-drivers.md` § 3.2 (Entitlements)",
             ))
         }
 

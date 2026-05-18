@@ -1003,7 +1003,7 @@ fn map_event_to_message(agent_id: &str, kind: &EventKind) -> Option<WazuhMessage
         // canonical-JSON `payload` produced by `sda-device-control`.
         // We forward it verbatim — the producing module is the single
         // source of truth for the wire encoding (RFC 8785 canonical
-        // JSON, see docs/wire-protocols/device-control.md § 2).
+        // JSON, see `docs/wire-protocols/device-control.md` § 2).
         EventKind::DeviceControlFinding { payload } => {
             (MessageType::DeviceControlFinding, payload.clone())
         }

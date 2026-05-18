@@ -6,7 +6,7 @@
 //! a [`EventKind::LocalDetectionAlert`] event with
 //! `rule_type == "dlp"`.
 //!
-//! ## Redaction invariant (docs/architecture.md § 8.2)
+//! ## Redaction invariant (`docs/architecture.md` § 8.2)
 //!
 //! The matched bytes **MUST NOT** leave the module. Findings carry
 //! only:

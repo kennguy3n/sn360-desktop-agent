@@ -258,7 +258,7 @@ mod tests {
 
     #[test]
     fn signed_action_job_pre_image_blanks_signature_field() {
-        // docs/wire-protocols/device-control.md § 7.2 rule: the canonical pre-image of a
+        // `docs/wire-protocols/device-control.md` § 7.2 rule: the canonical pre-image of a
         // signed-job is the canonical encoding with `signature`
         // replaced by an empty string. We don't replace here — the
         // caller does — but make sure the canonicalizer treats the
