@@ -7,6 +7,9 @@ license.workspace = true
 
 [features]
 default = []
+# Exposes the in-process mock `IdentityProvider` so the E5 E2E
+# tests in `sda-agent` can construct one without enabling `cfg(test)`.
+test-support = []
 
 [dependencies]
 sda-core = { workspace = true }

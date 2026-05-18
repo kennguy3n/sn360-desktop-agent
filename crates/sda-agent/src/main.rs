@@ -468,6 +468,70 @@ async fn main() -> Result<()> {
         agent.register_module(dm_handle);
     }
 
+    // 12f-quinquies-bis. Memory Scanner module (Phase E4) — Off by
+    //                    default. Flipping `memory_scanner.enabled =
+    //                    true` lights up the periodic RWX-region
+    //                    scanner that hands bounded byte slices to
+    //                    the YARA matcher (`scan_bytes` from E4.5)
+    //                    and the optional AMSI provider (Windows,
+    //                    feature `amsi`). Self-pid exclusion is
+    //                    enforced both at the PAL trait level
+    //                    (`MemoryScanner::enumerate`) and at the
+    //                    module's allow-list (`should_skip_pid`) —
+    //                    see `ARCHITECTURE.md § 9.4` for the safety
+    //                    model. CPU / battery gating respects the
+    //                    same `PowerMonitor` the enhanced-inventory
+    //                    sweep uses.
+    if config.modules.memory_scanner.enabled {
+        info!("starting memory scanner module");
+        let ms_handle = sda_memory_scanner::MemoryScannerModule::start(
+            &config,
+            agent.event_bus(),
+            agent.shutdown_signal(),
+        );
+        agent.register_module(ms_handle);
+    }
+
+    // 12f-quinquies-ter. Identity Monitor module (Phase E5) — Off by
+    //                    default. Subscribes to FIM / process / ETW
+    //                    feeds and emits `EventKind::IdentityAlert`
+    //                    with MITRE ATT&CK technique IDs for
+    //                    LSASS access (Windows T1003.001),
+    //                    /etc/shadow + /proc/kcore access (Linux
+    //                    T1003.008 / T1003), and keychain access
+    //                    (macOS T1555.001). See E5 in
+    //                    `docs/edr-parity/PHASES.md`.
+    if config.modules.identity_monitor.enabled {
+        info!("starting identity monitor module");
+        let im_handle = sda_identity_monitor::IdentityMonitorModule::start(
+            &config,
+            agent.event_bus(),
+            agent.shutdown_signal(),
+        );
+        agent.register_module(im_handle);
+    }
+
+    // 12f-quinquies-quater. DLP module (Phase E5) — Off by
+    //                       default. Subscribes to `FileCreated` /
+    //                       `FileModified` from FIM and scans
+    //                       bounded byte windows against the
+    //                       regex pattern set (US SSN / UK NI /
+    //                       PCI PAN+Luhn). Emits redaction-safe
+    //                       findings via
+    //                       `EventKind::LocalDetectionAlert` with
+    //                       `rule_type = "dlp"` — `ARCHITECTURE.md
+    //                       § 8.1` REQUIRES the matched bytes
+    //                       MUST NOT appear in the payload.
+    if config.modules.dlp.enabled {
+        info!("starting DLP module");
+        let dlp_handle = sda_dlp::DlpModule::start(
+            &config,
+            agent.event_bus(),
+            agent.shutdown_signal(),
+        );
+        agent.register_module(dlp_handle);
+    }
+
     // 12f-quinquies. Host Isolation module (Phase E3) — Off by
     //                default. Consumes `IsolateHost` /
     //                `UnisolateHost` `SignedActionJob`s once the
