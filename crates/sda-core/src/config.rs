@@ -264,9 +264,8 @@ pub struct ModulesConfig {
     // Unlike every other Phase-1+ module, MDM defaults to `enabled =
     // true` per `docs/desktop-mdm.md` § 1 (Product loop) and the
     // Desktop MDM section of `docs/configuration-reference.md`.
-    // Operators that
-    // need to disable it must explicitly set `modules.mdm.enabled =
-    // false` in their config.
+    // Operators that need to disable it must explicitly set
+    // `modules.mdm.enabled = false` in their config.
     #[serde(default)]
     pub mdm: MdmConfig,
 
@@ -1886,9 +1885,9 @@ fn default_remote_support_max_session_minutes() -> u32 {
 // -------------------------------------------------------------------------
 // ShieldNet Desktop MDM (Phase M1–M3) — configuration schema.
 //
-// Mirrors `docs/configuration-reference.md` (Desktop MDM section)
-// verbatim. The
-// distinguishing property versus every other Phase-1+ module config
+// Mirrors the Desktop MDM section of `docs/configuration-reference.md`
+// verbatim. The distinguishing property versus every other
+// Phase-1+ module config
 // is that `MdmConfig::default()` produces `enabled = true` with every
 // `auto_remediate.*` flag also `true`. This is the documented
 // "defaults-on" posture per ARCHITECTURE.md § 5.
