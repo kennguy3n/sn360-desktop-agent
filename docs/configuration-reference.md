@@ -153,7 +153,7 @@ modules:
 ```yaml
 modules:
   local_detection:
-    enabled: true                       # default since EDR Parity E2.3 — see Migration
+    enabled: true                       # default — see “Migration notes” below
     rule_bundle_path: /var/lib/sn360-desktop-agent/rules.mp
     yara_rules_dir: /var/lib/sn360-desktop-agent/yara
     offline_queue_capacity: 10000
@@ -166,8 +166,8 @@ modules:
 run the Local Detection Engine against the embedded baseline
 bundle (three behavioural process-chain rules + a small set of
 synthetic IOCs from `crates/sda-local-detection/src/default_bundle.rs`)
-on startup. To preserve the pre-EDR-Parity default-off behaviour,
-explicitly set `modules.local_detection.enabled: false`.
+on startup. To opt out, explicitly set
+`modules.local_detection.enabled: false`.
 
 `rule_pull_interval` is enforced with a soft floor of 1 second so
 the e2e hot-reload suite can converge quickly; in production we
@@ -198,20 +198,15 @@ modules:
     always_allow_loopback: true      # informational — loopback is ALWAYS allowed by the PAL
 ```
 
-> ⚠️ **Phase E3 startup gate.** Setting `host_isolation.enabled: true`
-> is currently a **no-op at startup**: the host-isolation module is
-> only constructed when the agent has a real enrolled tenant +
-> device identity, and the wiring that threads that identity through
-> the Device Control router lands with Phase E3 tasks
-> [E3.13](./edr-parity/PHASES.md#e313) (server-side identity push)
-> and [E3.14](./edr-parity/PHASES.md#e314) (agent-side router
-> binding).  Until both server-side tasks ship, the agent logs a
-> `warn!` at startup explaining that host isolation is configured
-> but inactive, and every `IsolateHost` / `UnisolateHost` job from
-> the control plane will be refused at the router layer.
-> Operators can safely enable the config flag ahead of the server
-> rollout — the agent will pick up the live path automatically once
-> the identity wiring is in place.
+> ⚠️ **Startup gate.** Setting `host_isolation.enabled: true` is
+> a no-op until the agent has a real enrolled tenant + device
+> identity wired through the Device Control router. The agent
+> logs a `warn!` at startup explaining that host isolation is
+> configured but inactive, and `IsolateHost` / `UnisolateHost`
+> jobs from the control plane are refused at the router layer
+> until the identity binding is in place. Operators can safely
+> enable the flag ahead of the server rollout — the agent will
+> pick up the live path automatically once the wiring is live.
 
 `control_plane_cidrs` MUST be non-empty whenever `enabled: true`.
 The host-isolation module refuses `IsolateHost` jobs (and bumps
@@ -224,12 +219,11 @@ possible.
 
 `always_allow_dns: true` (the default) instructs the agent to
 discover the host's system DNS resolvers and union them into the
-allow-list so name resolution survives isolation.  On Linux this
+allow-list so name resolution survives isolation. On Linux this
 parses `/etc/resolv.conf` (IPv6 scope ids stripped); on Windows
-and macOS the platform helper lands with the Phase E3 per-OS
-production follow-ups, and operators should pass DNS resolver
-IPs explicitly via the job's `extra_allow_ips` or via
-`control_plane_cidrs` until then.
+and macOS the platform helper is still maturing — operators
+should pass DNS resolver IPs explicitly via the job's
+`extra_allow_ips` or via `control_plane_cidrs` until then.
 
 `always_allow_loopback` is informational only — `127.0.0.0/8`
 and `::1/128` are appended to every allow-list by
@@ -243,7 +237,7 @@ disable loopback access.
 ```yaml
 modules:
   memory_scanner:
-    enabled: false                            # default — opt-in (Phase E4)
+    enabled: false                            # default — opt-in
     scan_interval_secs: 300                   # default: 300 (5 min between full sweeps)
     only_when_idle_below_cpu_pct: 20          # default: 20 — skip sweep when host CPU >= 20 %
     allow_list_processes:                     # processes excluded from scanning
@@ -252,9 +246,9 @@ modules:
 ```
 
 > ⚠️ **Safety invariant.** The agent process is **always** in the
-> allow-list at compile time (per
-> [`ARCHITECTURE.md` § 9.4](./edr-parity/ARCHITECTURE.md)), even if
-> the operator explicitly removes it from
+> allow-list at compile time (see
+> [`docs/architecture.md`](./architecture.md#memory-scanner-safety)),
+> even if the operator explicitly removes it from
 > `allow_list_processes`. The PAL trait
 > (`sda_pal::memory_scanner::MemoryScanner::enumerate`) enforces
 > self-pid exclusion independently and the in-memory YARA rules
@@ -276,7 +270,7 @@ window — the module reads the rolling host-CPU estimate from
 sweep (without emitting an error) when the sample exceeds the
 threshold. This keeps the scanner within the 1 %-of-scan-window
 CPU budget documented in
-[`ARCHITECTURE.md` § 7.2](./edr-parity/ARCHITECTURE.md).
+[`docs/architecture.md`](./architecture.md#resource-budgets).
 
 `yara_rule_source` controls where the in-memory YARA rules come
 from. `"trds"` (the default) reuses the existing
@@ -298,7 +292,7 @@ with `alert_type: "amsi_match"`. Off by default.
 ```yaml
 modules:
   identity_monitor:
-    enabled: false                  # default — opt-in (Phase E5)
+    enabled: false                  # default — opt-in
     lsass_access_windows: true      # ETW Microsoft-Windows-Threat-Intelligence + NtOpenProcess on lsass.exe — T1003.001
     shadow_access_linux: true       # FileMetadataChanged on /etc/shadow + audit on /proc/kcore — T1003.008 / T1003
     keychain_access_macos: true     # Endpoint Security ES_EVENT_TYPE_NOTIFY_OPEN on Keychain paths — T1555.001
@@ -327,7 +321,7 @@ entitlement (production signing only; CI uses
 ```yaml
 modules:
   dlp:
-    enabled: false                       # default — opt-in (Phase E5)
+    enabled: false                       # default — opt-in
     mode: "monitor"                      # "monitor" (default) | "enforce"
     patterns:                            # baseline regex pattern set
       - pii.ssn                          # US Social Security Number
@@ -340,8 +334,8 @@ modules:
 **Redaction invariant (mandatory).** DLP findings never carry the
 matched bytes — the agent emits only the pattern category, byte
 offset, length, and the Blake3 fingerprint of the surrounding
-32-byte window (per
-[`ARCHITECTURE.md` § 8.1](./edr-parity/ARCHITECTURE.md)).
+32-byte window (see
+[`docs/architecture.md`](./architecture.md#dlp-redaction-invariant)).
 Operators can correlate two findings as the same matched value
 via fingerprint without ever reading the underlying PII / PCI
 content. This is enforced at the scanner output type
@@ -418,10 +412,8 @@ no `legacy_adapter:` key is parsed today. For the current release,
 configure the legacy path through the existing `server:` and
 `enrollment:` stanzas, and build with (or without)
 `--no-default-features` on the `sda-agent` crate to toggle the
-adapter at compile time. See
-[`proprietary-licensing-rationale.md`](./proprietary-licensing-rationale.md)
-for the clean-room interoperability statement and the
-[revised phase plan](./revised-phase-plan.md) for the timeline.
+adapter at compile time. See [`licensing.md`](./licensing.md) for
+the clean-room interoperability statement.
 
 ---
 

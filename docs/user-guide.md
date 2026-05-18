@@ -164,7 +164,7 @@ Symptom: `systemctl status sda-agent` shows repeated
 ### High CPU during FIM scan
 
 The burst budget is 3 % peak (see
-[`benchmark-results.md`](../benchmark-results.md)). If you see
+[`docs/benchmarks.md`](./benchmarks.md)). If you see
 higher, adjust in `config.yaml`:
 
 ```yaml

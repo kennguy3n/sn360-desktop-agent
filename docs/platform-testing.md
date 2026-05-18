@@ -1,7 +1,7 @@
 # Platform Testing
 
-Phase 6 task 6.2 requires SDA to be validated on Windows 10/11,
-macOS 12–15, and Ubuntu/Fedora/Arch. The GitHub Actions matrix in
+SDA targets Windows 10/11, macOS 12–15, and modern Linux
+(Ubuntu, Fedora, Arch). The GitHub Actions matrix in
 `.github/workflows/ci.yml` covers the platforms that are available
 as hosted runners:
 
