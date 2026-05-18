@@ -18,7 +18,7 @@ SDA is a single static binary with two supported back ends:
 - **Existing SIEM manager (default today).** The binary speaks a
   publicly documented legacy agent wire protocol on TCP/UDP port
   1514 with enrolment on port 1515. Interoperability with
-  reference  manager versions 4.7.x – 4.9.x is validated in CI via
+  reference manager versions 4.7.x – 4.9.x is validated in CI via
   `make e2e` (v4.9.2) and `make e2e-compat` (v4.7.5). See
   [`licensing.md`](./licensing.md) for the clean-room
   interoperability statement.

@@ -201,7 +201,7 @@ Every `.rs` source file must start with:
 // Copyright 2024-2026 SN360 Inc. All rights reserved.
 ```
 
-CI will reject files that don't carry the header.
+Reviewers will ask for the header to be added before merge.
 
 ## Pull requests
 

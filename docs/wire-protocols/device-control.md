@@ -518,7 +518,7 @@ they support and downgrade gracefully to a known-good lower version.
 
 ## 11. Redaction
 
-Per [`architecture.md` § 8.1](../architecture.md#81-redaction-invariant),
+Per [`architecture.md` § 8.2](../architecture.md#82-redaction-invariant),
 no schema field carries unbounded user content. Specifically:
 
 - `Finding.evidence` is bounded to 16 KiB and the per-kind shapes

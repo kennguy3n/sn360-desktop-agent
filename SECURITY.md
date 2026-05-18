@@ -15,9 +15,9 @@ preview tags are not supported.
 **Do not open a public issue, pull request, or discussion thread
 for security vulnerabilities.**
 
-Send the report to **[security@sn360.com](mailto:security@sn360.com)**.
+Send the report to **[security@uney.com](mailto:security@uney.com)**.
 Encrypt sensitive details with our PGP key (fingerprint published
-at [https://sn360.com/.well-known/security.txt](https://sn360.com/.well-known/security.txt))
+at [https://uney.com/.well-known/security.txt](https://uney.com/.well-known/security.txt))
 if the issue involves credentials, exploit code, or PII.
 
 A useful report includes:

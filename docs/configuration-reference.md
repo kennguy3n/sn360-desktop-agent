@@ -247,7 +247,7 @@ modules:
 
 > ⚠️ **Safety invariant.** The agent process is **always** in the
 > allow-list at compile time (see
-> [`docs/architecture.md`](./architecture.md#memory-scanner-safety)),
+> [`docs/architecture.md`](./architecture.md#83-memory-scanner-safety)),
 > even if the operator explicitly removes it from
 > `allow_list_processes`. The PAL trait
 > (`sda_pal::memory_scanner::MemoryScanner::enumerate`) enforces
@@ -270,7 +270,7 @@ window — the module reads the rolling host-CPU estimate from
 sweep (without emitting an error) when the sample exceeds the
 threshold. This keeps the scanner within the 1 %-of-scan-window
 CPU budget documented in
-[`docs/architecture.md`](./architecture.md#resource-budgets).
+[`docs/architecture.md`](./architecture.md#5-resource-budgets).
 
 `yara_rule_source` controls where the in-memory YARA rules come
 from. `"trds"` (the default) reuses the existing
@@ -335,7 +335,7 @@ modules:
 matched bytes — the agent emits only the pattern category, byte
 offset, length, and the Blake3 fingerprint of the surrounding
 32-byte window (see
-[`docs/architecture.md`](./architecture.md#dlp-redaction-invariant)).
+[`docs/architecture.md`](./architecture.md#82-redaction-invariant)).
 Operators can correlate two findings as the same matched value
 via fingerprint without ever reading the underlying PII / PCI
 content. This is enforced at the scanner output type
