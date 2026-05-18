@@ -19,7 +19,7 @@
 //!
 //! 1. The agent's own PID is NEVER passed to
 //!    [`MemoryScanner::enumerate`] or [`MemoryScanner::read`]
-//!    (`ARCHITECTURE.md § 9.4`). Self-pid exclusion is enforced both
+//!    (`docs/architecture.md` § 8.3). Self-pid exclusion is enforced both
 //!    at the module level (here) and at the PAL level (in
 //!    `sda-pal::memory_scanner`).
 //! 2. The bus publish path uses
@@ -36,7 +36,7 @@
 //!      [`MemoryScannerConfig::defer_on_battery`] +
 //!      [`sda_pal::power::PowerMonitor`].
 //!
-//!    These together match the `ARCHITECTURE.md § 7.2` budget
+//!    These together match the `docs/architecture.md` § 5.2 budget
 //!    (peak 4 MB RSS / 1% CPU during a scan window).
 //!
 //! ## AMSI (Windows, optional)
@@ -220,7 +220,7 @@ pub struct MemoryScanAlertPayload {
     /// The alert subtype (YARA / AMSI / RWX-enumeration).
     pub alert_type: MemoryAlertKind,
     /// Human-readable description (matched rule id, error string,
-    /// etc.). Per `ARCHITECTURE.md § 8.1` this MUST NOT contain
+    /// etc.). Per `docs/architecture.md` § 8.2 this MUST NOT contain
     /// raw matched bytes from the scanned region.
     pub description: String,
     /// RFC3339 timestamp when the alert was generated.
@@ -246,7 +246,7 @@ pub trait MemoryMatcher: Send + Sync {
 pub struct MemoryMatch {
     pub alert_type: MemoryAlertKind,
     /// Human-readable description (matched rule id, etc.). MUST
-    /// NOT contain raw matched bytes (`ARCHITECTURE.md § 8.1`).
+    /// NOT contain raw matched bytes (`docs/architecture.md` § 8.2).
     pub description: String,
 }
 
@@ -551,7 +551,7 @@ async fn run(
 fn build_allow_list(cfg: &MemoryScannerConfig) -> HashSet<String> {
     let mut set: HashSet<String> = cfg.allow_list_processes.iter().cloned().collect();
     // The agent process is ALWAYS in the allow-list (compile-time
-    // invariant per ARCHITECTURE.md § 9.4). We add it both as the
+    // invariant per docs/architecture.md § 8.3). We add it both as the
     // canonical binary name (`sn360-desktop-agent`) and as the comm
     // truncation that Linux exposes via `/proc/<pid>/comm`.
     set.insert("sn360-desktop-agent".to_string());
@@ -680,7 +680,7 @@ fn is_interesting_region(region: &MemoryRegion) -> bool {
     // RWX always wins; anonymous + JIT mappings are scanned even
     // if they aren't currently executable because attackers stage
     // shellcode in RW pages before flipping them to RX. See
-    // ARCHITECTURE.md § 3.4.
+    // docs/architecture.md § 3.
     region.is_interesting()
 }
 

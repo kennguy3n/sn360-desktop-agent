@@ -33,7 +33,7 @@ mod tests {
     #[test]
     fn all_phase1_versions_are_one() {
         // Phase 1 ships at v1 across the board. If this assertion
-        // fires, you must update SCHEMAS.md § 11 and add a new ADR.
+        // fires, you must update docs/wire-protocols/device-control.md § 10 and add a new ADR.
         assert_eq!(FINDING_SCHEMA_VERSION, 1);
         assert_eq!(RECOMMENDATION_SCHEMA_VERSION, 1);
         assert_eq!(SIGNED_ACTION_JOB_SCHEMA_VERSION, 1);

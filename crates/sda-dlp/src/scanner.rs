@@ -6,7 +6,7 @@
 //!
 //! # Redaction invariant
 //!
-//! `ARCHITECTURE.md § 8.1` says **no matched bytes may leave the
+//! `docs/architecture.md` § 8.2 says **no matched bytes may leave the
 //! scanner**. Every [`DlpFinding`] therefore carries only:
 //!
 //! - the matching category (e.g. `"pii.ssn"`)

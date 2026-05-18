@@ -1,5 +1,5 @@
 //! Enforce mode: push verified policy to the OS-level backend with
-//! dual-control rollback (PROPOSAL.md § 9.6).
+//! dual-control rollback (`docs/device-control.md` § 8).
 //!
 //! Enforce mode requires explicit tenant opt-in. Every apply
 //! captures the previously-active policy in a

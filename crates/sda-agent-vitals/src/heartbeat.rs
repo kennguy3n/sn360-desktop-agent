@@ -2,7 +2,7 @@
 //! on the shared event bus.
 //!
 //! The heartbeat runs at `interval_secs` (default 60s, taken from
-//! `ARCHITECTURE.md § 7.3` where `AgentVitals` is `Priority::Low`).
+//! `docs/architecture.md` § 3.1 where `AgentVitals` is `Priority::Low`).
 //! It honours power-aware deferral: on
 //! [`PowerProfile::CriticalBattery`] the cadence is paused entirely
 //! so the radios stay quiet on a dying laptop. On any other profile
@@ -13,7 +13,7 @@
 //! The emitted payload is the canonical JSON of [`VitalsSnapshot`];
 //! it is wrapped in [`EventKind::AgentVitals`] (which carries an
 //! already-serialised payload string per the wire schema in
-//! `SCHEMAS.md § 12`).
+//! `docs/architecture.md § 6`).
 
 use std::time::Duration;
 
@@ -41,7 +41,7 @@ pub enum TickOutcome {
 /// Wrap a snapshot into an [`EventKind::AgentVitals`] payload.
 ///
 /// The wire schema is canonical JSON; we use `serde_json::to_string`
-/// here because the manifest schema (SCHEMAS.md § 12) does not
+/// here because the manifest schema (docs/architecture.md § 6) does not
 /// require RFC 8785 byte-equality for vitals events — the control
 /// plane parses the payload as-is. Keeping this on a deterministic
 /// path (no maps with arbitrary keys; struct fields are

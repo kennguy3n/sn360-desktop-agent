@@ -570,7 +570,7 @@ mod linux_impl {
             // ever sees the orphan. `revoke_admin` cannot reach in
             // either, since the only handle is the one we are about
             // to fail to return. The drop-in would stay live until
-            // external cleanup. PROPOSAL.md § 21 calls this out as
+            // external cleanup. `docs/device-control.md` § 11 calls this out as
             // a High-severity orphaning risk.
             //
             // Roll back the OS-level grant best-effort before
@@ -751,7 +751,7 @@ mod macos_impl {
             // the orphan. `revoke_admin` cannot reach in either
             // (the only handle is the one we are about to fail to
             // return). The membership would stay live until external
-            // cleanup. PROPOSAL.md § 21 calls this out as a
+            // cleanup. `docs/device-control.md` § 11 calls this out as a
             // High-severity orphaning risk.
             //
             // Roll back the OS-level grant best-effort with the
@@ -971,7 +971,7 @@ mod windows_impl {
             // the orphan. `revoke_admin` cannot reach in either (the
             // only handle is the one we are about to fail to
             // return). The membership would stay live until external
-            // cleanup. PROPOSAL.md § 21 calls this out as a
+            // cleanup. `docs/device-control.md` § 11 calls this out as a
             // High-severity orphaning risk.
             //
             // Roll back the OS-level grant best-effort with the

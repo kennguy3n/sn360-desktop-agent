@@ -1,4 +1,4 @@
-//! Phase 3 JIT-admin end-to-end suite (PHASES.md task 3.8).
+//! Phase 3 JIT-admin end-to-end suite (task 3.8).
 //!
 //! Hermetic exercises of the JIT-admin lifecycle shipped in Phase 3
 //! (grant request, approval, denial, time-boxed grant, automatic
@@ -168,7 +168,7 @@ fn count<F: Fn(&EventKind) -> bool>(kinds: &[EventKind], pred: F) -> usize {
 
 // ---------- Scenario 1: request → approve → revoke chain -------------------
 
-/// PHASES.md task 3.8 #1 — request, approve, then explicit revoke.
+/// Request, approve, then explicit revoke.
 ///
 /// Asserts the supervisor walks the full grant lifecycle:
 /// `Requested` → `Approved` → `Granted` → `Revoked`, calling
@@ -253,7 +253,7 @@ async fn request_approve_revoke_chain() {
 
 // ---------- Scenario 2: request → deny -------------------------------------
 
-/// PHASES.md task 3.8 #2 — a denied request walks
+/// A denied request walks
 /// `Requested` → `Denied` and emits `JitAdminRequested` +
 /// `JitAdminRevoked` (the supervisor reuses the
 /// `JitAdminRevoked` wire shape for terminal denials).
@@ -313,7 +313,7 @@ async fn request_then_deny_emits_revoked_event() {
 
 // ---------- Scenario 3: boot sweep on overdue grants -----------------------
 
-/// PHASES.md task 3.8 #3 — boot sweep revokes a `Granted` record
+/// Boot sweep revokes a `Granted` record
 /// whose `until` is in the past at startup. The OS-level revoke
 /// must be invoked exactly once and the on-disk record must be
 /// terminal (`Revoked`) afterwards.
@@ -356,7 +356,7 @@ async fn boot_sweep_revokes_overdue_granted_record() {
     assert!(r.state.is_terminal());
 }
 
-/// PHASES.md task 3.4 — an edge case for the boot sweep: a grant
+/// An edge case for the boot sweep: a grant
 /// whose `until` was multiple days ago (simulating a long agent
 /// outage) MUST still be force-revoked on the next boot. The sweep
 /// is idempotent, so a second supervisor startup against the same
@@ -428,7 +428,7 @@ async fn boot_sweep_handles_grants_expired_during_long_shutdown() {
 
 // ---------- Scenario 4: drift detection -----------------------------------
 
-/// PHASES.md task 3.8 #4 — drift detection finds an admin that the
+/// Drift detection finds an admin that the
 /// agent did not grant (e.g. a user added to `sudo` outside SDA)
 /// and emits a `DeviceControlFinding` paired with an
 /// `EvidenceRecord`.
@@ -486,7 +486,7 @@ async fn drift_detection_finds_externally_added_admin() {
 
 // ---------- Scenario 5: heartbeat-loss revocation --------------------------
 
-/// PHASES.md task 3.8 #5 — heartbeat loss revokes an active grant.
+/// Heartbeat loss revokes an active grant.
 /// We set `heartbeat_loss_secs = 1`, mark a heartbeat as observed
 /// 10 seconds ago, approve a grant, and wait long enough for the
 /// watchdog tick to detect the deadline crossing.
@@ -555,7 +555,7 @@ async fn heartbeat_loss_revokes_active_grant() {
 
 // ---------- Scenario 6: power-profile revocation ---------------------------
 
-/// PHASES.md task 3.8 #6 — a power transition (suspend / sleep /
+/// A power transition (suspend / sleep /
 /// lock) revokes any active grant immediately. We approve a grant
 /// and feed in a `PowerSuspend` transition, then assert
 /// `revoke_admin` was called once.
@@ -612,10 +612,10 @@ async fn power_transition_revokes_active_grant() {
 
 // ---------- Scenario 7: evidence chain continuity --------------------------
 
-/// PHASES.md task 3.8 #7 — every JIT-admin transition emits exactly
+/// Every JIT-admin transition emits exactly
 /// one `EvidenceRecord` on the bus, so a request → approve → revoke
 /// chain produces three records (one per transition). This is the
-/// audit-trail invariant called out in PROPOSAL.md § 9.3 ("evidence
+/// audit-trail invariant called out in `docs/device-control.md` § 7 ("evidence
 /// at every transition").
 #[tokio::test(flavor = "current_thread")]
 async fn evidence_chain_continuity_across_lifecycle() {

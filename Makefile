@@ -143,7 +143,7 @@ e2e-software:
 e2e-jit-admin:
 	$(CARGO) test --package sda-agent --test e2e_jit_admin -- --nocapture
 
-# Phase 4 app-control E2E suite (PHASES.md task 4.12). Exercises the
+# Phase 4 app-control E2E suite. Exercises the
 # WDAC + AppLocker (Windows) and dm-verity-aware (Linux) backends,
 # the monitor / enforce controllers, dual-control rollback,
 # anti-rollback + tampered-signature rejection, and evidence
@@ -153,7 +153,7 @@ e2e-jit-admin:
 e2e-app-control:
 	$(CARGO) test --package sda-agent --test e2e_app_control -- --nocapture
 
-# Phase 4 remote-support E2E suite (PHASES.md task 4.12). Walks the
+# Phase 4 remote-support E2E suite. Walks the
 # consent-gated session lifecycle end-to-end: explicit user click
 # (approve/deny/timeout), wall-clock cap sweep, and the fail-closed
 # stub prompt that prevents any production session from starting
@@ -163,7 +163,7 @@ e2e-app-control:
 e2e-remote-support:
 	$(CARGO) test --package sda-agent --test e2e_remote_support -- --nocapture
 
-# Phase 5 management-compat E2E suite (PHASES.md task 5.7).
+# Phase 5 management-compat E2E suite.
 # Exercises the sda-management-compat shim translating
 # Fleet-flavoured GitOps YAML into SDA-native config: valid
 # Fleet -> SDA, EE-feature rejection, cross-tenant isolation, and
@@ -273,8 +273,8 @@ e2e-identity:
 # UK-NI / PAN+Luhn matches surface as LocalDetectionAlert events
 # with rule_type="dlp", monitor mode emits medium severity and
 # enforce mode escalates to high, the matched bytes never appear
-# in description or matched_value (ARCHITECTURE.md § 8.1 redaction
-# invariant), and the bounded-read window honours
+# in description or matched_value (`docs/architecture.md` § 8.2
+# Redaction invariant), and the bounded-read window honours
 # max_bytes_per_file. Hermetic — no clipboard provider, no on-disk
 # real PII. Lives in crates/sda-agent/tests/e2e_dlp.rs.
 e2e-dlp:

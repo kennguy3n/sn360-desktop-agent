@@ -478,8 +478,8 @@ async fn main() -> Result<()> {
     //                    enforced both at the PAL trait level
     //                    (`MemoryScanner::enumerate`) and at the
     //                    module's allow-list (`should_skip_pid`) —
-    //                    see `ARCHITECTURE.md § 9.4` for the safety
-    //                    model. CPU / battery gating respects the
+    //                    see `docs/architecture.md` § 8.3 for the
+    //                    safety model. CPU / battery gating respects the
     //                    same `PowerMonitor` the enhanced-inventory
     //                    sweep uses.
     if config.modules.memory_scanner.enabled {
@@ -520,8 +520,9 @@ async fn main() -> Result<()> {
     //                       PCI PAN+Luhn). Emits redaction-safe
     //                       findings via
     //                       `EventKind::LocalDetectionAlert` with
-    //                       `rule_type = "dlp"` — `ARCHITECTURE.md
-    //                       § 8.1` REQUIRES the matched bytes
+    //                       `rule_type = "dlp"` —
+    //                       `docs/architecture.md` § 8.2 (Redaction
+    //                       invariant) REQUIRES the matched bytes
     //                       MUST NOT appear in the payload.
     if config.modules.dlp.enabled {
         info!("starting DLP module");
@@ -789,7 +790,7 @@ async fn main() -> Result<()> {
         };
 
     // 12l-quater. Remote-support module (Phase 4.2).
-    //              Off by default. PROPOSAL.md § 9.7 mandates a
+    //              Off by default. `docs/device-control.md` § 9 mandates a
     //              consent banner on every session — the Phase-4
     //              default consent prompt is `StubConsentPrompt`,
     //              which denies every request. The agent therefore
@@ -822,8 +823,8 @@ async fn main() -> Result<()> {
     };
 
     // 12l-quinquies. App-control module (Phase 4.5).
-    //                Off by default. PHASES.md Phase-4 acceptance
-    //                criteria #2 mandates `Monitor` mode by
+    //                Off by default. Phase-4 acceptance criteria
+    //                mandate `Monitor` mode by
     //                default; `Enforce` requires explicit tenant
     //                opt-in plus a trusted signing key configured
     //                via `modules.app_control.trusted_signing_key`.
@@ -853,10 +854,11 @@ async fn main() -> Result<()> {
     };
 
     // 12m. Agent-vitals heartbeat (Phase 1.12).
-    //      Per ARCHITECTURE.md § 10 step 5 the heartbeat is always-on
-    //      when Device Control is enabled. The cadence defaults to
-    //      60s (`Priority::Low` per ARCHITECTURE.md § 7.3); the
-    //      module pauses entirely on `PowerProfile::CriticalBattery`.
+    //      Per `docs/architecture.md` § 3 (Event flow) the heartbeat
+    //      is always-on when Device Control is enabled. The cadence
+    //      defaults to 60s (`Priority::Low` per
+    //      `docs/architecture.md` § 3.1); the module pauses entirely
+    //      on `PowerProfile::CriticalBattery`.
     //      `modules.agent_vitals.enabled` lets operators force-enable
     //      the heartbeat without lighting up the rest of Device
     //      Control, which is useful for fleet-wide observability
@@ -866,7 +868,8 @@ async fn main() -> Result<()> {
         // Hand the heartbeat the same `LastKnownLocationStore` the
         // Desktop MDM module's lost-mode reporter writes into so the
         // `AgentVitals` payload carries the latest IP-geolocation
-        // reading (per ARCHITECTURE.md § 3.7). The store is created
+        // reading (per `docs/desktop-mdm.md` § 4.2 — Lost mode).
+        // The store is created
         // unconditionally up top so the heartbeat can still read it
         // even when `modules.mdm.enabled = false` (in which case the
         // reading will be `None` until the MDM module is enabled).
@@ -1000,7 +1003,7 @@ fn map_event_to_message(agent_id: &str, kind: &EventKind) -> Option<WazuhMessage
         // canonical-JSON `payload` produced by `sda-device-control`.
         // We forward it verbatim — the producing module is the single
         // source of truth for the wire encoding (RFC 8785 canonical
-        // JSON, see SCHEMAS.md § 2).
+        // JSON, see docs/wire-protocols/device-control.md § 2).
         EventKind::DeviceControlFinding { payload } => {
             (MessageType::DeviceControlFinding, payload.clone())
         }
@@ -1158,7 +1161,8 @@ fn first_positional_arg<I: IntoIterator<Item = String>>(args: I) -> Option<Strin
 /// when both Device Control and the running-software inventory tick
 /// are enabled, the enhanced-inventory module additionally publishes
 /// `EventKind::SoftwareInventoryDelta` events alongside the existing
-/// `EnhancedInventoryUpdate` (ARCHITECTURE.md § 2). Disabling either
+/// `EnhancedInventoryUpdate` (`docs/architecture.md` § 2.3 — EDR
+/// modules). Disabling either
 /// flag disables the bridge.
 fn apply_device_control_bridge(config: &mut AgentConfig) {
     config

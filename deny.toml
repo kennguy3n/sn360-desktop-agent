@@ -117,7 +117,8 @@ external-default-features = "allow"
 
 # Disallowed crates — see comments above for rationale.
 deny = [
-    # Fleet (MIT) — barred as a source dependency per ADR-001.
+    # Fleet (MIT) — barred as a source dependency per the clean-room
+    # functional-port policy (`docs/licensing.md` § 7.3).
     { name = "fleet", reason = "Fleet source is barred from this repository per docs/licensing.md § 7.3 (clean-room functional port; no Fleet source vendored)." },
     { name = "fleetd", reason = "Fleet's fleetd / Orbit agent runtime is barred per docs/licensing.md § 7.3 (do-not-port list)." },
     { name = "fleet-orbit", reason = "Fleet's Orbit agent runtime is barred per docs/licensing.md § 7.3 (do-not-port list)." },

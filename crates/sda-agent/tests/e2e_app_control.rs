@@ -1,4 +1,4 @@
-//! Phase 4 app-control end-to-end suite (PHASES.md task 4.12).
+//! Phase 4 app-control end-to-end suite (task 4.12).
 //!
 //! Hermetic exercises of the Phase 4 app-control surface shipped in
 //! PR #7 (PAL trait + supervisor + monitor / enforce controllers)
@@ -154,10 +154,10 @@ async fn drain_for(rx: &mut mpsc::Receiver<Event>, budget: Duration) -> Vec<Even
 
 // ---------- Scenario 1: monitor-mode logs decisions ------------------------
 
-/// PHASES.md § 4.12 #1 — monitor mode is the Phase 4 default. A
+/// Monitor mode is the Phase 4 default. A
 /// signed policy must be applied without ever pushing to the OS
 /// backend, and observation must emit an `AppControlDecision`
-/// event. PROPOSAL.md § 9.6 acceptance #1: monitor mode is default.
+/// event. `docs/device-control.md` § 8 acceptance #1: monitor mode is default.
 #[tokio::test(flavor = "current_thread")]
 async fn monitor_mode_logs_decision_without_blocking() {
     let (bus, mut rx) = make_bus();
@@ -203,9 +203,9 @@ async fn monitor_mode_logs_decision_without_blocking() {
 
 // ---------- Scenario 2: enforce-mode dual-control rollback -----------------
 
-/// PHASES.md § 4.12 #2 — enforce mode pushes to the OS backend; a
+/// Enforce mode pushes to the OS backend; a
 /// follow-up rollback re-applies the previously active policy.
-/// PROPOSAL.md § 9.6 acceptance #2: enforce requires opt-in +
+/// `docs/device-control.md` § 8 acceptance #2: enforce requires opt-in +
 /// dual-control rollback.
 #[tokio::test(flavor = "current_thread")]
 async fn enforce_mode_apply_then_dual_control_rollback() {
@@ -251,7 +251,7 @@ async fn enforce_mode_apply_then_dual_control_rollback() {
 
 // ---------- Scenario 3: mode mismatch is rejected --------------------------
 
-/// PHASES.md § 4.12 — mode mismatch (policy targets enforce while
+/// Mode mismatch (policy targets enforce while
 /// the supervisor is in monitor) must short-circuit the apply path
 /// without invoking the provider.
 #[tokio::test(flavor = "current_thread")]
@@ -272,7 +272,7 @@ async fn mode_mismatch_is_rejected() {
 
 // ---------- Scenario 4: anti-regression ------------------------------------
 
-/// PHASES.md § 4.12 — replaying the same policy version is
+/// Replaying the same policy version is
 /// rejected by the policy verifier (anti-rollback guard from PR #7).
 #[tokio::test(flavor = "current_thread")]
 async fn policy_version_regression_is_rejected() {
@@ -298,7 +298,7 @@ async fn policy_version_regression_is_rejected() {
 
 // ---------- Scenario 5: tampered signature ---------------------------------
 
-/// PHASES.md § 4.12 — a tampered signature must be rejected by the
+/// A tampered signature must be rejected by the
 /// verifier and must NOT emit a `PolicyApplied` event.
 #[tokio::test(flavor = "current_thread")]
 async fn tampered_signature_is_rejected() {
@@ -330,7 +330,7 @@ async fn tampered_signature_is_rejected() {
 
 // ---------- Scenario 6: Linux dm-verity-aware backend ----------------------
 
-/// PHASES.md task 4.8 — the Linux backend must:
+/// The Linux backend must:
 ///  1. Translate every signed rule into the on-disk policy file.
 ///  2. Surface dm-verity status on observations.
 ///  3. Match observations against the policy.
@@ -379,7 +379,7 @@ async fn linux_backend_renders_policy_artifact() {
 
 // ---------- Scenario 7: Windows WDAC backend -------------------------------
 
-/// PHASES.md task 4.7 — modern Windows hosts (build ≥ 18362) must
+/// Modern Windows hosts (build ≥ 18362) must
 /// pick the WDAC backend and emit the PowerShell sequence the
 /// supervisor invokes to push the policy to the OS.
 #[tokio::test(flavor = "current_thread")]
@@ -437,7 +437,7 @@ async fn windows_backend_renders_wdac_artifact() {
 
 // ---------- Scenario 8: AppLocker fallback ---------------------------------
 
-/// PHASES.md task 4.7 — pre-WDAC Windows builds (< 18362) must
+/// Pre-WDAC Windows builds (< 18362) must
 /// fall back to AppLocker and emit the equivalent
 /// `Set-AppLockerPolicy` sequence.
 #[tokio::test(flavor = "current_thread")]

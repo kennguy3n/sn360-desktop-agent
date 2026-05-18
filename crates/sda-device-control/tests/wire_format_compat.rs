@@ -18,9 +18,9 @@
 //!      `_devicecontrolshared` enum tables and migration 015.
 //!
 //! Every divergence is documented inline. If the agent's `serde`
-//! derives ever drift from the canonical SCHEMAS.md form, these
+//! derives ever drift from the canonical docs/wire-protocols/device-control.md form, these
 //! tests fail loudly and the divergence is either re-canonicalised
-//! in SCHEMAS.md or fixed.
+//! in docs/wire-protocols/device-control.md or fixed.
 
 use chrono::{TimeZone, Utc};
 use sda_device_control::{
@@ -201,7 +201,7 @@ fn signed_action_job_json_shape_matches_platform_projection() {
     // This test pins the array form so a future move to base64 (which
     // would be the right thing once Go services start consuming
     // SignedActionJobs over JSON instead of MessagePack) shows up as a
-    // failure here and forces the SCHEMAS.md update.
+    // failure here and forces the docs/wire-protocols/device-control.md update.
     assert!(
         v["signature"].is_array(),
         "signature is currently serialised as a JSON array of u8; \
@@ -307,7 +307,7 @@ fn evidence_record_json_shape_matches_schemas_md() {
     let v: Value = serde_json::from_str(&serde_json::to_string(&er).unwrap()).unwrap();
     let obj = v.as_object().unwrap();
 
-    // Pin the canonical key set the agent emits. SCHEMAS.md § 9.
+    // Pin the canonical key set the agent emits. docs/wire-protocols/device-control.md § 9.
     let expected_keys: &[&str] = &[
         "evidence_id",
         "tenant_id",
@@ -331,7 +331,7 @@ fn evidence_record_json_shape_matches_schemas_md() {
         assert!(obj.contains_key(*k), "EvidenceRecord must emit key {k:?}");
     }
 
-    // SCHEMAS.md § 6: `output_sha256` and `prev_record_hash` are
+    // docs/wire-protocols/device-control.md § 6: `output_sha256` and `prev_record_hash` are
     // 32-byte SHA-256 values, encoded as lowercase hex on the
     // canonical-JSON path (the `byte_array_32` serde wrapper).
     assert!(v["output_sha256"].is_string());

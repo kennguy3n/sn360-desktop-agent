@@ -6,7 +6,7 @@
 //! a [`EventKind::LocalDetectionAlert`] event with
 //! `rule_type == "dlp"`.
 //!
-//! ## Redaction invariant (ARCHITECTURE.md § 8.1)
+//! ## Redaction invariant (docs/architecture.md § 8.2)
 //!
 //! The matched bytes **MUST NOT** leave the module. Findings carry
 //! only:
@@ -33,7 +33,7 @@
 //!
 //! The `dlp-clipboard` Cargo feature opts the module into watching
 //! a [`mock::MockClipboardSource`] (or, in production, the platform
-//! clipboard hook described in `PHASES.md` § E5.7). Even when the
+//! clipboard hook described in the original phase plan § E5.7). Even when the
 //! feature is compiled in, `inspect_clipboard: false` keeps it
 //! disabled.
 

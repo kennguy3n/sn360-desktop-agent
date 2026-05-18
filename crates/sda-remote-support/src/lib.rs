@@ -4,15 +4,15 @@
 //! capture / transport stubs) and the agent supervisor. It owns:
 //!
 //! * Session state-machine: `Pending → ConsentRequested → Active → Ended`.
-//! * Consent flow (always required per PROPOSAL.md § 9.7).
+//! * Consent flow (always required per `docs/device-control.md` § 9).
 //! * Time-bounded sessions enforced by a wall-clock cap.
 //! * The clean-room MeshCentral-style wire protocol — frame
 //!   types, MessagePack encoding, sequence + heartbeat validation,
 //!   per-session keys derived from the control-plane session
 //!   token. **Not** a port of MeshCentral source code; the protocol
 //!   below is a fresh implementation whose only inheritance from
-//!   MeshCentral is the bidirectional-frame shape (PROPOSAL.md
-//!   § 9.7, ARCHITECTURE.md § 9 row 9).
+//!   MeshCentral is the bidirectional-frame shape
+//!   (`docs/device-control.md` § 9, `docs/architecture.md` § 8).
 //!
 //! The supervisor is wired in `crates/sda-agent/src/main.rs`
 //! conditionally on `modules.remote_support.enabled`.

@@ -14,7 +14,7 @@ use crate::signed_job::SignedActionJob;
 use crate::types::{ActionKind, ActionStatus, AgentVersion, JobRefused, Platform};
 
 /// 32 bytes of zero — sentinel `prev_record_hash` for the first
-/// record on a device's evidence chain (SCHEMAS.md § 9.1).
+/// record on a device's evidence chain (docs/wire-protocols/device-control.md § 9.1).
 pub const FIRST_RECORD_PREV_HASH: [u8; 32] = [0u8; 32];
 
 /// An append-only audit projection.
@@ -73,7 +73,7 @@ pub enum EvidenceError {
 }
 
 impl EvidenceRecord {
-    /// Validate the structural invariants from SCHEMAS.md § 9.
+    /// Validate the structural invariants from docs/wire-protocols/device-control.md § 9.
     pub fn validate(&self) -> Result<(), EvidenceError> {
         if self.schema_version != crate::version::EVIDENCE_RECORD_SCHEMA_VERSION {
             return Err(EvidenceError::SchemaVersionUnsupported(self.schema_version));
@@ -97,7 +97,7 @@ impl EvidenceRecord {
     }
 
     /// Compute the canonical pre-image used to:
-    /// - generate this record's `signature` (SCHEMAS.md § 9.2), and
+    /// - generate this record's `signature` (docs/wire-protocols/device-control.md § 9.2), and
     /// - derive the `prev_record_hash` of the *next* record on the
     ///   chain.
     ///
@@ -113,7 +113,7 @@ impl EvidenceRecord {
 
     /// SHA-256 of the canonical record *including* the signature
     /// — this is what the next record's `prev_record_hash` must
-    /// equal (SCHEMAS.md § 9.2).
+    /// equal (docs/wire-protocols/device-control.md § 9.2).
     pub fn chain_hash(&self) -> Result<[u8; 32], EvidenceError> {
         let value = serde_json::to_value(self)?;
         let bytes = canonicalize(&value)?;
@@ -156,7 +156,7 @@ pub fn phase1_stub_signature(pre_image: &[u8]) -> Vec<u8> {
 /// most recently appended record (i.e. the value the *next* record
 /// must store in `prev_record_hash`). For a fresh agent it is
 /// [`FIRST_RECORD_PREV_HASH`], so the very first record produced
-/// links to the zero sentinel as required by SCHEMAS.md § 9.1.
+/// links to the zero sentinel as required by docs/wire-protocols/device-control.md § 9.1.
 #[derive(Debug, Clone, Default)]
 pub struct EvidenceChain {
     last_chain_hash: Option<[u8; 32]>,
@@ -265,7 +265,7 @@ pub fn build_signed_evidence_record(
 /// `EvidenceRecord`.
 ///
 /// On the wire (MessagePack) we want the natural binary encoding;
-/// in canonical JSON we emit lowercase hex per SCHEMAS.md § 3.7.
+/// in canonical JSON we emit lowercase hex per docs/wire-protocols/device-control.md § 3.7.
 /// We pick lowercase hex here because the canonical encoding is
 /// what signers / verifiers consume, and MessagePack's `serde`
 /// integration accepts strings transparently.
@@ -450,7 +450,7 @@ mod tests {
     fn chain_links_correctly_across_records() {
         // A → B → C, where each record's prev_record_hash equals
         // the SHA-256 of the previous record's full canonical
-        // encoding (signature included, per SCHEMAS.md § 9.2).
+        // encoding (signature included, per docs/wire-protocols/device-control.md § 9.2).
         let a = record(FIRST_RECORD_PREV_HASH, ActionStatus::Success, None);
         let a_hash = a.chain_hash().unwrap();
         assert_ne!(a_hash, FIRST_RECORD_PREV_HASH);
@@ -467,7 +467,7 @@ mod tests {
 
     #[test]
     fn first_record_uses_zero_prev_hash() {
-        // SCHEMAS.md § 9.1 — the first record on the chain uses
+        // docs/wire-protocols/device-control.md § 9.1 — the first record on the chain uses
         // [0u8; 32]. We don't enforce this in `validate()` (the
         // agent's evidence store holds chain state, not the wire
         // schema), but the constant must remain stable.

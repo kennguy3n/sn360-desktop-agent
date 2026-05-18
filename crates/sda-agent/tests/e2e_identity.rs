@@ -401,8 +401,8 @@ async fn t08_multiple_categories_serialise_to_distinct_wire_forms() {
 
 #[tokio::test]
 async fn t09_description_never_leaks_credential_bytes() {
-    // The redaction invariant from ARCHITECTURE.md § 8.1 forbids the
-    // module from echoing raw credentials. The mock signal uses a
+    // The redaction invariant from `docs/architecture.md` § 8.2
+    // forbids the module from echoing raw credentials. The mock signal uses a
     // synthetic description that should be preserved as-is — but we
     // still verify here that no provider-side description contains
     // the LSASS image path / keychain DB bytes via a heuristic check.

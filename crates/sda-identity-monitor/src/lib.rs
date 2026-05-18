@@ -136,7 +136,7 @@ pub struct IdentityAlertPayload {
     /// `/etc/shadow`, `/Library/Keychains/login.keychain-db`).
     pub target: String,
     /// Human-readable description. MUST NOT contain raw credential
-    /// bytes per `ARCHITECTURE.md § 8.1`.
+    /// bytes per `docs/architecture.md` § 8.2.
     pub description: String,
     /// RFC3339 timestamp when the signal fired.
     pub detected_at: String,

@@ -13,7 +13,7 @@
 //! transport stacks land in later phases:
 //!
 //! * **Linux** — PipeWire / XCB capture (Wayland + X11), gated on
-//!   explicit user consent — see PROPOSAL.md § 9.7.
+//!   explicit user consent — see `docs/device-control.md` § 9.
 //! * **macOS** — ScreenCaptureKit-style API.
 //! * **Windows** — Windows Graphics Capture (WGC) + DDA-style
 //!   transport.
@@ -69,7 +69,7 @@ pub struct SessionParams {
     pub max_duration: Duration,
     /// Whether the agent must show a consent banner and block until
     /// the user accepts. Always `true` outside unit tests per
-    /// PROPOSAL.md § 9.7.
+    /// `docs/device-control.md` § 9.
     pub consent_required: bool,
 }
 

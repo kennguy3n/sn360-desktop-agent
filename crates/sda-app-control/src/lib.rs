@@ -8,7 +8,7 @@
 //!   [`sda_pal::app_control::verify_policy`].
 //! * **Monitor mode** ([`monitor`]): the Phase-4 default. Allow /
 //!   deny decisions are LOGGED but never block. Required by
-//!   PROPOSAL.md § 9.6 ("Phase 4 ships in monitor-only mode").
+//!   `docs/device-control.md` § 8 ("Phase 4 ships in monitor-only mode").
 //! * **Enforce mode** ([`enforce`]): policy is pushed to the OS
 //!   backend so unauthorized binaries are blocked. Requires explicit
 //!   tenant opt-in and a [`enforce::DualControlRollback`] handle so

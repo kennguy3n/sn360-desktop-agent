@@ -3,14 +3,13 @@
 //! The translator operates in three passes:
 //!
 //! 1. **Reject pass** — bail on any presence of EE-only or
-//!    do-not-port keys (PROPOSAL.md § 4.2 + ADR-001). This is
+//!    do-not-port keys (`docs/device-control.md` § 11 + `docs/licensing.md` § 7). This is
 //!    intentionally before any successful translation can be
 //!    observed so partial output never leaks.
 //! 2. **Tenant pass** — verify that Fleet's `team_name` is either
-//!    absent or matches the SDA-side `tenant_id`. PHASES.md
-//!    Phase 5 acceptance #2 demands cross-tenant data leakage be
-//!    impossible by construction, and the agent-side check is the
-//!    last line of defence behind the control plane.
+//!    absent or matches the SDA-side `tenant_id`. Cross-tenant data
+//!    leakage must be impossible by construction, and the agent-side
+//!    check is the last line of defence behind the control plane.
 //! 3. **Translate pass** — walk each Fleet section and write into
 //!    a fresh [`AgentConfig`]. Anything unrecognised is preserved
 //!    only as a [`Translation::warnings`] entry.
@@ -111,9 +110,9 @@ pub enum CompatError {
     Encode(#[source] serde_yaml::Error),
 
     /// The document referenced an EE-only or do-not-port feature
-    /// that ADR-001 forbids us from translating. The string
+    /// that `docs/licensing.md` § 7 forbids us from translating. The string
     /// identifies the offending key so the operator can remove it.
-    #[error("rejected: {0} is on the do-not-port list (PROPOSAL.md § 4.2 / ADR-001)")]
+    #[error("rejected: {0} is on the do-not-port list (`docs/device-control.md` § 11 / `docs/licensing.md` § 7)")]
     UnsupportedFeature(&'static str),
 
     /// The document's `team_name` does not match the tenant the
@@ -190,7 +189,7 @@ pub fn translate(fleet: FleetConfig, tenant_id: &str) -> Result<Translation, Com
     })
 }
 
-/// Reject anything on PROPOSAL.md § 4.2's do-not-port list. We
+/// Reject anything on `docs/device-control.md` § 11's do-not-port list. We
 /// inspect specific keys rather than scanning for substrings so a
 /// benign field like `mdm_enrolment_notes` would not trigger a
 /// false positive.

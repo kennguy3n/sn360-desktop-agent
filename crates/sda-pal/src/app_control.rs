@@ -33,7 +33,7 @@
 //! into the rule format Santa expects. When Santa is not present
 //! (the binary is missing or returns a non-zero exit) the stub
 //! gracefully degrades to [`AppControlMode::Disabled`] rather than
-//! erroring out — this matches PROPOSAL.md § 9.6 (Phase-4 default
+//! erroring out — this matches `docs/device-control.md` § 8 (Phase-4 default
 //! is monitor-only opt-in).
 
 use chrono::{DateTime, Utc};
@@ -45,12 +45,12 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "lowercase")]
 pub enum AppControlMode {
     /// Backend is installed and observing. Allow / deny decisions
-    /// are LOGGED but never blocked. PROPOSAL.md § 9.6 mandates this
+    /// are LOGGED but never blocked. `docs/device-control.md` § 8 mandates this
     /// as the Phase-4 default.
     Monitor,
     /// Backend is installed and actively blocking unauthorized
     /// binaries. Requires explicit tenant opt-in plus dual-control
-    /// rollback per PROPOSAL.md § 9.6.
+    /// rollback per `docs/device-control.md` § 8.
     Enforce,
     /// Backend is not installed, not running, or has been
     /// administratively disabled. The agent will not attempt to
@@ -355,7 +355,7 @@ pub mod mac_impl {
         pub fn probe_santa_status() -> Option<SantaStatus> {
             // Phase-4: invoke santactl if it is on PATH, otherwise
             // bail out. Errors are swallowed deliberately —
-            // PROPOSAL.md § 9.6 says graceful degradation to
+            // `docs/device-control.md` § 8 says graceful degradation to
             // Disabled is the right default.
             let output = std::process::Command::new("santactl")
                 .args(["status", "--json"])

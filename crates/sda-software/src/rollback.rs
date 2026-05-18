@@ -73,7 +73,7 @@ pub enum RollbackError {
 }
 
 /// A single rollback record persisted to disk. Mirrors the schema
-/// in PROPOSAL.md § 14.3.
+/// in `docs/device-control.md` § 6.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RollbackEntry {

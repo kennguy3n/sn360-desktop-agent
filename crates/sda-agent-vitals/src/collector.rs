@@ -1,7 +1,7 @@
 //! System-stats collector for the agent-vitals heartbeat.
 //!
 //! Phase 1 ships a deliberately minimal collector that captures the
-//! fields named in `ARCHITECTURE.md § 7.3` and `SCHEMAS.md § 12`:
+//! fields named in `docs/architecture.md` § 3.1 and `docs/architecture.md § 6`:
 //!
 //! * `rss_kb` — resident set size of the agent process
 //! * `cpu_percent` — process CPU averaged since the last sample

@@ -121,7 +121,7 @@ pub struct ApprovalEvaluation {
     /// Plain-English explanation, suitable for surfacing on a tray
     /// UI or in a recommendation payload. Capped at
     /// `RECOMMENDATION_PLAIN_ENGLISH_MAX` (512 chars), matching
-    /// SCHEMAS.md § 2.4.
+    /// docs/wire-protocols/device-control.md § 2.4.
     pub plain_english: String,
 }
 
@@ -242,7 +242,7 @@ impl ApprovalAuditor {
 /// Build the canonical JSON payload to wrap in
 /// [`sda_event_bus::EventKind::DeviceControlRecommendation`].
 ///
-/// Mirrors the `Recommendation` schema in SCHEMAS.md § 6:
+/// Mirrors the `Recommendation` schema in docs/wire-protocols/device-control.md § 6:
 /// `recommendation_id`, `tenant_id`, `device_ids`, `finding_ids`,
 /// `action`, `args`, `plain_english`, `one_click`, `severity`,
 /// `created_at`, `schema_version` (1).
@@ -321,7 +321,7 @@ fn render_plain_english(package_id: &str, state: ApprovalState) -> String {
 }
 
 /// Truncate a `&str` to a maximum number of *Unicode scalar values*
-/// (chars), matching SCHEMAS.md § 2.4's char-based cap.
+/// (chars), matching docs/wire-protocols/device-control.md § 2.4's char-based cap.
 fn truncate_chars(s: &str, max_chars: usize) -> String {
     if s.chars().count() <= max_chars {
         return s.to_string();
@@ -505,7 +505,7 @@ mod tests {
         assert_eq!(value["one_click"], true);
         assert!(value["plain_english"].as_str().unwrap().contains("denied"));
         assert_eq!(value["args"]["package_id"], "blocked-pkg");
-        // device_ids is a one-element array per SCHEMAS.md § 6.2.
+        // device_ids is a one-element array per docs/wire-protocols/device-control.md § 6.2.
         assert!(value["device_ids"].as_array().unwrap().len() == 1);
     }
 

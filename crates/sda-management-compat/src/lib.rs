@@ -1,11 +1,11 @@
-//! Fleet-flavoured GitOps YAML compatibility shim (Phase 5 / PROPOSAL.md
-//! § 4.1).
+//! Fleet-flavoured GitOps YAML compatibility shim
+//! (`docs/device-control.md` § 11).
 //!
 //! This crate exists for one reason: customers running Fleet today
 //! already keep their queries, policies, software installers, and
 //! script jobs in a Git-tracked YAML repository. We do not want to
 //! force them to hand-rewrite that YAML to onboard SN360. Instead we
-//! parse the subset of Fleet's GitOps schema that PROPOSAL.md § 4.1
+//! parse the subset of Fleet's GitOps schema that `docs/device-control.md` § 11
 //! flags as portable, translate each concept into the matching
 //! SN360 native config section, and emit either a strongly-typed
 //! [`sda_core::config::AgentConfig`] overlay or the YAML it
@@ -24,7 +24,7 @@
 //!
 //! ## What is and is not translated
 //!
-//! Translated (PROPOSAL.md § 4.1):
+//! Translated (`docs/device-control.md` § 11):
 //!
 //! * `queries` → `modules.query`
 //! * `policies` → `modules.local_detection`-style logical policies
@@ -40,7 +40,7 @@
 //!   vector so the operator can ship them to the control plane
 //!   separately.
 //!
-//! Rejected (PROPOSAL.md § 4.2 do-not-port + ADR-001):
+//! Rejected (`docs/device-control.md` § 11 do-not-port + `docs/licensing.md` § 7):
 //!
 //! * Any `mdm` / `mobile_device_management` block (Apple MDM, Windows
 //!   MDM, ADE/DEP, VPP).
