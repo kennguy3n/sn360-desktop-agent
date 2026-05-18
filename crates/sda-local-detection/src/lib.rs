@@ -540,6 +540,51 @@ async fn handle_event(pipeline: &DetectionPipeline, bus: &EventBus, event: &Even
             ("dns", process_name, query_name, None, None, response_ips)
         }
 
+        // --- EDR Parity event arms (Phase E4) ---
+        // MemoryScanAlert is emitted by `sda-memory-scanner` when a
+        // YARA / AMSI match fires on a process memory region.  We
+        // pull `process_name` as the entity (so per-process IOC
+        // rules can match it) and `description` (containing the
+        // rule identifier or AMSI provider message) as the primary
+        // text. The `pid` field is intentionally NOT promoted into
+        // `entity` because attackers reuse PIDs.
+        EventKind::MemoryScanAlert { payload } => {
+            let parsed: serde_json::Value = serde_json::from_str(payload).unwrap_or_default();
+            let process_name = parsed
+                .get("process_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let description = parsed
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            ("memory", process_name, description, None, None, Vec::new())
+        }
+
+        // --- EDR Parity event arms (Phase E5) ---
+        // IdentityAlert is emitted by `sda-identity-monitor` on
+        // LSASS access (Windows), `/etc/shadow` or `/proc/kcore`
+        // access (Linux), and keychain access (macOS).  We feed the
+        // `user` field as the entity and the MITRE ATT&CK technique
+        // ID as the primary text so behavioural Threshold rules can
+        // gate alerts on per-technique repetition.
+        EventKind::IdentityAlert { payload } => {
+            let parsed: serde_json::Value = serde_json::from_str(payload).unwrap_or_default();
+            let user = parsed
+                .get("user")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let technique = parsed
+                .get("technique")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            ("identity", user, technique, None, None, Vec::new())
+        }
+
         // Other event kinds pass through untouched.
         _ => return,
     };
@@ -1215,6 +1260,124 @@ mod tests {
         handle_event(&pipeline, &bus, &log_event).await;
         let maybe = tokio::time::timeout(Duration::from_millis(100), server_rx.recv()).await;
         assert!(maybe.is_err(), "no alerts expected on benign log");
+    }
+
+    #[tokio::test]
+    async fn test_memory_scan_alert_flows_through_lde_and_matches_string_ioc() {
+        // Phase E4.6: MemoryScanAlert payloads must be reachable by the
+        // string-IOC matcher via the `description` field. Verifies the
+        // explicit arm in `handle_event` (vs. the catch-all `_ => return`).
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg = test_config(&tmp);
+        let bundle = bundle_with_string_ioc("Cobalt Strike beacon");
+        bundle.save(&cfg.rule_bundle_path).unwrap();
+
+        let (bus, mut server_rx) = EventBus::new(16, 16);
+        let pipeline = DetectionPipeline::new(&cfg, bundle).unwrap();
+
+        let payload = serde_json::json!({
+            "pid": 1234u32,
+            "process_name": "powershell.exe",
+            "region_base": 0x7ffe_0000u64,
+            "region_size": 4096u64,
+            "alert_type": "yara_match",
+            "description": "matched rule Cobalt Strike beacon",
+            "detected_at": "2026-05-18T00:00:00Z",
+        })
+        .to_string();
+        let ev = Event::new(
+            "memory_scanner",
+            Priority::High,
+            EventKind::MemoryScanAlert { payload },
+        );
+        handle_event(&pipeline, &bus, &ev).await;
+
+        let alert = tokio::time::timeout(Duration::from_millis(200), server_rx.recv())
+            .await
+            .expect("expected an LDE alert from MemoryScanAlert")
+            .expect("server_rx closed");
+        match alert.kind {
+            EventKind::LocalDetectionAlert {
+                rule_type, rule_id, ..
+            } => {
+                assert_eq!(rule_type, "string");
+                assert_eq!(rule_id, "test-ioc");
+            }
+            other => panic!("unexpected event from MemoryScanAlert: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_identity_alert_flows_through_lde_and_matches_string_ioc() {
+        // Phase E5.4: IdentityAlert payloads must be reachable by the
+        // string-IOC matcher via the `technique` field (MITRE ATT&CK ID).
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg = test_config(&tmp);
+        let bundle = bundle_with_string_ioc("T1003.001");
+        bundle.save(&cfg.rule_bundle_path).unwrap();
+
+        let (bus, mut server_rx) = EventBus::new(16, 16);
+        let pipeline = DetectionPipeline::new(&cfg, bundle).unwrap();
+
+        let payload = serde_json::json!({
+            "category": "lsass_access",
+            "technique": "T1003.001",
+            "user": "DOMAIN\\\\alice",
+            "description": "non-system process opened handle to lsass.exe",
+            "detected_at": "2026-05-18T00:00:00Z",
+        })
+        .to_string();
+        let ev = Event::new(
+            "identity_monitor",
+            Priority::High,
+            EventKind::IdentityAlert { payload },
+        );
+        handle_event(&pipeline, &bus, &ev).await;
+
+        let alert = tokio::time::timeout(Duration::from_millis(200), server_rx.recv())
+            .await
+            .expect("expected an LDE alert from IdentityAlert")
+            .expect("server_rx closed");
+        match alert.kind {
+            EventKind::LocalDetectionAlert {
+                rule_type, rule_id, ..
+            } => {
+                assert_eq!(rule_type, "string");
+                assert_eq!(rule_id, "test-ioc");
+            }
+            other => panic!("unexpected event from IdentityAlert: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_memory_scan_alert_with_no_matching_rule_produces_no_alert() {
+        // Verifies the arm doesn't fabricate alerts when no rule
+        // matches — the bus must remain quiet for clean payloads.
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg = test_config(&tmp);
+        let bundle = bundle_with_string_ioc("ThisStringNeverAppears");
+        bundle.save(&cfg.rule_bundle_path).unwrap();
+        let (bus, mut server_rx) = EventBus::new(16, 16);
+        let pipeline = DetectionPipeline::new(&cfg, bundle).unwrap();
+
+        let payload = serde_json::json!({
+            "pid": 1234u32,
+            "process_name": "explorer.exe",
+            "region_base": 0u64,
+            "region_size": 0u64,
+            "alert_type": "rwx_region_enumerated",
+            "description": "benign anonymous heap page",
+            "detected_at": "2026-05-18T00:00:00Z",
+        })
+        .to_string();
+        let ev = Event::new(
+            "memory_scanner",
+            Priority::Normal,
+            EventKind::MemoryScanAlert { payload },
+        );
+        handle_event(&pipeline, &bus, &ev).await;
+        let maybe = tokio::time::timeout(Duration::from_millis(100), server_rx.recv()).await;
+        assert!(maybe.is_err(), "no LDE alert expected for clean payload");
     }
 
     #[tokio::test]

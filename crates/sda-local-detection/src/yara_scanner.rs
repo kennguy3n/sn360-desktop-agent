@@ -128,6 +128,66 @@ impl YaraScanner {
 
         result
     }
+
+    /// Asynchronously scan an in-memory byte slice, honouring the
+    /// rate limit and a max-buffer-size cap derived from
+    /// `max_file_size_mb`.  Returns `Ok(Vec::new())` when the scanner
+    /// has no rules, the buffer exceeds the cap, or the rate budget
+    /// is empty.
+    ///
+    /// This is the entry point used by the Phase E4 memory scanner
+    /// (`sda-memory-scanner`).  Self-pid exclusion is enforced at the
+    /// PAL layer (see `sda_pal::memory_scanner::MemoryScanner`):
+    /// reads on the agent's own PID return `Err(PermissionDenied)`,
+    /// so callers never get bytes for `self_pid` in the first place.
+    /// Defence-in-depth, the memory scanner module also short-circuits
+    /// before invoking this method on its own PID.
+    pub async fn scan_bytes(&self, bytes: &[u8]) -> anyhow::Result<Vec<YaraMatch>> {
+        let Some(rules) = self.rules.clone() else {
+            return Ok(Vec::new());
+        };
+
+        if self.max_file_size_bytes > 0 && (bytes.len() as u64) > self.max_file_size_bytes {
+            debug!(
+                size = bytes.len(),
+                cap = self.max_file_size_bytes,
+                "skipping YARA in-memory scan: buffer exceeds size cap"
+            );
+            return Ok(Vec::new());
+        }
+
+        // Same rate-limit dance as `scan_file`. The guard is dropped
+        // before any await so the future remains `Send`.
+        let wait = { self.rate.lock().unwrap().consume_or_wait() };
+        if let Some(wait) = wait {
+            debug!(
+                wait_ms = wait.as_millis() as u64,
+                "rate-limiting YARA in-memory scan"
+            );
+            tokio::time::sleep(wait).await;
+            self.rate.lock().unwrap().reset();
+        }
+
+        let buf = bytes.to_vec();
+        let timeout = self.scan_timeout;
+        let result = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<YaraMatch>> {
+            let timeout_secs = timeout.as_secs().min(i32::MAX as u64) as i32;
+            let hits = rules
+                .scan_mem(&buf, timeout_secs)
+                .map_err(|e| anyhow::anyhow!("yara in-memory scan failed: {}", e))?;
+            Ok(hits
+                .into_iter()
+                .map(|r| YaraMatch {
+                    rule_id: r.identifier.to_string(),
+                    tags: r.tags.iter().map(|t| t.to_string()).collect(),
+                })
+                .collect())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("yara in-memory scan task panicked: {}", e))?;
+
+        result
+    }
 }
 
 /// Compile the provided rule paths into an optional [`yara::Rules`].
@@ -326,5 +386,84 @@ mod tests {
         assert!(w.consume_or_wait().is_some());
         w.window_started = Instant::now() - Duration::from_secs(2);
         assert!(w.consume_or_wait().is_none(), "window should have reset");
+    }
+
+    #[tokio::test]
+    async fn test_scan_bytes_matches_known_pattern() {
+        let dir = tempfile::tempdir().unwrap();
+        let rule = write_rule(
+            dir.path(),
+            "match.yar",
+            r#"rule FindMarker { strings: $a = "SDA-LDE-MARKER" condition: $a }"#,
+        );
+        let scanner = YaraScanner::new(&[rule], 100, 10).unwrap();
+        let hits = scanner
+            .scan_bytes(b"\x00prefix SDA-LDE-MARKER suffix\xff")
+            .await
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].rule_id, "FindMarker");
+    }
+
+    #[tokio::test]
+    async fn test_scan_bytes_clean_buffer_no_match() {
+        let dir = tempfile::tempdir().unwrap();
+        let rule = write_rule(
+            dir.path(),
+            "match.yar",
+            r#"rule FindMarker { strings: $a = "SDA-LDE-MARKER" condition: $a }"#,
+        );
+        let scanner = YaraScanner::new(&[rule], 100, 10).unwrap();
+        let hits = scanner.scan_bytes(b"clean benign content").await.unwrap();
+        assert!(hits.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_scan_bytes_no_rules_returns_empty() {
+        let scanner = YaraScanner::empty(10, 10);
+        let hits = scanner
+            .scan_bytes(b"anything; no rules compiled")
+            .await
+            .unwrap();
+        assert!(hits.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_scan_bytes_skips_oversized_buffer() {
+        let dir = tempfile::tempdir().unwrap();
+        let rule = write_rule(
+            dir.path(),
+            "match.yar",
+            r#"rule FindMarker { strings: $a = "SDA-LDE-MARKER" condition: $a }"#,
+        );
+        // 1 MB cap so a 2 MB buffer is rejected without scanning.
+        let scanner = YaraScanner::new(&[rule], 100, 1).unwrap();
+        let mut payload = vec![b'A'; 2 * 1024 * 1024];
+        payload.extend_from_slice(b"SDA-LDE-MARKER");
+        let hits = scanner.scan_bytes(&payload).await.unwrap();
+        assert!(
+            hits.is_empty(),
+            "buffer above max_file_size_mb cap should be skipped"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_scan_bytes_finds_pattern_across_padded_region() {
+        // Simulates an RWX region with zero-padding around a marker;
+        // memory-region reads frequently contain trailing zero bytes
+        // because page boundaries are 4 KiB and content is rarely a
+        // whole multiple. The scan must still surface the rule hit.
+        let dir = tempfile::tempdir().unwrap();
+        let rule = write_rule(
+            dir.path(),
+            "match.yar",
+            r#"rule FindMarker { strings: $a = "SDA-LDE-MARKER" condition: $a }"#,
+        );
+        let scanner = YaraScanner::new(&[rule], 100, 10).unwrap();
+        let mut buf = vec![0u8; 4096];
+        buf[1024..1024 + 14].copy_from_slice(b"SDA-LDE-MARKER");
+        let hits = scanner.scan_bytes(&buf).await.unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].rule_id, "FindMarker");
     }
 }

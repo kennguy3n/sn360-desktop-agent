@@ -261,23 +261,32 @@ for design rationale, phased roadmap, and architecture reference.
 | P6.2 | Phase E1: Process telemetry (all platforms) | Done (agent-side); E1.9 / E1.10 ⚙️ Not Started — server-side |
 | P6.3 | Phase E2: LDE maturity + default-ON | Done (agent-side); E2.5 ⚙️ Not Started — server-side |
 | P6.4 | Phase E3: Network telemetry + host isolation | Done (agent-side); E3.13 / E3.14 ⚙️ Not Started — server-side |
-| P6.5 | Phase E4: Memory scanning + fileless detection | Not Started |
-| P6.6 | Phase E5: Identity attack detection + DLP | Not Started |
-| P6.7 | Phase E6: Kernel driver productisation | Not Started |
+| P6.5 | Phase E4: Memory scanning + fileless detection | Done |
+| P6.6 | Phase E5: Identity attack detection + DLP | Done |
+| P6.7 | Phase E6: Kernel driver productisation | Done (scaffolding + productisation docs) |
 
-> **EDR Parity agent-side status (this branch).** Phases E0, E1,
-> E2, and E3 are landed agent-side via PR
-> [#24](https://github.com/kennguy3n/sn360-desktop-agent/pull/24).
+> **EDR Parity agent-side status (this branch).** Phases E0–E6 are
+> all landed agent-side. Phases E0–E3 ship via PR
+> [#24](https://github.com/kennguy3n/sn360-desktop-agent/pull/24);
+> Phases E4–E6 ship via PR
+> [#25](https://github.com/kennguy3n/sn360-desktop-agent/pull/25).
 > New crates: `sda-process-monitor`, `sda-network-monitor`,
-> `sda-host-isolation`. New PAL traits: `ProcessMonitor`,
-> `NetworkMonitor`, `DnsMonitor`, `HostIsolation`. LDE is now
+> `sda-host-isolation`, `sda-memory-scanner`,
+> `sda-identity-monitor`, `sda-dlp`. New PAL traits:
+> `ProcessMonitor`, `NetworkMonitor`, `DnsMonitor`, `HostIsolation`,
+> `MemoryScanner`; new platform-agnostic kernel-channel module
+> `sda-pal::kernel` with per-platform mock channels for
+> Windows / macOS / Linux gated behind `kernel-windows`,
+> `kernel-macos`, and `kernel-linux-ebpf` feature flags. LDE is now
 > default-ON with an embedded baseline rule bundle and verified
 > TRDS hot-reload (Ed25519 against a pinned rotation set, atomic
-> `Arc<ArcSwap<DetectionPipeline>>` swap). Four new hermetic E2E
+> `Arc<ArcSwap<DetectionPipeline>>` swap). Seven new hermetic E2E
 > suites: `make e2e-process-telemetry` (13 tests), `make
 > e2e-lde-hotreload` (10 tests), `make e2e-network-telemetry` (11
-> tests), `make e2e-host-isolation` (7 tests). Server-side ⚙️
-> tasks (E1.9, E1.10, E2.5, E3.13, E3.14) remain Not Started in
+> tests), `make e2e-host-isolation` (7 tests), `make
+> e2e-memory-scan` (10 tests), `make e2e-identity` (10 tests),
+> `make e2e-dlp` (11 tests). Server-side ⚙️ tasks (E1.9, E1.10,
+> E2.5, E3.13, E3.14) remain Not Started in
 > [`sn360-security-platform`](https://github.com/kennguy3n/sn360-security-platform).
 
 > **Cross-repo status (2026-05-11).** All agent-side Device Control

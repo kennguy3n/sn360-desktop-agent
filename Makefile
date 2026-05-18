@@ -24,7 +24,7 @@ TARGETS := \
         e2e-device-control e2e-software e2e-jit-admin e2e-app-control e2e-remote-support \
         e2e-device-policy e2e-mdm e2e-mdm-actions e2e-mdm-profile \
         e2e-process-telemetry e2e-lde-hotreload e2e-network-telemetry e2e-host-isolation \
-        e2e-management-compat benchmark-ci deb rpm pkg msi \
+        e2e-management-compat e2e-memory-scan e2e-identity e2e-dlp benchmark-ci deb rpm pkg msi \
         test-unit test-integration test-e2e-all test-full test-pr
 
 build:
@@ -69,6 +69,9 @@ test-e2e-all:
 	$(CARGO) test --package sda-agent --test e2e_lde_hotreload -- --nocapture
 	$(CARGO) test --package sda-agent --test e2e_network_telemetry -- --nocapture
 	$(CARGO) test --package sda-agent --test e2e_host_isolation -- --nocapture
+	$(CARGO) test --package sda-agent --test e2e_memory_scan -- --nocapture
+	$(CARGO) test --package sda-agent --test e2e_identity -- --nocapture
+	$(CARGO) test --package sda-agent --test e2e_dlp -- --nocapture
 
 # Full: everything — unit + integration + all E2E + shell E2E + benchmarks.
 test-full: test-integration test-e2e-all e2e e2e-compat security-e2e benchmark-ci
@@ -238,6 +241,43 @@ e2e-network-telemetry:
 # crates/sda-agent/tests/e2e_host_isolation.rs.
 e2e-host-isolation:
 	$(CARGO) test --package sda-agent --test e2e_host_isolation -- --nocapture
+
+# Phase E4.8 EDR memory-scan E2E suite. Exercises the
+# MemoryScanner PAL trait + sda-memory-scanner module against a
+# canned MockMemoryScanner: synthetic RWX regions are scanned by an
+# in-memory YARA matcher, MemoryScanAlert events round-trip through
+# the LDE, self-pid exclusion is enforced at PAL + module layers,
+# CPU-budget gating and the compile-time allow-list both short-
+# circuit the scan loop, and clean memory produces no alerts.
+# Hermetic — no /proc/<pid>/mem read, no SeDebugPrivilege, no
+# task_for_pid. Lives in crates/sda-agent/tests/e2e_memory_scan.rs.
+e2e-memory-scan:
+	$(CARGO) test --package sda-agent --test e2e_memory_scan -- --nocapture
+
+# Phase E5.8 EDR identity-attack E2E suite. Exercises the
+# sda-identity-monitor module against a MockIdentityProvider stream
+# of synthetic LSASS-access / shadow-access / kcore-access /
+# keychain-access signals: IdentityAlert events carry the correct
+# MITRE technique IDs (T1003.001 / T1003.008 / T1003 / T1555.001),
+# system-principal callers are filtered at the module publish
+# boundary, the alert payload round-trips through the LDE, and the
+# disabled-config short-circuit holds. Hermetic — no ETW, no
+# audit, no Endpoint Security entitlement required. Lives in
+# crates/sda-agent/tests/e2e_identity.rs.
+e2e-identity:
+	$(CARGO) test --package sda-agent --test e2e_identity -- --nocapture
+
+# Phase E5.8 EDR DLP E2E suite. Exercises the sda-dlp module
+# against FileCreated / FileModified events from the bus: SSN /
+# UK-NI / PAN+Luhn matches surface as LocalDetectionAlert events
+# with rule_type="dlp", monitor mode emits medium severity and
+# enforce mode escalates to high, the matched bytes never appear
+# in description or matched_value (ARCHITECTURE.md § 8.1 redaction
+# invariant), and the bounded-read window honours
+# max_bytes_per_file. Hermetic — no clipboard provider, no on-disk
+# real PII. Lives in crates/sda-agent/tests/e2e_dlp.rs.
+e2e-dlp:
+	$(CARGO) test --package sda-agent --test e2e_dlp -- --nocapture
 
 clean:
 	$(CARGO) clean

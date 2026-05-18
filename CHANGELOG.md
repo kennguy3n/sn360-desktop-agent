@@ -10,6 +10,97 @@ minor bump.
 
 ### Added
 
+- **ShieldNet EDR Parity — Phases E4–E6 (agent-side).**
+  Agent-side delivery of the remaining EDR Parity workstream phases
+  defined in [`docs/edr-parity/PROGRESS.md`](./docs/edr-parity/PROGRESS.md).
+  Phase E4 (memory scanning + fileless detection) adds a new
+  `sda-pal::MemoryScanner` trait
+  (`crates/sda-pal/src/memory_scanner.rs`) with Linux
+  `/proc/<pid>/maps` enumeration + `/proc/<pid>/mem` bounded
+  `pread` (requires `CAP_SYS_PTRACE`), Windows `VirtualQueryEx` +
+  `ReadProcessMemory` over `PROCESS_QUERY_INFORMATION |
+  PROCESS_VM_READ` handles (requires `SeDebugPrivilege`), and
+  macOS `task_for_pid` + `mach_vm_region` + `mach_vm_read_overwrite`
+  (requires `com.apple.security.cs.debugger` entitlement); plus a
+  `MockMemoryScanner` behind `#[cfg(test)]` for hermetic CI; the
+  new `crates/sda-memory-scanner` crate runs the periodic
+  RWX-region scan loop respecting CPU budget +
+  `only_when_idle_below_cpu_pct` gating + power-profile deferral,
+  enforces the **safety invariant** (self-pid is always in the
+  compile-time allow-list and the agent process is NEVER
+  enumerated, per ARCHITECTURE.md § 9.4), reads bounded byte
+  slices into the in-memory YARA scanner extension on
+  `crates/sda-local-detection/`, and emits `MemoryScanAlert` on
+  hits with `alert_type: "yara_match"` and the rule name in the
+  description. The optional `amsi` Cargo feature
+  (`#[cfg(feature = "amsi")] #[cfg(target_os = "windows")]`)
+  registers an `IAmsiStream` provider so PowerShell / VBScript
+  content scanned by AMSI is also visible to the LDE through the
+  same `MemoryScanAlert` path with `alert_type: "amsi_match"`.
+  The LDE `handle_event` arm for `MemoryScanAlert` is wired with
+  the full IOC / behavioural extraction (process name +
+  description). Phase E5 (identity attack detection + DLP) adds a
+  new `crates/sda-identity-monitor` crate with three real
+  detectors: Windows LSASS access via
+  `Microsoft-Windows-Threat-Intelligence` ETW + `NtOpenProcess`
+  instrumentation (MITRE `T1003.001`), Linux `/etc/shadow` access
+  (FIM-fed, `T1003.008`) + `/proc/kcore` access (audit-fed,
+  `T1003`), and macOS keychain access by non-Apple-signed binaries
+  via Endpoint Security `ES_EVENT_TYPE_NOTIFY_OPEN` on
+  `/Library/Keychains/*` + `~/Library/Keychains/*`
+  (`T1555.001`). System-principal filtering happens at the
+  **module publish boundary** (not in providers) so the same
+  provider can feed both the IDS pipeline and audit logs. The LDE
+  `handle_event` arm for `IdentityAlert` is wired with the full
+  extraction (user + technique). A new `crates/sda-dlp` crate
+  ships the baseline regex pattern set (`pii.ssn` — US Social
+  Security Number, `pii.uk_ni` — UK National Insurance,
+  `pci.pan_luhn` — Payment card PAN with Luhn validation), a
+  `DlpScanner` that returns matches with category + byte offset +
+  length + Blake3 fingerprint of the surrounding 32-byte window,
+  and **never** the matched bytes (ARCHITECTURE.md § 8.1 redaction
+  invariant). File-write inspection subscribes to
+  `EventKind::FileCreated` and `EventKind::FileModified`, performs
+  a bounded read (1 MiB cap), scans against the configured pattern
+  set, and emits `LocalDetectionAlert` with `rule_type: "dlp"`;
+  `monitor` mode publishes `medium`-severity findings and
+  `enforce` mode escalates to `high` so `sda-active-response` can
+  quarantine. The optional `dlp-clipboard` Cargo feature provides
+  a `ClipboardProvider` trait and `MockClipboardProvider` for X11
+  / Wayland / Win32 / `NSPasteboard` clipboard taps. Phase E6
+  (kernel productisation) introduces the platform-agnostic
+  `sda-pal::kernel` module (`crates/sda-pal/src/kernel/mod.rs`)
+  defining a `KernelEvent` enum (line-delimited JSON over IPC)
+  plus a `KernelChannel` trait abstraction for kernel→user-mode
+  transports. Per-platform mock channels —
+  `MockWindowsKernelChannel` with the named-pipe record parser
+  for the WDK minifilter (`\\.\\pipe\\sn360-kernel`),
+  `MockMacosKernelChannel` with the XPC mach-port record parser
+  for the signed SystemExtension
+  (`com.sn360.endpoint-security.xpc`), and
+  `MockLinuxKernelChannel` with the eBPF perf-buffer record
+  parser and `detect_ebpf_capability()` /
+  `parse_kernel_version_at_least()` runtime fallback to cn_proc /
+  audit when the kernel is older than 5.8 — are gated behind the
+  `kernel-windows`, `kernel-macos`, and `kernel-linux-ebpf` Cargo
+  features (all off by default; 23 new unit tests). The
+  productisation pipelines (WDK msbuild + WHCP submission, Apple
+  Developer ID notarisation + MDM payload, Aya eBPF kprobes for
+  `sys_execve` / `tcp_v4_connect` / `udp_sendmsg`) are documented
+  in [`docs/edr-parity/PRODUCTISATION-WINDOWS.md`](./docs/edr-parity/PRODUCTISATION-WINDOWS.md),
+  [`docs/edr-parity/PRODUCTISATION-MACOS.md`](./docs/edr-parity/PRODUCTISATION-MACOS.md),
+  and [`docs/edr-parity/PRODUCTISATION-LINUX.md`](./docs/edr-parity/PRODUCTISATION-LINUX.md);
+  the Windows build / sign automation lives in
+  [`packaging/windows-driver/`](./packaging/windows-driver/)
+  (`build-driver.ps1`, `sign-driver.ps1`, `README.md`). Three new
+  hermetic E2E suites — `make e2e-memory-scan` (10 tests),
+  `make e2e-identity` (10 tests), `make e2e-dlp` (11 tests) —
+  exercise the full pipeline against mock PAL implementations and
+  mock providers. New config structs (`MemoryScannerConfig`,
+  `IdentityMonitorConfig`, `DlpConfig`) ship in
+  `crates/sda-core/src/config.rs` with all modules **default
+  off**; see [`docs/configuration-reference.md`](./docs/configuration-reference.md)
+  for the full surface. PR [#25](https://github.com/kennguy3n/sn360-desktop-agent/pull/25).
 - **ShieldNet EDR Parity — Phases E0–E3 (agent-side).**
   Agent-side delivery of the EDR Parity workstream defined in
   [`docs/edr-parity/PROGRESS.md`](./docs/edr-parity/PROGRESS.md).

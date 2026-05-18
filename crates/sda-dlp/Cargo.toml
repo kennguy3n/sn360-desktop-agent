@@ -1,0 +1,33 @@
+[package]
+name = "sda-dlp"
+description = "Data-Loss-Prevention module (Phase E5 of EDR Parity) for SDA"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+# Clipboard monitoring is gated behind a feature flag because it
+# requires a display server that isn't present in CI.
+dlp-clipboard = []
+# Exposes the in-process mock helpers (`mock::scan_buf`) so other
+# crates' tests (E5 E2E suite) can reuse the scanner without the
+# `#[cfg(test)]` gate.
+test-support = []
+
+[dependencies]
+sda-core = { workspace = true }
+sda-event-bus = { workspace = true }
+sda-pal = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+regex = { workspace = true }
+blake3 = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "test-util", "macros"] }
+tempfile = { workspace = true }
