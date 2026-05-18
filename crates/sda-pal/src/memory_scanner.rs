@@ -738,7 +738,9 @@ pub mod macos_imp {
         #[test]
         fn enumerate_other_pid_returns_unsupported_in_user_mode() {
             let scanner = MacosMemoryScanner::new();
-            let err = scanner.enumerate(scanner.self_pid().wrapping_add(1)).unwrap_err();
+            let err = scanner
+                .enumerate(scanner.self_pid().wrapping_add(1))
+                .unwrap_err();
             assert_eq!(err.kind(), io::ErrorKind::Unsupported);
         }
 
@@ -976,7 +978,10 @@ mod tests {
     #[test]
     fn mock_counters_track_calls() {
         let m = MockMemoryScanner::with_self_pid(99);
-        m.set_regions(123, vec![region(0x1000, 0x100, true, MappingKind::Anonymous)]);
+        m.set_regions(
+            123,
+            vec![region(0x1000, 0x100, true, MappingKind::Anonymous)],
+        );
         m.set_read(123, 0x1000, b"x".to_vec());
         let _ = m.enumerate(123).unwrap();
         let _ = m.enumerate(123).unwrap();

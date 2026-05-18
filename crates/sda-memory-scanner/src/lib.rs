@@ -595,11 +595,7 @@ async fn scan_once(
     }
 }
 
-fn should_skip_pid(
-    handle: &ProcessHandle,
-    self_pid: u32,
-    allow_list: &HashSet<String>,
-) -> bool {
+fn should_skip_pid(handle: &ProcessHandle, self_pid: u32, allow_list: &HashSet<String>) -> bool {
     if handle.pid == 0 {
         // kernel pseudo-process
         return true;
@@ -1184,7 +1180,11 @@ mod tests {
         controller.shutdown();
         let _ = handle.task.await;
 
-        assert_eq!(matcher.calls(), 0, "matcher must not be called on allow-listed pid");
+        assert_eq!(
+            matcher.calls(),
+            0,
+            "matcher must not be called on allow-listed pid"
+        );
         while let Ok(Some(ev)) = tokio::time::timeout(Duration::from_millis(10), rx.recv()).await {
             assert!(
                 !matches!(ev.kind, EventKind::MemoryScanAlert { .. }),

@@ -560,14 +560,7 @@ async fn handle_event(pipeline: &DetectionPipeline, bus: &EventBus, event: &Even
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            (
-                "memory",
-                process_name,
-                description,
-                None,
-                None,
-                Vec::new(),
-            )
+            ("memory", process_name, description, None, None, Vec::new())
         }
 
         // --- EDR Parity event arms (Phase E5) ---
@@ -589,14 +582,7 @@ async fn handle_event(pipeline: &DetectionPipeline, bus: &EventBus, event: &Even
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            (
-                "identity",
-                user,
-                technique,
-                None,
-                None,
-                Vec::new(),
-            )
+            ("identity", user, technique, None, None, Vec::new())
         }
 
         // Other event kinds pass through untouched.
