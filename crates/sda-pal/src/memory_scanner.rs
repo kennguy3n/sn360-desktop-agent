@@ -619,9 +619,14 @@ pub mod windows_imp {
                 }
                 address = next;
             }
-            unsafe {
-                let _ = CloseHandle(handle);
-            }
+            // `handle_guard` releases the underlying HANDLE via its
+            // `Drop` impl at end of scope. A leftover manual
+            // `CloseHandle(handle)` here (referencing the old
+            // pre-RAII binding name) was the regression Devin Review
+            // flagged as BUG-0001 on PR #25 — it both (a) failed to
+            // compile on Windows because `handle` is not in scope
+            // and (b) would have double-closed the handle if it had.
+            // Removed entirely; the RAII guard is the only owner.
             Ok(out)
         }
 
