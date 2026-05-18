@@ -5,6 +5,24 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = []
+# Phase E6.1: enables the Windows WDK minifilter kernel backend
+# (`crates/sda-pal/src/kernel/windows.rs`). Off by default — the
+# user-mode ETW backend from Phase E1 stays in place unless this
+# feature is set AND the signed driver is installed.
+kernel-windows = []
+# Phase E6.3: enables the macOS SystemExtension kernel backend
+# (`crates/sda-pal/src/kernel/macos.rs`). Off by default — the
+# user-mode Endpoint Security client from Phase E1 stays in place
+# unless this feature is set AND the SystemExtension is approved.
+kernel-macos = []
+# Phase E6.4: enables the Linux eBPF kernel backend
+# (`crates/sda-pal/src/kernel/linux_ebpf.rs`). Off by default — the
+# user-mode `cn_proc` + `audit` backends from Phase E1 stay in
+# place unless this feature is set AND the host kernel is >= 5.8.
+kernel-linux-ebpf = []
+
 [dependencies]
 tokio = { workspace = true }
 serde = { workspace = true }

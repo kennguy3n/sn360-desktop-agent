@@ -105,9 +105,7 @@ impl Scanner {
 /// over an empty slice (Blake3's documented zero-length digest).
 pub fn fingerprint_window(buf: &[u8], start: usize, end: usize) -> String {
     let lo = start.saturating_sub(FINGERPRINT_WINDOW_HALF);
-    let hi = end
-        .saturating_add(FINGERPRINT_WINDOW_HALF)
-        .min(buf.len());
+    let hi = end.saturating_add(FINGERPRINT_WINDOW_HALF).min(buf.len());
     let slice = if lo <= hi { &buf[lo..hi] } else { &[][..] };
     blake3::hash(slice).to_hex().to_string()
 }
@@ -131,10 +129,7 @@ mod tests {
         // Redaction invariant: serialised finding must NOT contain
         // the matched bytes.
         let json = serde_json::to_string(&findings[0]).unwrap();
-        assert!(
-            !json.contains("123-45-6789"),
-            "finding leaked SSN: {json}"
-        );
+        assert!(!json.contains("123-45-6789"), "finding leaked SSN: {json}");
         // The Debug repr must also be safe.
         let dbg = format!("{:?}", findings[0]);
         assert!(!dbg.contains("123-45-6789"), "Debug leaked: {dbg}");

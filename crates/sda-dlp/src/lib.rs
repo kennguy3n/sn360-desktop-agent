@@ -57,7 +57,7 @@ use tracing::{debug, error, info, warn};
 use sda_core::config::{AgentConfig, DlpConfig};
 use sda_core::module::{AgentModule, ModuleHandle, ModuleHealth, ModuleStatus};
 use sda_core::signal::ShutdownSignal;
-use sda_event_bus::{Event, EventBus, EventKind, Priority};
+use sda_event_bus::{Event, EventBus, EventKind, EventReceiver, Priority};
 
 use crate::scanner::{DlpFinding, Scanner};
 
@@ -107,6 +107,12 @@ impl DlpModule {
 
     /// Spawn the DLP module with a hand-built config (used by
     /// tests + E2E suites).
+    ///
+    /// The receiver is acquired on the calling thread BEFORE the
+    /// task is spawned so a test that publishes a FIM event
+    /// immediately after `start_with_config` cannot lose the
+    /// event in the gap between `tokio::spawn` and the task's
+    /// first poll. See `tests/e2e_dlp.rs` for the regression.
     pub fn start_with_config(
         cfg: DlpConfig,
         bus: EventBus,
@@ -114,8 +120,9 @@ impl DlpModule {
     ) -> ModuleHandle {
         let status = Arc::new(AtomicU8::new(STATUS_INITIALIZED));
         let task_status = Arc::clone(&status);
+        let rx = bus.subscribe();
         let task = tokio::spawn(async move {
-            if let Err(e) = run(cfg, bus, shutdown, task_status.clone()).await {
+            if let Err(e) = run(cfg, bus, rx, shutdown, task_status.clone()).await {
                 error!(error = %e, "DLP module failed");
                 task_status.store(STATUS_FAILED, Ordering::Relaxed);
                 return Err(e);
@@ -151,6 +158,7 @@ impl AgentModule for DlpModule {
 async fn run(
     cfg: DlpConfig,
     bus: EventBus,
+    mut rx: EventReceiver,
     mut shutdown: ShutdownSignal,
     status: Arc<AtomicU8>,
 ) -> anyhow::Result<()> {
@@ -185,8 +193,6 @@ async fn run(
         "starting DLP module"
     );
     status.store(STATUS_RUNNING, Ordering::Relaxed);
-
-    let mut rx = bus.subscribe();
 
     loop {
         tokio::select! {
@@ -264,10 +270,7 @@ async fn inspect_file(
     }
 }
 
-async fn read_bounded(
-    path: &std::path::Path,
-    limit: usize,
-) -> anyhow::Result<Vec<u8>> {
+async fn read_bounded(path: &std::path::Path, limit: usize) -> anyhow::Result<Vec<u8>> {
     let mut f = fs::File::open(path)
         .await
         .with_context(|| format!("open {}", path.display()))?;
@@ -440,8 +443,7 @@ mod tests {
         let (bus, _) = EventBus::new(64, 64);
         let mut rx = bus.subscribe();
         let (ctrl, signal) = ShutdownController::new();
-        let handle =
-            DlpModule::start_with_config(cfg("monitor"), bus.clone(), signal);
+        let handle = DlpModule::start_with_config(cfg("monitor"), bus.clone(), signal);
         // Give the module a moment to subscribe before publishing.
         tokio::time::sleep(Duration::from_millis(20)).await;
         bus.publish(Event::new(
@@ -485,8 +487,7 @@ mod tests {
         let (bus, _) = EventBus::new(64, 64);
         let mut rx = bus.subscribe();
         let (ctrl, signal) = ShutdownController::new();
-        let handle =
-            DlpModule::start_with_config(cfg("enforce"), bus.clone(), signal);
+        let handle = DlpModule::start_with_config(cfg("enforce"), bus.clone(), signal);
         tokio::time::sleep(Duration::from_millis(20)).await;
         bus.publish(Event::new(
             "fim",
@@ -513,8 +514,7 @@ mod tests {
         let (bus, _) = EventBus::new(64, 64);
         let mut rx = bus.subscribe();
         let (ctrl, signal) = ShutdownController::new();
-        let handle =
-            DlpModule::start_with_config(cfg("monitor"), bus.clone(), signal);
+        let handle = DlpModule::start_with_config(cfg("monitor"), bus.clone(), signal);
         tokio::time::sleep(Duration::from_millis(20)).await;
         bus.publish(Event::new(
             "fim",

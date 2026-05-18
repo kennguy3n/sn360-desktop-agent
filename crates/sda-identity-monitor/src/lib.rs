@@ -192,8 +192,7 @@ pub fn is_system_principal(user: &str) -> bool {
     let normalized = user.trim().to_ascii_lowercase();
     matches!(
         normalized.as_str(),
-        ""
-            | "system"
+        "" | "system"
             | "nt authority\\system"
             | "nt service\\trustedinstaller"
             | "root"
@@ -275,10 +274,7 @@ impl AgentModule for IdentityMonitorModule {
     }
 }
 
-fn default_providers(
-    cfg: &IdentityMonitorConfig,
-    bus: EventBus,
-) -> Vec<Arc<dyn IdentityProvider>> {
+fn default_providers(cfg: &IdentityMonitorConfig, bus: EventBus) -> Vec<Arc<dyn IdentityProvider>> {
     let mut out: Vec<Arc<dyn IdentityProvider>> = Vec::new();
     if cfg.shadow_access_linux {
         out.push(Arc::new(linux::LinuxShadowAccessProvider::new(bus.clone())));
@@ -346,9 +342,7 @@ async fn run(
 
     // Drain remaining buffered signals so a clean shutdown doesn't
     // swallow telemetry already in flight.
-    while let Ok(Some(signal)) =
-        tokio::time::timeout(Duration::from_millis(50), rx.recv()).await
-    {
+    while let Ok(Some(signal)) = tokio::time::timeout(Duration::from_millis(50), rx.recv()).await {
         if let Err(e) = publish_signal(&bus, &signal).await {
             warn!(error = %e, "failed to publish IdentityAlert during drain");
         }
@@ -546,7 +540,10 @@ mod tests {
 
     #[test]
     fn mitre_techniques_are_documented_ids() {
-        assert_eq!(IdentityAlertKind::LsassAccess.mitre_technique(), "T1003.001");
+        assert_eq!(
+            IdentityAlertKind::LsassAccess.mitre_technique(),
+            "T1003.001"
+        );
         assert_eq!(
             IdentityAlertKind::ShadowAccess.mitre_technique(),
             "T1003.008"
@@ -606,11 +603,12 @@ mod tests {
             shadow_access_linux: true,
             keychain_access_macos: true,
         };
-        let provider: Arc<dyn IdentityProvider> = Arc::new(MockIdentityProvider::new(vec![signal(
-            IdentityAlertKind::LsassAccess,
-            "alice",
-            "lsass.exe",
-        )]));
+        let provider: Arc<dyn IdentityProvider> =
+            Arc::new(MockIdentityProvider::new(vec![signal(
+                IdentityAlertKind::LsassAccess,
+                "alice",
+                "lsass.exe",
+            )]));
         let handle = IdentityMonitorModule::start_with_providers(
             cfg,
             vec![provider],
@@ -689,11 +687,12 @@ mod tests {
         let (bus, _) = EventBus::new(64, 64);
         let mut rx = bus.subscribe();
         let (ctrl, signal_handle) = ShutdownController::new();
-        let provider: Arc<dyn IdentityProvider> = Arc::new(MockIdentityProvider::new(vec![signal(
-            IdentityAlertKind::ShadowAccess,
-            "ubuntu",
-            "/etc/shadow",
-        )]));
+        let provider: Arc<dyn IdentityProvider> =
+            Arc::new(MockIdentityProvider::new(vec![signal(
+                IdentityAlertKind::ShadowAccess,
+                "ubuntu",
+                "/etc/shadow",
+            )]));
         let handle = IdentityMonitorModule::start_with_providers(
             enabled_cfg(),
             vec![provider],

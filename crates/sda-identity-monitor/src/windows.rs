@@ -82,11 +82,7 @@ mod tests {
         let provider = WindowsLsassAccessProvider::default();
         let (tx, _rx) = mpsc::channel::<IdentitySignal>(16);
         let (ctrl, signal) = ShutdownController::new();
-        let handle = provider.run(
-            IdentityMonitorConfig::default(),
-            tx,
-            signal,
-        );
+        let handle = provider.run(IdentityMonitorConfig::default(), tx, signal);
         ctrl.shutdown();
         let res = tokio::time::timeout(Duration::from_millis(500), handle)
             .await

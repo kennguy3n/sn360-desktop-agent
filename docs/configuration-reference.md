@@ -238,6 +238,141 @@ flag's value.  Leaving the flag at its `true` default makes that
 guarantee visible in config; setting it to `false` does not
 disable loopback access.
 
+### `modules.memory_scanner`
+
+```yaml
+modules:
+  memory_scanner:
+    enabled: false                            # default — opt-in (Phase E4)
+    scan_interval_secs: 300                   # default: 300 (5 min between full sweeps)
+    only_when_idle_below_cpu_pct: 20          # default: 20 — skip sweep when host CPU >= 20 %
+    allow_list_processes:                     # processes excluded from scanning
+      - sn360-desktop-agent                   # agent process always added at compile time
+    yara_rule_source: "trds"                  # "trds" | "local" — where the in-memory YARA rules come from
+```
+
+> ⚠️ **Safety invariant.** The agent process is **always** in the
+> allow-list at compile time (per
+> [`ARCHITECTURE.md` § 9.4](./edr-parity/ARCHITECTURE.md)), even if
+> the operator explicitly removes it from
+> `allow_list_processes`. The PAL trait
+> (`sda_pal::memory_scanner::MemoryScanner::enumerate`) enforces
+> self-pid exclusion independently and the in-memory YARA rules
+> are scoped to `pid != self_pid` at the rule-engine level — so a
+> compromised config cannot make the agent scan itself.
+
+> ⚠️ **Privilege requirements.** Region reads require elevated
+> capabilities per platform: `CAP_SYS_PTRACE` on Linux for
+> `/proc/<pid>/mem`, `SeDebugPrivilege` on Windows (granted to
+> `SYSTEM`) for `ReadProcessMemory`, and the
+> `com.apple.security.cs.debugger` entitlement (or `root`) on
+> macOS for `task_for_pid`. Without these, the scanner logs a
+> permission error per scan window and the LDE still sees
+> `MemoryScanAlert` events from any AMSI matches on Windows.
+
+`only_when_idle_below_cpu_pct` is enforced before each scan
+window — the module reads the rolling host-CPU estimate from
+`sda_pal::power::PowerMonitor::current_profile()` and skips the
+sweep (without emitting an error) when the sample exceeds the
+threshold. This keeps the scanner within the 1 %-of-scan-window
+CPU budget documented in
+[`ARCHITECTURE.md` § 7.2](./edr-parity/ARCHITECTURE.md).
+
+`yara_rule_source` controls where the in-memory YARA rules come
+from. `"trds"` (the default) reuses the existing
+`sda-local-detection` rule store (Ed25519-verified TRDS bundle
+hot-reload + atomic `Arc<ArcSwap<DetectionPipeline>>` swap), so
+the same signed bundle that drives file-path YARA scans also
+covers in-memory matches without a new rule format. `"local"`
+uses only the embedded baseline rules — useful for hermetic CI
+or air-gapped deployments.
+
+The optional `amsi` Cargo feature
+(`#[cfg(feature = "amsi")] #[cfg(target_os = "windows")]`)
+registers an `IAmsiStream` provider so PowerShell / VBScript
+content scanned by AMSI feeds the same `MemoryScanAlert` path
+with `alert_type: "amsi_match"`. Off by default.
+
+### `modules.identity_monitor`
+
+```yaml
+modules:
+  identity_monitor:
+    enabled: false                  # default — opt-in (Phase E5)
+    lsass_access_windows: true      # ETW Microsoft-Windows-Threat-Intelligence + NtOpenProcess on lsass.exe — T1003.001
+    shadow_access_linux: true       # FileMetadataChanged on /etc/shadow + audit on /proc/kcore — T1003.008 / T1003
+    keychain_access_macos: true     # Endpoint Security ES_EVENT_TYPE_NOTIFY_OPEN on Keychain paths — T1555.001
+```
+
+The identity monitor emits `EventKind::IdentityAlert` with a
+canonical-JSON payload that includes the MITRE ATT&CK technique
+ID, the accessing user / process, and a human-readable
+description. **System-principal events are filtered at the module
+publish boundary** (not in providers) so the same provider can
+feed both the IDS pipeline and audit logs; an access by
+`NT AUTHORITY\SYSTEM`, `root`, or an Apple-signed binary does
+not produce an `IdentityAlert`.
+
+Each per-OS detector can be toggled independently. The Linux
+backend reuses the existing FIM and audit primitives — no extra
+privileges beyond what `sda-fim` already has. The Windows backend
+requires `SYSTEM` (granted via the installer) for the
+`Microsoft-Windows-Threat-Intelligence` ETW provider; the macOS
+backend requires the `com.apple.developer.endpoint-security.client`
+entitlement (production signing only; CI uses
+`MockEndpointSecurity`).
+
+### `modules.dlp`
+
+```yaml
+modules:
+  dlp:
+    enabled: false                       # default — opt-in (Phase E5)
+    mode: "monitor"                      # "monitor" (default) | "enforce"
+    patterns:                            # baseline regex pattern set
+      - pii.ssn                          # US Social Security Number
+      - pii.uk_ni                        # UK National Insurance Number
+      - pci.pan_luhn                     # Payment card PAN + Luhn validation
+    inspect_file_writes: true            # subscribe to FileCreated / FileModified
+    inspect_clipboard: false             # feature-gated — requires `dlp-clipboard` Cargo feature
+```
+
+**Redaction invariant (mandatory).** DLP findings never carry the
+matched bytes — the agent emits only the pattern category, byte
+offset, length, and the Blake3 fingerprint of the surrounding
+32-byte window (per
+[`ARCHITECTURE.md` § 8.1](./edr-parity/ARCHITECTURE.md)).
+Operators can correlate two findings as the same matched value
+via fingerprint without ever reading the underlying PII / PCI
+content. This is enforced at the scanner output type
+(`DlpFinding`) — the matched bytes are never serialised into the
+event payload.
+
+- `mode: "monitor"` (default) — the DLP module publishes
+  `EventKind::LocalDetectionAlert` with `rule_type: "dlp"` and
+  `severity: "medium"`. No quarantine, no follow-up action.
+- `mode: "enforce"` — the same finding is published with
+  `severity: "high"` so the existing `sda-active-response` module
+  can quarantine the offending file via its existing quarantine
+  primitives. Nothing in the DLP code path writes to the
+  filesystem directly.
+
+`patterns` is the list of pattern category IDs to load from the
+TRDS-distributed pattern bundle (or the embedded baseline if no
+bundle is available). Custom patterns can be added by extending
+`crates/sda-dlp/src/patterns.rs` and re-publishing the bundle.
+
+`inspect_file_writes` is the default DLP input source —
+subscribing to `EventKind::FileCreated` and `FileModified` and
+performing a bounded read (1 MiB cap) on each event. Files larger
+than the cap are skipped without an error.
+
+`inspect_clipboard` requires the optional `dlp-clipboard` Cargo
+feature (off by default) and a display server (X11 / Wayland on
+Linux, a desktop session on macOS / Windows). Real clipboard
+access is not available in headless CI, so the integration uses
+`MockClipboardProvider` for tests.
+
 ## `updater`
 
 ```yaml

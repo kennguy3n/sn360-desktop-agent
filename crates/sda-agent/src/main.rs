@@ -524,11 +524,8 @@ async fn main() -> Result<()> {
     //                       MUST NOT appear in the payload.
     if config.modules.dlp.enabled {
         info!("starting DLP module");
-        let dlp_handle = sda_dlp::DlpModule::start(
-            &config,
-            agent.event_bus(),
-            agent.shutdown_signal(),
-        );
+        let dlp_handle =
+            sda_dlp::DlpModule::start(&config, agent.event_bus(), agent.shutdown_signal());
         agent.register_module(dlp_handle);
     }
 

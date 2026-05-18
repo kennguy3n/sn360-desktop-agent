@@ -24,7 +24,7 @@ TARGETS := \
         e2e-device-control e2e-software e2e-jit-admin e2e-app-control e2e-remote-support \
         e2e-device-policy e2e-mdm e2e-mdm-actions e2e-mdm-profile \
         e2e-process-telemetry e2e-lde-hotreload e2e-network-telemetry e2e-host-isolation \
-        e2e-management-compat benchmark-ci deb rpm pkg msi \
+        e2e-management-compat e2e-memory-scan e2e-identity e2e-dlp benchmark-ci deb rpm pkg msi \
         test-unit test-integration test-e2e-all test-full test-pr
 
 build:
@@ -69,6 +69,9 @@ test-e2e-all:
 	$(CARGO) test --package sda-agent --test e2e_lde_hotreload -- --nocapture
 	$(CARGO) test --package sda-agent --test e2e_network_telemetry -- --nocapture
 	$(CARGO) test --package sda-agent --test e2e_host_isolation -- --nocapture
+	$(CARGO) test --package sda-agent --test e2e_memory_scan -- --nocapture
+	$(CARGO) test --package sda-agent --test e2e_identity -- --nocapture
+	$(CARGO) test --package sda-agent --test e2e_dlp -- --nocapture
 
 # Full: everything — unit + integration + all E2E + shell E2E + benchmarks.
 test-full: test-integration test-e2e-all e2e e2e-compat security-e2e benchmark-ci

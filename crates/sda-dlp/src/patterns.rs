@@ -160,10 +160,7 @@ fn validate_uk_ni(s: &str) -> bool {
         return false;
     }
     let prefix = &s[..2];
-    if matches!(
-        prefix,
-        "BG" | "GB" | "KN" | "NK" | "NT" | "TN" | "ZZ"
-    ) {
+    if matches!(prefix, "BG" | "GB" | "KN" | "NK" | "NT" | "TN" | "ZZ") {
         return false;
     }
     let suffix = bytes[8] as char;

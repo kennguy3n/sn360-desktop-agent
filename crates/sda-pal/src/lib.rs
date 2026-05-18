@@ -8,6 +8,7 @@ pub mod app_control;
 pub mod dns_monitor;
 pub mod fs_watcher;
 pub mod host_isolation;
+pub mod kernel;
 pub mod mdm;
 pub mod memory_scanner;
 pub mod network_monitor;

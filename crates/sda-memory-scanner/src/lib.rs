@@ -759,20 +759,29 @@ async fn emit_alert(
 // Tests
 // ---------------------------------------------------------------------------
 
-#[cfg(test)]
-pub use test_doubles::{MockCpuSampler, MockMatcher, MockProcessLister};
+#[cfg(any(test, feature = "test-support"))]
+pub use mock::{MockCpuSampler, MockMatcher, MockProcessLister};
 
-#[cfg(test)]
-mod test_doubles {
+#[cfg(any(test, feature = "test-support"))]
+pub mod mock {
+    //! In-process mock implementations of the dependency traits.
+    //!
+    //! Exposed under the `test-support` feature so cross-crate E2E
+    //! tests in `sda-agent` can construct them without enabling
+    //! `cfg(test)`.
+
     use super::*;
     use std::sync::Mutex;
 
+    /// Mock [`ProcessLister`] returning a canned set of handles.
     pub struct MockProcessLister {
         handles: Mutex<Vec<ProcessHandle>>,
         fail: Mutex<bool>,
     }
 
     impl MockProcessLister {
+        /// Build a new mock lister with the given canned process
+        /// handles.
         pub fn new(handles: Vec<ProcessHandle>) -> Self {
             Self {
                 handles: Mutex::new(handles),
@@ -780,6 +789,9 @@ mod test_doubles {
             }
         }
 
+        /// Toggle the "fail next list call" flag. When `true`,
+        /// [`ProcessLister::list`] returns a synthetic
+        /// `io::Error::other("forced failure")`.
         pub fn set_fail(&self, fail: bool) {
             *self.fail.lock().unwrap() = fail;
         }
@@ -794,17 +806,20 @@ mod test_doubles {
         }
     }
 
+    /// Mock [`CpuSampler`] that returns a configurable fixed value.
     pub struct MockCpuSampler {
         pct: Mutex<u32>,
     }
 
     impl MockCpuSampler {
+        /// Build a new mock sampler pinned to `pct` percent.
         pub fn new(pct: u32) -> Self {
             Self {
                 pct: Mutex::new(pct),
             }
         }
 
+        /// Update the pinned percentage at runtime.
         pub fn set(&self, pct: u32) {
             *self.pct.lock().unwrap() = pct;
         }
@@ -816,12 +831,15 @@ mod test_doubles {
         }
     }
 
+    /// Mock [`MemoryMatcher`] that returns a canned set of hits
+    /// for every call.
     pub struct MockMatcher {
         hits: Mutex<Vec<MemoryMatch>>,
         call_count: AtomicU64,
     }
 
     impl MockMatcher {
+        /// Build a new mock matcher whose every call yields `hits`.
         pub fn new(hits: Vec<MemoryMatch>) -> Self {
             Self {
                 hits: Mutex::new(hits),
@@ -829,6 +847,8 @@ mod test_doubles {
             }
         }
 
+        /// Number of times [`MemoryMatcher::match_bytes`] has been
+        /// invoked.
         pub fn calls(&self) -> u64 {
             self.call_count.load(Ordering::Relaxed)
         }

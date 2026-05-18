@@ -90,11 +90,7 @@ mod tests {
         let provider = MacosKeychainAccessProvider::default();
         let (tx, _rx) = mpsc::channel::<IdentitySignal>(16);
         let (ctrl, signal) = ShutdownController::new();
-        let handle = provider.run(
-            IdentityMonitorConfig::default(),
-            tx,
-            signal,
-        );
+        let handle = provider.run(IdentityMonitorConfig::default(), tx, signal);
         ctrl.shutdown();
         tokio::time::timeout(Duration::from_millis(500), handle)
             .await
@@ -105,9 +101,7 @@ mod tests {
 
     #[test]
     fn keychain_path_matcher_recognises_canonical_locations() {
-        assert!(is_keychain_path(
-            "/Library/Keychains/System.keychain"
-        ));
+        assert!(is_keychain_path("/Library/Keychains/System.keychain"));
         assert!(is_keychain_path(
             "/Users/alice/Library/Keychains/login.keychain-db"
         ));

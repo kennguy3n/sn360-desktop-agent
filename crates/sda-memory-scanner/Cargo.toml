@@ -10,6 +10,10 @@ default = []
 # AMSI integration for Windows PowerShell / VBScript content scanning.
 # Off by default; consumers opt in via `--features amsi`.
 amsi = []
+# Exposes the in-process mock `ProcessLister`, `CpuSampler`, and
+# `MemoryMatcher` implementations so the E4 E2E tests in `sda-agent`
+# can construct them without enabling `cfg(test)`.
+test-support = []
 
 [dependencies]
 sda-core = { workspace = true }

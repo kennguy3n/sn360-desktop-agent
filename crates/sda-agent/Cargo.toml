@@ -35,6 +35,9 @@ sda-rootcheck = { workspace = true }
 sda-local-detection = { workspace = true }
 sda-process-monitor = { workspace = true }
 sda-network-monitor = { workspace = true }
+sda-memory-scanner = { workspace = true }
+sda-identity-monitor = { workspace = true }
+sda-dlp = { workspace = true }
 sda-host-isolation = { workspace = true }
 sda-enhanced-inventory = { workspace = true }
 sda-updater = { workspace = true }
@@ -74,3 +77,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 sda-management-compat = { workspace = true }
+sda-identity-monitor = { workspace = true, features = ["test-support"] }
+sda-dlp = { workspace = true, features = ["test-support"] }
+sda-memory-scanner = { workspace = true, features = ["test-support"] }
+sda-pal = { workspace = true }
