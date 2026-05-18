@@ -505,11 +505,24 @@ async fn run(
             }
 
             _ = tick.tick() => {
+                // Sample CPU off the tokio runtime: the Linux
+                // sampler does a ~100ms `std::thread::sleep` between
+                // two `/proc/stat` reads, which would block the
+                // single-threaded test runtime and (on the multi-
+                // threaded production runtime) stall whichever
+                // worker is unlucky enough to poll us at that
+                // moment. `spawn_blocking` hands the sleep to the
+                // blocking pool. Flagged by the Devin Review bot on
+                // PR #25.
+                let cpu_for_sample = cpu.clone();
+                let busy = tokio::task::spawn_blocking(move || cpu_for_sample.sample_percent())
+                    .await
+                    .unwrap_or(0);
                 scan_once(
                     &cfg,
                     scanner.as_ref(),
                     lister.as_ref(),
-                    cpu.as_ref(),
+                    busy,
                     power.as_ref(),
                     matcher.as_ref(),
                     &bus,
@@ -551,7 +564,7 @@ async fn scan_once(
     cfg: &MemoryScannerConfig,
     scanner: &dyn MemoryScanner,
     lister: &dyn ProcessLister,
-    cpu: &dyn CpuSampler,
+    busy: u32,
     power: &PowerMonitor,
     matcher: &dyn MemoryMatcher,
     bus: &EventBus,
@@ -562,7 +575,9 @@ async fn scan_once(
     vitals.scans_started.fetch_add(1, Ordering::Relaxed);
 
     // --- CPU gate ---
-    let busy = cpu.sample_percent();
+    // `busy` is the already-sampled host CPU percentage, computed
+    // on the blocking pool in `run()` so the ~100ms /proc/stat
+    // delta does not stall the async runtime.
     if cfg.only_when_idle_below_cpu_pct < 100 && busy >= cfg.only_when_idle_below_cpu_pct {
         debug!(
             cpu_pct = busy,

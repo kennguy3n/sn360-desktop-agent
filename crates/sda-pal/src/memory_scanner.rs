@@ -455,6 +455,36 @@ pub mod linux_imp {
 #[cfg(target_os = "windows")]
 pub mod windows_imp {
     use super::*;
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
+
+    /// RAII guard that closes a Win32 `HANDLE` on drop.
+    ///
+    /// Used by [`WindowsMemoryScanner`] so that handle ownership
+    /// follows scope. If anything between `OpenProcess` and the
+    /// final return panics — including the `unsafe` blocks around
+    /// `VirtualQueryEx` and `ReadProcessMemory` — the handle is
+    /// still released by the unwind. This is the defence-in-depth
+    /// pattern the Devin Review bot recommended on PR #25 and
+    /// mirrors how the kernel-mode Windows code is expected to
+    /// manage its own handles in E6.1.
+    struct ProcessHandleGuard(HANDLE);
+
+    impl Drop for ProcessHandleGuard {
+        fn drop(&mut self) {
+            // CloseHandle on an invalid handle returns an error,
+            // which we explicitly ignore: closing an already-closed
+            // handle isn't actionable from Drop.
+            unsafe {
+                let _ = CloseHandle(self.0);
+            }
+        }
+    }
+
+    impl ProcessHandleGuard {
+        fn raw(&self) -> HANDLE {
+            self.0
+        }
+    }
 
     /// Windows `VirtualQueryEx`-backed memory scanner.
     ///
@@ -489,11 +519,11 @@ pub mod windows_imp {
             if pid == self.self_pid {
                 return Ok(Vec::new());
             }
-            // SAFETY: All Win32 calls are wrapped one at a time below
-            // and every handle is closed on the success path.  When
-            // `OpenProcess` fails we propagate the resulting Win32
-            // error verbatim.
-            use windows::Win32::Foundation::CloseHandle;
+            // SAFETY: every `unsafe` block wraps a single Win32 call.
+            // The handle is owned by `ProcessHandleGuard` from the
+            // moment `OpenProcess` succeeds, so any panic — or new
+            // early-return added in future revisions — still releases
+            // it via the guard's `Drop`.
             use windows::Win32::System::Memory::{
                 VirtualQueryEx, MEMORY_BASIC_INFORMATION, MEM_COMMIT, PAGE_EXECUTE,
                 PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY, PAGE_NOACCESS,
@@ -503,17 +533,18 @@ pub mod windows_imp {
                 OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
             };
 
-            let handle = unsafe {
+            let raw_handle = unsafe {
                 OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid)
                     .map_err(|e| io::Error::other(format!("OpenProcess failed: {e}")))?
             };
+            let handle_guard = ProcessHandleGuard(raw_handle);
             let mut out = Vec::new();
             let mut address: usize = 0;
             loop {
                 let mut info = MEMORY_BASIC_INFORMATION::default();
                 let written = unsafe {
                     VirtualQueryEx(
-                        handle,
+                        handle_guard.raw(),
                         Some(address as *const _),
                         &mut info,
                         std::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
@@ -601,28 +632,28 @@ pub mod windows_imp {
                     "refusing to read the agent's own memory",
                 ));
             }
-            use windows::Win32::Foundation::CloseHandle;
             use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
             use windows::Win32::System::Threading::{OpenProcess, PROCESS_VM_READ};
 
             let cap = len.min(buf.len());
-            let handle = unsafe {
+            let raw_handle = unsafe {
                 OpenProcess(PROCESS_VM_READ, false, pid)
                     .map_err(|e| io::Error::other(format!("OpenProcess failed: {e}")))?
             };
+            // Take ownership of the handle immediately so the guard
+            // releases it on any return path — including a panic in
+            // the `ReadProcessMemory` `unsafe` block below.
+            let handle_guard = ProcessHandleGuard(raw_handle);
             let mut bytes_read: usize = 0;
             let ok = unsafe {
                 ReadProcessMemory(
-                    handle,
+                    handle_guard.raw(),
                     base as *const _,
                     buf.as_mut_ptr() as *mut _,
                     cap,
                     Some(&mut bytes_read),
                 )
             };
-            unsafe {
-                let _ = CloseHandle(handle);
-            }
             ok.map_err(|e| io::Error::other(format!("ReadProcessMemory failed: {e}")))?;
             Ok(bytes_read)
         }

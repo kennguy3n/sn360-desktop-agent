@@ -195,7 +195,17 @@ fn validate_uk_ni(s: &[u8]) -> bool {
 
 /// Luhn check over an ASCII digit string. Public so callers writing
 /// new PAN-like patterns can reuse it.
+///
+/// Returns `false` when `digits` is empty — an empty buffer has a
+/// `sum` of zero, which `is_multiple_of(10)` would otherwise report
+/// as a valid Luhn checksum. The PAN pattern's internal caller
+/// (`validate_pan_luhn`) already rejects short inputs before the
+/// Luhn step, but this function is `pub` so the empty-input guard
+/// belongs here too — flagged by the Devin Review bot on PR #25.
 pub fn luhn_check(digits: &[u8]) -> bool {
+    if digits.is_empty() {
+        return false;
+    }
     let mut sum = 0u32;
     let mut alt = false;
     for &b in digits.iter().rev() {
@@ -293,6 +303,14 @@ mod tests {
         assert!(luhn_check(b"79927398713"));
         assert!(!luhn_check(b"79927398710"));
         assert!(!luhn_check(b"not digits"));
+    }
+
+    #[test]
+    fn luhn_check_rejects_empty_input() {
+        // The naive implementation returns `true` here because the
+        // digit-sum is zero and `0 % 10 == 0`. An empty buffer is
+        // never a valid PAN, so the public API guards against it.
+        assert!(!luhn_check(b""));
     }
 
     #[test]

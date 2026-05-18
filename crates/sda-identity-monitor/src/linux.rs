@@ -60,10 +60,16 @@ impl IdentityProvider for LinuxShadowAccessProvider {
         tx: mpsc::Sender<IdentitySignal>,
         shutdown: ShutdownSignal,
     ) -> tokio::task::JoinHandle<anyhow::Result<()>> {
-        let bus = self.bus.clone();
+        // Subscribe on the calling thread BEFORE spawning the
+        // background task. If we subscribe inside the `tokio::spawn`
+        // closure, the scheduler is free to delay the first poll
+        // long enough for a publisher to race ahead and drop events
+        // before the receiver exists. The DLP module and memory
+        // scanner already follow this pattern; the Devin Review bot
+        // flagged the deviation on PR #25 as a consistency hazard.
+        let mut rx = self.bus.subscribe();
         let mut shutdown = shutdown;
         tokio::spawn(async move {
-            let mut rx = bus.subscribe();
             loop {
                 tokio::select! {
                     biased;
