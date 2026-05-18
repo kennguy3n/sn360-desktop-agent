@@ -416,12 +416,16 @@ shorthand. Supported selectors:
 An empty `patterns: []` selects the full catalogue (default
 behaviour); to disable scanning entirely, set `enabled: false`.
 
-All ≈ 50 regexes compile into a single `regex::bytes::RegexSet`
-backed by Aho-Corasick prefilters — scan cost is O(input_length)
-regardless of pattern count, and structural validators only run on
-the candidate pre-filter matches (typically < 0.1 % of bytes). The
-benchmark gate is **50-pattern scan of a 1 MiB buffer < 10 ms**;
-see [`benchmarks.md`](./benchmarks.md) § DLP.
+Each pattern compiles to its own `regex::bytes::Regex` with the
+regex crate's per-pattern Aho-Corasick literal prefilter, so the
+patterns with strong literal anchors (e.g. `AKIA`, `ghp_`, `BEGIN`,
+`service_account`) scan a 1 MiB buffer in microseconds. Structural
+validators only run on the candidate pre-filter matches (typically
+< 0.1 % of bytes), so adding validators has negligible cost
+relative to the regex pass. The benchmark gate is **a full-
+catalogue scan of a 1 MiB buffer in < 500 ms (release mode)**;
+see [`benchmarks.md`](./benchmarks.md) § 5.1 for the rationale,
+the `#[ignore]` semantics, and the long-term performance target.
 
 ### 6.2 Bounded scanning
 
