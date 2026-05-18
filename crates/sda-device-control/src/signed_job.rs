@@ -9,21 +9,21 @@ use uuid::Uuid;
 
 use crate::types::ActionKind;
 
-/// Hard cap on `SignedActionJob.args` serialised size (SCHEMAS.md
+/// Hard cap on `SignedActionJob.args` serialised size (docs/wire-protocols/device-control.md
 /// § 2.4).
 pub const SIGNED_JOB_ARGS_MAX_BYTES: usize = 64 * 1024;
 
-/// `GrantJitAdmin.duration_minutes` cap from PROPOSAL.md § 14.
+/// `GrantJitAdmin.duration_minutes` cap from `docs/device-control.md` § 4.
 pub const GRANT_JIT_ADMIN_MAX_DURATION_MINUTES: u32 = 480;
 
-/// `RunScript.timeout_seconds` cap from PROPOSAL.md § 14.
+/// `RunScript.timeout_seconds` cap from `docs/device-control.md` § 4.
 pub const RUN_SCRIPT_MAX_TIMEOUT_SECONDS: u32 = 30 * 60;
 
-/// `StartRemoteSupport.max_duration_minutes` cap from PROPOSAL.md
-/// § 14.
+/// `StartRemoteSupport.max_duration_minutes` cap
+/// (`docs/device-control.md` § 4).
 pub const START_REMOTE_SUPPORT_MAX_DURATION_MINUTES: u32 = 240;
 
-/// `QueryAdHoc.max_rows` cap (PROPOSAL.md § 6.1).
+/// `QueryAdHoc.max_rows` cap (`docs/device-control.md` § 5).
 pub const QUERY_AD_HOC_MAX_ROWS: u32 = 10_000;
 
 /// An Ed25519-signed instruction the control plane has issued to
@@ -48,8 +48,8 @@ pub struct SignedActionJob {
     /// Additional signatures for dual-control actions (e.g.
     /// `RemoteWipe`). The router enforces `signatures.len() >= 2`
     /// for any action that requires dual control — see
-    /// `router::validate` step 11 (ARCHITECTURE.md § 4.4 of
-    /// `docs/desktop-mdm/`).
+    /// `router::validate` step 11 (`docs/device-control.md` § 4
+    /// — Signed-job lifecycle).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub additional_signatures: Vec<AdditionalSignature>,
 }
@@ -71,7 +71,7 @@ pub struct AdditionalSignature {
 /// before the router pipeline runs.
 ///
 /// These errors map onto the [`crate::types::JobRefused`] reasons in
-/// SCHEMAS.md § 8.3 — see [`crate::router`] for the mapping.
+/// `docs/wire-protocols/device-control.md` § 8.3 — see [`crate::router`] for the mapping.
 #[derive(Debug, thiserror::Error)]
 pub enum SignedJobError {
     #[error("schema_version is {0}; this build only understands version 1")]
@@ -85,7 +85,7 @@ pub enum SignedJobError {
 }
 
 impl SignedActionJob {
-    /// Validate the structural invariants from SCHEMAS.md § 7 that
+    /// Validate the structural invariants from `docs/wire-protocols/device-control.md` § 7 that
     /// don't require external state (key store, clock, tenant id).
     /// Run inside `router::validate` after step 2.
     pub fn validate_structure(&self) -> Result<(), SignedJobError> {
@@ -113,7 +113,7 @@ impl SignedActionJob {
     }
 
     /// Parse `args` against the per-`ActionKind` strict struct
-    /// (SCHEMAS.md § 7.3). Step 10 of the validation pipeline.
+    /// (`docs/wire-protocols/device-control.md` § 7.3). Step 10 of the validation pipeline.
     pub fn parse_args(&self) -> Result<JobArgs, SignedJobError> {
         JobArgs::parse(self.action, &self.args).map_err(|detail| SignedJobError::ArgsParseError {
             action: self.action,

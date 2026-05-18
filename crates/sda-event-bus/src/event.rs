@@ -142,7 +142,7 @@ pub enum EventKind {
     // The agent encodes Device Control payloads as already-serialized
     // canonical JSON strings so the bus does not need to know the per-
     // schema type system. The full Rust definitions live in
-    // `crates/sda-device-control` (see SCHEMAS.md § 5–9).
+    // `crates/sda-device-control` (see `docs/wire-protocols/device-control.md` § 5–9).
     /// A Device Control `Finding` was emitted (admin/posture/software
     /// observation). Payload: canonical JSON of `Finding`.
     DeviceControlFinding { payload: String },
@@ -460,7 +460,7 @@ mod tests {
         // variants → 17. Phase D2 added the
         // `UsbDevicePolicyDecision` audit envelope → 18. Any change
         // requires a new ADR + a major schema-version bump
-        // (SCHEMAS.md § 11).
+        // (`docs/wire-protocols/device-control.md` § 10).
         assert_eq!(dc_event_kinds().len(), 18);
     }
 }

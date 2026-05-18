@@ -172,7 +172,7 @@ impl RemoteSupportSupervisor {
             .request_consent()
             .map_err(|e| RemoteSupportError::InvalidTransition(e.to_string()))?;
 
-        // Consent gate. PROPOSAL.md § 9.7 requires consent on every
+        // Consent gate. `docs/device-control.md` § 9 requires consent on every
         // session in production; honour the test-only override.
         let decision = if self.config.require_consent {
             self.consent.ask(&session_id, &request.operator_id)

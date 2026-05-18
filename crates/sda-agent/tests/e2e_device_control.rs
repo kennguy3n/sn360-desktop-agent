@@ -1,6 +1,6 @@
-//! Phase 1 Device Control end-to-end suite (PHASES.md task 1.17).
+//! Phase 1 Device Control end-to-end suite (task 1.17).
 //!
-//! Exercises the five canonical PROPOSAL.md § 2.2 scenarios end-to-
+//! Exercises the five canonical `docs/device-control.md` § 1 scenarios end-to-
 //! end on top of the in-process [`EventBus`]:
 //!
 //! 1. Admin / root inventory produces `Finding` events
@@ -8,13 +8,13 @@
 //! 2. Posture snapshots emit `DevicePostureState` events.
 //! 3. The `sda-enhanced-inventory` running-software bridge emits
 //!    `SoftwareInventoryDelta` events when `device_control.enabled =
-//!    true` (PHASES.md task 1.10).
+//!    true` (task 1.10).
 //! 4. The `sda-agent-vitals` heartbeat emits `AgentVitals` events
-//!    (PHASES.md task 1.12).
+//!    (task 1.12).
 //! 5. The Device Control router emits paired
 //!    `DeviceControlActionResult` + `EvidenceRecord` events for both
 //!    accepted-but-not-implemented Phase-1 jobs and refused jobs
-//!    (PHASES.md task 1.13).
+//!    (task 1.13).
 //!
 //! Plus the load-bearing **idle-footprint** invariant: with
 //! `modules.device_control.enabled = false`, none of the Device
@@ -154,7 +154,7 @@ impl Collector for StaticCollector {
 
 // ---------- Scenario 1: admin/root inventory → Finding ----------------------
 
-/// PROPOSAL.md § 2.2 — "6 users have permanent admin/root rights".
+/// `docs/device-control.md` § 1 — "6 users have permanent admin/root rights".
 ///
 /// The admin-manager producer canonicalises a `Finding` and emits
 /// it as `DeviceControlFinding`. We drive the same code path here.
@@ -197,7 +197,7 @@ async fn admin_inventory_emits_device_control_finding() {
             assert_eq!(f.kind, FindingKind::PermanentAdmin);
             assert!(
                 f.plain_english.contains("6 permanent admin"),
-                "expected canonical PROPOSAL.md plain-English text, got: {}",
+                "expected the canonical plain-English text, got: {}",
                 f.plain_english
             );
         }
@@ -207,7 +207,7 @@ async fn admin_inventory_emits_device_control_finding() {
 
 // ---------- Scenario 2: posture snapshot → DevicePostureState ---------------
 
-/// PROPOSAL.md § 2.2 — "4 laptops haven't checked in for 14+ days"
+/// `docs/device-control.md` § 1 — "4 laptops haven't checked in for 14+ days"
 /// is the missing-device case; here we exercise the posture surface
 /// that feeds it. The posture module's Phase 2 loop will publish
 /// canonical-JSON snapshots; this test pins the wire format the
@@ -256,7 +256,7 @@ async fn posture_snapshot_emits_device_posture_state() {
 
 // ---------- Scenario 3: software inventory bridge → SoftwareInventoryDelta --
 
-/// PROPOSAL.md § 2.2 — "Software not on your approved list was
+/// `docs/device-control.md` § 1 — "Software not on your approved list was
 /// installed on 3 devices" — feeds off the running-software delta
 /// bridge added by Task 1.10. The unit tests in
 /// `sda-enhanced-inventory` cover the actual bridging logic; here
@@ -314,7 +314,7 @@ async fn software_inventory_bridge_emits_software_inventory_delta() {
 
 // ---------- Scenario 4: agent vitals heartbeat → AgentVitals ----------------
 
-/// PHASES.md task 1.12 — drive a single heartbeat tick through the
+/// Drive a single heartbeat tick through the
 /// real `run_tick` entrypoint and confirm an `AgentVitals` event
 /// lands on the bus with the canonical-JSON snapshot payload.
 #[tokio::test]
@@ -351,7 +351,8 @@ async fn agent_vitals_heartbeat_emits_agent_vitals() {
 }
 
 /// Power-aware deferral: heartbeat must NOT publish on critical
-/// battery (ARCHITECTURE.md § 7.3). The bus stays empty.
+/// battery (`docs/architecture.md` § 3.1 — Event priorities). The
+/// bus stays empty.
 #[tokio::test]
 async fn agent_vitals_heartbeat_defers_on_critical_battery() {
     let (bus, _server_rx) = EventBus::new(64, 64);
@@ -384,7 +385,7 @@ async fn agent_vitals_heartbeat_defers_on_critical_battery() {
 
 // ---------- Scenario 5: evidence records for action results -----------------
 
-/// PHASES.md task 1.13 — every `ActionResult` produces a paired
+/// Every `ActionResult` produces a paired
 /// `EvidenceRecord` on the bus with the chain hash linking to the
 /// previous record.
 #[tokio::test]
@@ -502,7 +503,7 @@ async fn router_emits_action_result_and_evidence_record() {
 
 // ---------- Scenario 6: idle-footprint invariant ----------------------------
 
-/// PROPOSAL.md § 13 — with `modules.device_control.enabled = false`,
+/// `docs/device-control.md` § 11 — with `modules.device_control.enabled = false`,
 /// the running-software bridge must NOT mirror inventory snapshots
 /// onto the Device Control event surface. Re-validates Task 1.10's
 /// `device_control_enabled` gate end-to-end.

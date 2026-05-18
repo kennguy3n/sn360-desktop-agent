@@ -1,4 +1,4 @@
-//! Phase 2 software end-to-end suite (PHASES.md task 2.15).
+//! Phase 2 software end-to-end suite (task 2.15).
 //!
 //! Hermetic exercises of the software-orchestration surfaces shipped
 //! in Phase 2 (catalogue verification, maintenance windows, software
@@ -11,24 +11,24 @@
 //!
 //! 1. Catalogue verifier rejects manifests signed under the wrong
 //!    pinned key with `ManifestError::SignatureMismatch`
-//!    (PHASES.md task 2.6).
+//!    (task 2.6).
 //! 2. The maintenance-window policy returns `Defer` for jobs landing
-//!    outside the configured allow-list (PHASES.md task 2.8).
+//!    outside the configured allow-list (task 2.8).
 //! 3. A successful install/update/uninstall sequence emits one
 //!    chain-linked `EvidenceRecord` per action and the chain head
 //!    matches `prev_record_hash` of the next record
-//!    (PHASES.md task 2.11).
+//!    (task 2.11).
 //! 4. A failed `UpdatePackage` triggers an automatic re-install of
 //!    the previously-installed version and emits two chain-linked
 //!    evidence records sharing the same `job_id` but with distinct
-//!    `evidence_id`s (PHASES.md task 2.10).
+//!    `evidence_id`s (task 2.10).
 //! 5. An installed package whose catalogue state is `Pending` lands
 //!    on the bus as a `DeviceControlRecommendation` with the
-//!    plain-English text from `sda-software` (PHASES.md task 2.9).
+//!    plain-English text from `sda-software` (task 2.9).
 //! 6. The script runner accepts a properly-signed script, refuses
 //!    one whose signature does not verify, and kills a runaway
 //!    script when the wall-clock budget elapses
-//!    (PHASES.md task 2.7).
+//!    (task 2.7).
 //!
 //! All scenarios run on in-process state (mock `PackageManager`,
 //! tempdirs, in-process bus). `make e2e-software` runs in
@@ -220,7 +220,7 @@ impl PackageManager for MockManager {
 
 // ---------- Scenario 1: catalogue manifest verification --------------------
 
-/// PHASES.md task 2.6 — the catalogue verifier must refuse manifests
+/// The catalogue verifier must refuse manifests
 /// signed under any key other than the pinned one. We exercise this
 /// end-to-end by handing [`CatalogueStore::verify_and_swap`] bytes
 /// whose `signature` field is well-shaped (64 hex bytes) but does
@@ -267,7 +267,7 @@ fn catalogue_manifest_rejects_wrong_signature() {
 
 // ---------- Scenario 2: maintenance window enforcement ---------------------
 
-/// PHASES.md task 2.8 — disruptive jobs must not run outside their
+/// Disruptive jobs must not run outside their
 /// allowed maintenance window. We construct a window that allows
 /// only Mondays 02:00–04:00 UTC and assert that a job evaluated on
 /// a Thursday at 08:30 UTC defers, while one at 02:30 UTC on a
@@ -309,7 +309,7 @@ fn maintenance_window_defers_jobs_outside_allow_list() {
 
 // ---------- Scenario 3: software evidence chain on bus ---------------------
 
-/// PHASES.md task 2.11 — every successful install / update /
+/// Every successful install / update /
 /// uninstall must emit one chain-linked `EvidenceRecord` event on
 /// the bus. The first record's `prev_record_hash` is
 /// `FIRST_RECORD_PREV_HASH`; subsequent records reference the
@@ -448,9 +448,9 @@ async fn install_update_uninstall_emits_chain_linked_evidence() {
 
 // ---------- Scenario 4: rollback on failed update --------------------------
 
-/// PHASES.md task 2.10 — a failed `UpdatePackage` must trigger an
+/// A failed `UpdatePackage` must trigger an
 /// automatic re-install of the previously-recorded version, and
-/// PHASES.md task 2.11 — the failed update + the rollback attempt
+/// The failed update + the rollback attempt
 /// must each appear as chain-linked evidence rows sharing the same
 /// `job_id` but distinct `evidence_id`s.
 #[tokio::test]
@@ -629,7 +629,7 @@ async fn failed_update_triggers_rollback_and_emits_two_chained_records() {
 
 // ---------- Scenario 5: approval-state recommendation surfacing ------------
 
-/// PHASES.md task 2.9 — when an installed package surfaces in a
+/// When an installed package surfaces in a
 /// non-approved state (Pending, Denied, Recalled, or Unknown) the
 /// agent must publish a `DeviceControlRecommendation` containing
 /// the canonical plain-English text from `sda-software`.
@@ -737,7 +737,7 @@ fn signed_request(
     }
 }
 
-/// PHASES.md task 2.7 — a properly-signed, allow-listed script runs
+/// A properly-signed, allow-listed script runs
 /// to completion and the supervisor surface emits exactly one
 /// `ScriptRunResult` carrying the runner's outcome.
 #[tokio::test]
@@ -777,7 +777,7 @@ async fn signed_script_runs_and_emits_script_run_result() {
     }
 }
 
-/// PHASES.md task 2.7 — an unsigned (or wrong-key) script must be
+/// An unsigned (or wrong-key) script must be
 /// rejected before any process is spawned. We simulate the wrong
 /// key by signing with an attacker-controlled keypair while pinning
 /// a different one in the runner config.
@@ -800,7 +800,7 @@ async fn unsigned_script_is_rejected_before_spawn() {
     assert!(matches!(err, ScriptRunnerError::SignatureMismatch));
 }
 
-/// PHASES.md task 2.7 — a runaway script must be killed when its
+/// A runaway script must be killed when its
 /// wall-clock budget elapses, and the resulting outcome must
 /// indicate `timed_out=true` with the canonical truncation reason.
 #[tokio::test]

@@ -3,11 +3,11 @@
 //!
 //! This crate emits [`EventKind::AgentVitals`](sda_event_bus::EventKind::AgentVitals)
 //! events every `interval_secs` (default 60s; `Priority::Low` per
-//! ARCHITECTURE.md § 7.3) carrying the agent's RSS, CPU, event-bus
+//! `docs/architecture.md` § 3.1) carrying the agent's RSS, CPU, event-bus
 //! queue depth, watchdog fault count, agent version, uptime, and
 //! UTC last-seen timestamp. The control plane uses these
 //! heartbeats both as liveness and as the input to the
-//! `MissingDevice` Finding (`PROPOSAL.md § 2.2.3`).
+//! `MissingDevice` Finding (`docs/desktop-mdm.md` § 8).
 //!
 //! Layout:
 //!

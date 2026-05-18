@@ -20,7 +20,7 @@
 //! 5. [`drift::DriftDetector`] — pure-logic comparison between
 //!    [`AdminManager::list_admins`](sda_pal::admin_manager::AdminManager::list_admins)
 //!    and the active grant ledger; surfaces unauthorised admins as
-//!    [`drift::Drift`] entries (Phase 3.5 / PROPOSAL.md § 9.3).
+//!    [`drift::Drift`] entries (Phase 3.5 / `docs/device-control.md` § 7).
 //!
 //! [`module::JitAdminModule`] is the agent-supervisor entry point
 //! that wires all five pieces together against

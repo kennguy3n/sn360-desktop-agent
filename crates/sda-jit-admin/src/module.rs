@@ -546,7 +546,7 @@ impl Supervisor {
         }
         // Denied records produce a JitAdminRevoked payload so the
         // server has a single terminal event regardless of the
-        // intermediate state — see PROPOSAL.md § 9.3.
+        // intermediate state — see `docs/device-control.md` § 7.
         self.emit_event(EventKind::JitAdminRevoked {
             payload: serde_json::to_string(&denied).unwrap_or_default(),
         });

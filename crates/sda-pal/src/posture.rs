@@ -597,7 +597,7 @@ mod tests {
         let json = serde_json::to_string(&s).unwrap();
         // PostureToggle uses lowercase serde rename; this is part of
         // the wire contract for the `device-posture-state` payload
-        // (see SCHEMAS.md § 5).
+        // (see `docs/wire-protocols/device-control.md` § 5).
         assert!(json.contains("\"on\""));
         assert!(json.contains("\"off\""));
         assert!(json.contains("\"unknown\""));

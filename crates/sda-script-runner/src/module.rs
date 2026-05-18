@@ -194,9 +194,8 @@ impl ScriptRunnerModule {
 /// This is intentionally minimal compared to the full
 /// `sda_device_control::EvidenceRecord` — the script runner does not
 /// own a Phase-1 chain, so we ship a self-contained payload that the
-/// server can promote into the evidence chain. The Phase-3 work to
-/// fold script runs into the device-wide evidence chain lands with
-/// task 2.11.
+/// server can promote into the evidence chain. Folding script runs
+/// into the device-wide evidence chain is a follow-up.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ScriptEvidence {
     schema_version: u16,

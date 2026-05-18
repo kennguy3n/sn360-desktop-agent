@@ -1,7 +1,7 @@
 //! Fleet GitOps YAML input schema.
 //!
 //! We deliberately model only the subset of Fleet's schema that
-//! PROPOSAL.md § 4.1 flags as portable. Anything not modelled here
+//! `docs/device-control.md` § 11 flags as portable. Anything not modelled here
 //! is dropped on the floor with a `unknown_section` warning by
 //! [`crate::translator::translate_yaml`] — there is intentionally no
 //! `#[serde(deny_unknown_fields)]` on the top-level type because
@@ -9,7 +9,7 @@
 //! new field would break customers' adoption flow on the next
 //! Fleet release.
 //!
-//! The do-not-port list (PROPOSAL.md § 4.2) is enforced positively:
+//! The do-not-port list (`docs/device-control.md` § 11) is enforced positively:
 //! we look for the named keys (`mdm`, `mobile_device_management`,
 //! `ee`, …) and reject the YAML when we see them, rather than
 //! relying on serde to ignore them.
@@ -77,7 +77,7 @@ pub struct FleetConfig {
     // they were present so we can reject the document.
     // ---------------------------------------------------------------
     /// Fleet's `mdm` block (Apple MDM, Windows MDM). Triggers a
-    /// rejection if non-null. PROPOSAL.md § 4.2 + ADR-001.
+    /// rejection if non-null. `docs/device-control.md` § 11 + `docs/licensing.md` § 7.
     #[serde(default)]
     pub mdm: Option<serde_yaml::Value>,
 

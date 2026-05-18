@@ -6,8 +6,8 @@
 //! link, embed, or copy any MeshCentral source code. Only the
 //! externally-observable shape of the wire — bidirectional binary
 //! frames carrying a `type` discriminant + opaque payload — is
-//! inherited, in line with PROPOSAL.md § 9.7 and ARCHITECTURE.md
-//! § 9 row 9.
+//! inherited, in line with `docs/device-control.md` § 9 and
+//! `docs/architecture.md` § 8.
 //!
 //! ## Frame layout
 //!

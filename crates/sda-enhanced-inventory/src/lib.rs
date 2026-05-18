@@ -205,7 +205,7 @@ fn build_software_inventory_delta_payload(
 
 /// Publish a `SoftwareInventoryDelta` event for Device Control
 /// consumers. Bridges the existing running-software snapshot/delta
-/// stream into the Device Control event surface (PHASES.md task 1.10).
+/// stream into the Device Control event surface (task 1.10).
 async fn publish_software_inventory_delta(bus: &EventBus, payload: String) {
     let event = Event::new(
         "enhanced_inventory",

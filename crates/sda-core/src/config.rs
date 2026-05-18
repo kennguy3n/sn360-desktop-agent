@@ -287,8 +287,9 @@ pub struct ModulesConfig {
     //
     // Memory scanning + fileless detection. Defaults to `enabled:
     // false` per the lazy module-loading principle; the agent process
-    // is ALWAYS included in `allow_list_processes` (see ARCHITECTURE.md
-    // § 9.4) even if the operator omits or overrides this field.
+    // is ALWAYS included in `allow_list_processes` (see
+    // `docs/architecture.md` § 8.3 — Memory-scanner safety) even if
+    // the operator omits or overrides this field.
     #[serde(default)]
     pub memory_scanner: MemoryScannerConfig,
 
@@ -568,7 +569,7 @@ pub struct EnhancedInventoryConfig {
     pub sbom: SbomConfig,
     /// When `true`, the running-software monitor mirrors each
     /// snapshot/delta as an `EventKind::SoftwareInventoryDelta` event
-    /// for Device Control consumers (PHASES.md task 1.10). The agent
+    /// for Device Control consumers (task 1.10). The agent
     /// flips this on when `modules.device_control.enabled = true` and
     /// `modules.enhanced_inventory.running_software.enabled = true`.
     /// Not user-configurable from on-disk YAML — it is set internally
@@ -1670,7 +1671,7 @@ impl Default for AppControlConfig {
 /// Remote-support module configuration (Phase 4).
 ///
 /// Defaults to disabled. When `enabled = true` the module shows a
-/// consent prompt on every session per PROPOSAL.md § 9.7 and
+/// consent prompt on every session per `docs/device-control.md` § 9 and
 /// enforces `max_session_minutes` as a hard wall-clock cap.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RemoteSupportConfig {
@@ -1684,7 +1685,7 @@ pub struct RemoteSupportConfig {
     pub max_session_minutes: u32,
     /// Whether the agent must present a consent banner before
     /// transitioning a session into `Active`. Always `true` in
-    /// production per PROPOSAL.md § 9.7; the field exists so unit
+    /// production per `docs/device-control.md` § 9; the field exists so unit
     /// tests can construct sessions without a UI fixture.
     #[serde(default = "default_true")]
     pub require_consent: bool,
@@ -1705,8 +1706,8 @@ impl Default for RemoteSupportConfig {
 /// When `enabled = true`, the
 /// [`VitalsModule`](../../../sda_agent_vitals/index.html) emits an
 /// `EventKind::AgentVitals` event on every tick at a cadence of
-/// `interval_secs` seconds (default 60s, matching ARCHITECTURE.md
-/// § 7.3 — `Priority::Low`).
+/// `interval_secs` seconds (default 60s, matching
+/// `docs/architecture.md` § 3.1 — `Priority::Low`).
 ///
 /// The agent supervisor wires this on automatically when
 /// `modules.device_control.enabled = true`, but operators can also
@@ -1717,7 +1718,7 @@ pub struct AgentVitalsConfig {
     #[serde(default)]
     pub enabled: bool,
     /// Heartbeat cadence in seconds. Defaults to 60s
-    /// (`Priority::Low` per ARCHITECTURE.md § 7.3).
+    /// (`Priority::Low` per `docs/architecture.md` § 3.1).
     #[serde(default = "default_agent_vitals_interval_secs")]
     pub interval_secs: u64,
 }
@@ -1868,15 +1869,15 @@ fn default_agent_vitals_interval_secs() -> u64 {
     60
 }
 
-/// Default Phase-4 application-control mode. PROPOSAL.md § 9.6 and
-/// PHASES.md Phase-4 acceptance criteria #2 mandate `Monitor` so an
-/// accidental `enabled = true` does not start blocking traffic.
+/// Default Phase-4 application-control mode. `docs/device-control.md` § 8
+/// mandates `Monitor` so an accidental `enabled = true` does not start
+/// blocking traffic.
 fn default_app_control_mode() -> String {
     "monitor".to_string()
 }
 
 /// Default Phase-4 remote-support session cap (30 minutes).
-/// PROPOSAL.md § 9.7 specifies "≤30 min" as the typical bound; the
+/// `docs/device-control.md` § 9 specifies "≤30 min" as the typical bound; the
 /// supervisor truncates anything longer.
 fn default_remote_support_max_session_minutes() -> u32 {
     30
@@ -1890,7 +1891,7 @@ fn default_remote_support_max_session_minutes() -> u32 {
 // Phase-1+ module config
 // is that `MdmConfig::default()` produces `enabled = true` with every
 // `auto_remediate.*` flag also `true`. This is the documented
-// "defaults-on" posture per ARCHITECTURE.md § 5.
+// "defaults-on" posture per `docs/desktop-mdm.md` § 1 (Product loop).
 // -------------------------------------------------------------------------
 
 /// Top-level Desktop MDM configuration. **Defaults to ON.**
@@ -1990,7 +1991,8 @@ pub struct AutoRemediateConfig {
     #[serde(default = "default_screen_lock_timeout_secs")]
     pub screen_lock_timeout_secs: u32,
     /// Debounce window for repeated auto-remediation attempts of the
-    /// same kind. Defaults to 86 400 s (24 h) per ARCHITECTURE.md.
+    /// same kind. Defaults to 86 400 s (24 h) per
+    /// `docs/desktop-mdm.md` § 8 (Auto-remediation).
     #[serde(default = "default_remediation_debounce_secs")]
     pub remediation_debounce_secs: u64,
 }
@@ -2400,7 +2402,8 @@ impl Default for HostIsolationConfig {
 /// the in-memory YARA matcher in `sda-local-detection`.
 ///
 /// The agent process is ALWAYS excluded from scanning regardless of
-/// the `allow_list_processes` field (see `ARCHITECTURE.md § 9.4`).
+/// the `allow_list_processes` field (see
+/// `docs/architecture.md` § 8.3 — Memory-scanner safety).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryScannerConfig {
     /// Whether the memory scanner module is enabled.
@@ -2459,7 +2462,7 @@ fn default_memory_yara_rule_source() -> String {
 }
 fn default_memory_max_region_bytes() -> usize {
     // 4 MiB per region. Matches the resource budget cap from
-    // `ARCHITECTURE.md § 7.2` (memory scanner peak 4 MB / 1% CPU).
+    // `docs/architecture.md` § 5.2 (memory scanner peak 4 MB / 1% CPU).
     4 * 1024 * 1024
 }
 
@@ -2506,7 +2509,8 @@ impl Default for IdentityMonitorConfig {
 /// `sda-active-response`. `mode = "monitor"` only emits findings.
 /// Findings MUST NEVER contain the matched bytes — only the pattern
 /// category, byte offset/length, and a Blake3 fingerprint of the
-/// surrounding 32-byte window (see `ARCHITECTURE.md § 8.1`).
+/// surrounding 32-byte window (see
+/// `docs/architecture.md` § 8.2 — Redaction invariant).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DlpConfig {
     /// Whether the DLP module is enabled.
@@ -2560,7 +2564,7 @@ fn default_dlp_patterns() -> Vec<String> {
 }
 fn default_dlp_max_bytes_per_file() -> usize {
     // 2 MiB per file. Matches the resource budget cap from
-    // `ARCHITECTURE.md § 7.2` (DLP peak 3 MB / 0.5% CPU).
+    // `docs/architecture.md` § 5.2 (DLP peak 3 MB / 0.5% CPU).
     2 * 1024 * 1024
 }
 

@@ -1,4 +1,4 @@
-//! Phase 5 management-compat end-to-end suite (PHASES.md task 5.7).
+//! Phase 5 management-compat end-to-end suite (task 5.7).
 //!
 //! Hermetic exercises of the [`sda_management_compat`] shim that
 //! translates Fleet-flavoured GitOps YAML into SDA-native
@@ -85,7 +85,7 @@ labels:
 
 // ---------- Acceptance #1 — round-trip into a loadable AgentConfig ---------
 
-/// PHASES.md Phase 5 acceptance #1 — the SDA agent must boot
+/// The SDA agent must boot
 /// against config translated from Fleet YAML without any
 /// hand-edits.
 ///
@@ -151,7 +151,7 @@ fn fleet_yaml_round_trips_into_loadable_agent_config() {
 
 // ---------- Acceptance #2 — cross-tenant isolation ------------------------
 
-/// PHASES.md Phase 5 acceptance #2 — a Fleet document whose
+/// A Fleet document whose
 /// `team_name` does not match the SDA-side `tenant_id` MUST be
 /// rejected at translation time. This is the agent-side
 /// belt-and-braces check behind the control-plane row-level
@@ -194,7 +194,7 @@ fn empty_tenant_id_is_rejected_outright() {
 
 // ---------- Acceptance #2 — Fleet EE / do-not-port features rejected ------
 
-/// Every key on PROPOSAL.md § 4.2's do-not-port list must
+/// Every key on `docs/device-control.md` § 11's do-not-port list must
 /// surface as a fatal [`CompatError::UnsupportedFeature`] at the
 /// E2E layer — not just in the unit tests. The agent never sees
 /// a partially-translated config in any of these cases.
@@ -232,7 +232,7 @@ fn fleet_ee_features_are_rejected_end_to_end() {
 
 // ---------- Acceptance #3 — white-label exports stay tenant-scoped --------
 
-/// PHASES.md Phase 5 acceptance #3 — the translation result must
+/// The translation result must
 /// carry the SDA-side `tenant_id` end-to-end so the catalogue
 /// producer cannot accidentally publish another tenant's config
 /// under the wrong tenant slug. Encoding to YAML must not strip

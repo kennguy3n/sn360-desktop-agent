@@ -1,6 +1,6 @@
 //! User-consent gate for remote-support sessions.
 //!
-//! PROPOSAL.md § 9.7 mandates that **every** remote-support session
+//! `docs/device-control.md` § 9 mandates that **every** remote-support session
 //! show a consent banner and block until the end-user accepts. This
 //! module owns that gate. Phase 4 ships:
 //!

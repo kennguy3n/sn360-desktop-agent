@@ -258,7 +258,7 @@ pub fn render_decision_line(record: &LinuxDecisionRecord) -> String {
 
 /// Match a subject against the artefact, returning the matched
 /// rule (if any). The lookup is O(rules) — fine because policy
-/// bundles are small (PROPOSAL.md § 9.6 caps them at 10k rules).
+/// bundles are small (`docs/device-control.md` § 8 caps them at 10k rules).
 pub fn match_subject<'a>(
     artifact: &'a LinuxPolicyArtifact,
     subject: &str,

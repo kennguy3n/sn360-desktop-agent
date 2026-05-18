@@ -215,7 +215,7 @@ impl AgentModule for HostIsolationModule {
 }
 
 /// Wire-shape of the `EventKind::HostIsolationStateChanged` payload
-/// (ARCHITECTURE.md § 8).
+/// (`docs/architecture.md` § 6 — Wire protocols).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HostIsolationStateChangedPayload {
     /// True after a successful `IsolateHost`, false after a

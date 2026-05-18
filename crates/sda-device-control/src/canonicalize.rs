@@ -18,7 +18,7 @@
 //! - `null`, `true`, `false` are emitted verbatim.
 //!
 //! We deliberately do NOT support arbitrary `f64` values: the wire
-//! schemas in SCHEMAS.md only carry integers, strings, booleans,
+//! schemas in docs/wire-protocols/device-control.md only carry integers, strings, booleans,
 //! arrays, objects, and `null`. Any `Number::Float` in a payload is
 //! a producer bug — we surface it as an error rather than guessing
 //! at a canonical float encoding (which RFC 8785 specifies but our
@@ -258,7 +258,7 @@ mod tests {
 
     #[test]
     fn signed_action_job_pre_image_blanks_signature_field() {
-        // SCHEMAS.md § 7.2 rule: the canonical pre-image of a
+        // `docs/wire-protocols/device-control.md` § 7.2 rule: the canonical pre-image of a
         // signed-job is the canonical encoding with `signature`
         // replaced by an empty string. We don't replace here — the
         // caller does — but make sure the canonicalizer treats the

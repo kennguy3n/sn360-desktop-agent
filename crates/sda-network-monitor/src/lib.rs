@@ -173,7 +173,7 @@ impl AgentModule for DnsMonitorModule {
 }
 
 // ---------------------------------------------------------------------------
-// Wire payload shapes (mirrors docs/edr.md § 2.2 — Network telemetry)
+// Wire payload shapes (mirrors `docs/edr.md` § 2.2 — Network telemetry)
 // ---------------------------------------------------------------------------
 
 /// Wire-shape of a `NetworkConnection` payload.

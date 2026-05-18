@@ -43,7 +43,7 @@ pub enum MessageType {
     // forwarded as logcollector messages with a `device-control:*`
     // source tag so that operators on the legacy console can at
     // least see them as raw JSON, but the canonical wire path is
-    // the native one (see ARCHITECTURE.md § 4 and SCHEMAS.md § 4).
+    // the native one (see `docs/architecture.md` § 6 and `docs/wire-protocols/device-control.md` § 4).
     /// Device Control `Finding` payload.
     DeviceControlFinding,
     /// Device Control `Recommendation` payload.
@@ -167,7 +167,7 @@ impl MessageType {
             MessageType::UsbDevicePolicyDecision => "usb-device-policy-decision",
             // Desktop MDM (Phase M1–M3). These wire strings are part
             // of the public contract — any change is a major schema
-            // version bump (see SCHEMAS.md § 11).
+            // version bump (see `docs/wire-protocols/device-control.md` § 10).
             MessageType::MdmWipeResult => "mdm-wipe-result",
             MessageType::MdmLockResult => "mdm-lock-result",
             MessageType::MdmLostModeEntered => "mdm-lost-mode-entered",

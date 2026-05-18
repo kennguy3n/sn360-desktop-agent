@@ -1,11 +1,11 @@
-//! Phase 4 remote-support end-to-end suite (PHASES.md task 4.12).
+//! Phase 4 remote-support end-to-end suite (task 4.12).
 //!
 //! Hermetic exercises of the consent-gated remote-support session
 //! lifecycle shipped in PR #7. Verifies the supervisor walks the
 //! state machine `Pending → ConsentRequested → Active → Ended`,
 //! emits the right events on the bus, and **never** activates a
 //! session without an explicit user click on the consent prompt
-//! (PROPOSAL.md § 9.7 acceptance #1).
+//! (`docs/device-control.md` § 9 acceptance #1).
 //!
 //! Coverage:
 //!
@@ -32,7 +32,7 @@
 //! 8. PAL `NotSupported` ends the session cleanly with reason
 //!    `pal_not_supported` (`pal_not_supported_ends_session_cleanly`).
 //! 9. Mobile MDM is intentionally **absent**: this repo MUST NOT
-//!    contain mobile MDM crates (PROPOSAL.md § 9.7 acceptance #3).
+//!    contain mobile MDM crates (`docs/device-control.md` § 9 acceptance #3).
 //!    Asserted by [`no_mobile_mdm_crate_in_workspace`].
 
 #![cfg(unix)]
@@ -184,7 +184,7 @@ fn json_event(payload: &str, key: &str) -> Option<String> {
 
 // ---------- Scenario 1: consent approve ------------------------------------
 
-/// PHASES.md § 4.12 #1 — happy-path session: consent approved,
+/// Happy-path session: consent approved,
 /// PAL accepts, session reaches Active, Started event lands on
 /// the bus.
 #[tokio::test(flavor = "current_thread")]
@@ -214,7 +214,7 @@ async fn consent_approve_drives_session_to_active() {
 
 // ---------- Scenario 2: consent deny ---------------------------------------
 
-/// PHASES.md § 4.12 #1 — explicit deny terminates the session
+/// Explicit deny terminates the session
 /// before it reaches Active. Crucially, the PAL provider's
 /// `start_session` is never invoked.
 #[tokio::test(flavor = "current_thread")]
@@ -267,7 +267,7 @@ async fn consent_deny_terminates_session_before_active() {
 
 // ---------- Scenario 3: consent timeout ------------------------------------
 
-/// PHASES.md § 4.12 #1 — a timed-out prompt is treated identically
+/// A timed-out prompt is treated identically
 /// to an explicit deny: the session never reaches Active.
 #[tokio::test(flavor = "current_thread")]
 async fn consent_timeout_terminates_session_before_active() {
@@ -290,7 +290,7 @@ async fn consent_timeout_terminates_session_before_active() {
 
 // ---------- Scenario 4: stub prompt is fail-closed -------------------------
 
-/// PHASES.md § 4.12 #1 / PROPOSAL.md § 9.7 acceptance #1 —
+/// `docs/device-control.md` § 9 acceptance #1 —
 /// `StubConsentPrompt` is the production default. It denies every
 /// request, so a deployment that forgets to wire a real consent UI
 /// **cannot** start a remote-support session. This is the critical
@@ -314,7 +314,7 @@ async fn stub_prompt_denies_by_default() {
 
 // ---------- Scenario 5: lifecycle emits Started then Ended ----------------
 
-/// PHASES.md § 4.12 #1 — full happy-path lifecycle. The supervisor
+/// Full happy-path lifecycle. The supervisor
 /// must emit exactly one Started followed by exactly one Ended
 /// event, in order, when an active session is explicitly closed.
 #[tokio::test(flavor = "current_thread")]
@@ -352,7 +352,7 @@ async fn lifecycle_emits_started_then_ended() {
 
 // ---------- Scenario 6: sweep expired closes runaway sessions --------------
 
-/// PHASES.md § 4.12 #1 — `sweep_expired` closes any session whose
+/// `sweep_expired` closes any session whose
 /// wall-clock cap has elapsed. This is the safety net that makes
 /// time-boxed sessions a hard guarantee even if an operator
 /// forgets to call `end_session`.
@@ -391,7 +391,7 @@ async fn sweep_expired_closes_overdue_sessions() {
 
 // ---------- Scenario 7: back-to-back sessions ------------------------------
 
-/// PHASES.md § 4.12 #1 — every session is independently
+/// Every session is independently
 /// consent-gated. Two operators making back-to-back requests must
 /// each see their own prompt; the supervisor must never re-use
 /// consent across sessions.
@@ -422,7 +422,7 @@ async fn back_to_back_sessions_each_get_consent() {
 
 // ---------- Scenario 8: PAL NotSupported -----------------------------------
 
-/// PHASES.md § 4.12 #1 — when the PAL provider returns
+/// When the PAL provider returns
 /// `NotSupported` (every Phase-4 stub does), the supervisor must
 /// end the session cleanly rather than panicking.
 #[tokio::test(flavor = "current_thread")]
@@ -462,7 +462,7 @@ async fn pal_not_supported_ends_session_cleanly() {
 
 // ---------- Scenario 9: no mobile MDM crate --------------------------------
 
-/// PROPOSAL.md § 9.7 acceptance #3 / PHASES.md § 4.12 #3 — this
+/// `docs/device-control.md` § 9 acceptance #3 — this
 /// repository must not contain *mobile* MDM code. Asserted by
 /// walking the Cargo workspace and ensuring no crate name matches
 /// the mobile-MDM naming patterns. `sda-mdm` (Desktop MDM,

@@ -15,7 +15,7 @@
 //!
 //! The pipeline returns `Result<(), JobRefused>`; on `Err(reason)`
 //! the caller MUST emit an `ActionResult` with `status = Refused`
-//! and `refused_reason = Some(reason)` per SCHEMAS.md § 8.3.
+//! and `refused_reason = Some(reason)` per `docs/wire-protocols/device-control.md` § 8.3.
 //!
 //! This module also exposes [`process_job`], the higher-level entry
 //! point that the agent's job dispatcher calls. `process_job` runs
@@ -25,7 +25,7 @@
 //! bus. Phase 1 has no per-`ActionKind` executor — accepted jobs
 //! ack with `status = Skipped` and `exit_code = None` so the audit
 //! chain stays continuous even before the install / JIT / script
-//! orchestrators land in Phase 2/3 (see PHASES.md task 1.13).
+//! orchestrators land in Phase 2/3 (see task 1.13).
 
 use chrono::{DateTime, Duration, Utc};
 use sda_event_bus::{Event, EventBus, EventKind, Priority};
@@ -41,7 +41,7 @@ use crate::signed_job::{AdditionalSignature, JobArgs, SignedActionJob, SignedJob
 use crate::types::{ActionKind, ActionStatus, AgentVersion, JobRefused, Platform};
 use crate::windows::{MaintenanceWindowPolicy, WindowDecision};
 
-/// Tolerance window for `not_before` / `not_after` (SCHEMAS.md
+/// Tolerance window for `not_before` / `not_after` (docs/wire-protocols/device-control.md
 /// § 7.4 step 5).
 pub const CLOCK_SKEW_TOLERANCE: Duration = Duration::seconds(60);
 
@@ -75,7 +75,7 @@ pub trait JobValidationHooks {
     /// primary signature. Default impl returns
     /// `Err(JobRefused::BadSignature)` so hooks that have not
     /// opted-in cannot accidentally accept multi-signature jobs.
-    /// See ARCHITECTURE.md § 4.4 of `docs/desktop-mdm/`.
+    /// See `docs/device-control.md` § 4 (Signed-job lifecycle).
     fn verify_additional_signature(
         &self,
         _job: &SignedActionJob,
@@ -202,7 +202,7 @@ pub fn validate<H: JobValidationHooks>(
     })?;
 
     // Step 11 — dual-control gate for `RemoteWipe`
-    // (ARCHITECTURE.md § 4.4 of `docs/desktop-mdm/`).
+    // (`docs/device-control.md` § 4 (Signed-job lifecycle)).
     //
     // The agent MUST refuse a wipe unless the inbound job carries
     // at least *two distinct approver signatures*. The primary
@@ -325,7 +325,7 @@ pub struct ProcessedJob {
 /// Both refused and accepted-but-not-implemented jobs produce
 /// evidence records — the audit chain is **continuous** even before
 /// Phase 2/3 executors land, so any tampering with the in-flight
-/// chain is detectable from day one (PHASES.md task 1.13).
+/// chain is detectable from day one (task 1.13).
 pub fn process_job<H: JobValidationHooks>(
     job: &SignedActionJob,
     self_identity: &AgentIdentity,
@@ -472,7 +472,7 @@ fn phase2_window_deferred_ack(job: &SignedActionJob, now: DateTime<Utc>) -> Acti
 /// payloads for a [`ProcessedJob`] onto the event bus.
 ///
 /// Both events use [`Priority::High`] per the Phase 0 sign-off
-/// (ARCHITECTURE.md § 7.2 — Device Control results sit just below
+/// (`docs/architecture.md` § 5.2 — Device Control results sit just below
 /// `Critical`). Failures to enqueue onto the server-bound queue are
 /// logged at WARN; we deliberately do **not** call `bus.publish`
 /// again afterwards because `EventBus::publish_to_server` already
@@ -1081,7 +1081,7 @@ mod tests {
 
     #[test]
     fn process_job_first_record_uses_zero_sentinel_prev_hash() {
-        // SCHEMAS.md § 9.1 — the very first evidence record on a
+        // `docs/wire-protocols/device-control.md` § 9.1 — the very first evidence record on a
         // device's chain MUST link to FIRST_RECORD_PREV_HASH (32
         // bytes of zero).
         let mut chain = EvidenceChain::new();

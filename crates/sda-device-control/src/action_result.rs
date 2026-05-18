@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::types::{ActionKind, ActionStatus, JobRefused};
 
-/// Hard cap on `ActionResult.output` (SCHEMAS.md § 2.4).
+/// Hard cap on `ActionResult.output` (`docs/wire-protocols/device-control.md` § 2.4).
 pub const ACTION_RESULT_OUTPUT_MAX_BYTES: usize = 64 * 1024;
 
 /// Truncation marker prepended to truncated `output` so log readers
@@ -54,7 +54,7 @@ pub enum ActionResultError {
 }
 
 impl ActionResult {
-    /// Validate the structural invariants from SCHEMAS.md § 8.2.
+    /// Validate the structural invariants from `docs/wire-protocols/device-control.md` § 8.2.
     pub fn validate(&self) -> Result<(), ActionResultError> {
         if self.schema_version != crate::version::ACTION_RESULT_SCHEMA_VERSION {
             return Err(ActionResultError::SchemaVersionUnsupported(

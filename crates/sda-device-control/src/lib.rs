@@ -110,7 +110,7 @@ use tracing::{info, warn};
 /// land in later phases. Importantly, when
 /// `modules.device_control.enabled = false` (the default), this
 /// task is never spawned at all — the agent's idle footprint is
-/// unchanged from a pre-Device-Control build (PROPOSAL.md § 13).
+/// unchanged from a pre-Device-Control build (`docs/device-control.md` § 11).
 ///
 /// The signature mirrors the existing `sda-fim` / `sda-rootcheck`
 /// modules so the agent's wiring code can call all modules through
