@@ -37,7 +37,12 @@ pub fn civil_from_unix_secs(secs: i64) -> (i32, u32, u32, u32, u32, u32) {
     let minute = (tod % 3600) / 60;
     let second = tod % 60;
     let z = day + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    // Parentheses around the `if-else` are semantically redundant
+    // (the `let` binding context already parses the conditional as a
+    // single expression before the `/`), but make the operator
+    // precedence unambiguous at a glance — addresses Devin Review's
+    // readability note on PR #25.
+    let era = (if z >= 0 { z } else { z - 146_096 }) / 146_097;
     let doe = (z - era * 146_097) as u32;
     let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
     let y = yoe as i32 + (era * 400) as i32;
