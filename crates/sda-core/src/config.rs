@@ -2692,23 +2692,50 @@ impl AgentConfig {
         apply!(self.modules.logcollector.enabled, overrides.logcollector);
         apply!(self.modules.inventory.enabled, overrides.inventory);
         apply!(self.modules.sca.enabled, overrides.sca);
-        apply!(self.modules.active_response.enabled, overrides.active_response);
+        apply!(
+            self.modules.active_response.enabled,
+            overrides.active_response
+        );
         apply!(self.modules.rootcheck.enabled, overrides.rootcheck);
-        apply!(self.modules.local_detection.enabled, overrides.local_detection);
-        apply!(self.modules.enhanced_inventory.enabled, overrides.enhanced_inventory);
+        apply!(
+            self.modules.local_detection.enabled,
+            overrides.local_detection
+        );
+        apply!(
+            self.modules.enhanced_inventory.enabled,
+            overrides.enhanced_inventory
+        );
         apply!(self.modules.agent_vitals.enabled, overrides.agent_vitals);
 
         // EDR modules
-        apply!(self.modules.process_monitor.enabled, overrides.process_monitor);
-        apply!(self.modules.network_monitor.enabled, overrides.network_monitor);
+        apply!(
+            self.modules.process_monitor.enabled,
+            overrides.process_monitor
+        );
+        apply!(
+            self.modules.network_monitor.enabled,
+            overrides.network_monitor
+        );
         apply!(self.modules.dns_monitor.enabled, overrides.dns_monitor);
-        apply!(self.modules.memory_scanner.enabled, overrides.memory_scanner);
-        apply!(self.modules.identity_monitor.enabled, overrides.identity_monitor);
-        apply!(self.modules.host_isolation.enabled, overrides.host_isolation);
+        apply!(
+            self.modules.memory_scanner.enabled,
+            overrides.memory_scanner
+        );
+        apply!(
+            self.modules.identity_monitor.enabled,
+            overrides.identity_monitor
+        );
+        apply!(
+            self.modules.host_isolation.enabled,
+            overrides.host_isolation
+        );
         apply!(self.modules.dlp.enabled, overrides.dlp);
 
         // Device control / MDM
-        apply!(self.modules.device_control.enabled, overrides.device_control);
+        apply!(
+            self.modules.device_control.enabled,
+            overrides.device_control
+        );
         apply!(self.modules.mdm.enabled, overrides.mdm);
         apply!(self.modules.posture.enabled, overrides.posture);
         apply!(self.modules.software.enabled, overrides.software);
@@ -2717,7 +2744,10 @@ impl AgentConfig {
         apply!(self.modules.query.enabled, overrides.query);
         apply!(self.modules.jit_admin.enabled, overrides.jit_admin);
         apply!(self.modules.script_runner.enabled, overrides.script_runner);
-        apply!(self.modules.remote_support.enabled, overrides.remote_support);
+        apply!(
+            self.modules.remote_support.enabled,
+            overrides.remote_support
+        );
 
         // App control: cloud is authoritative for both enable and mode.
         apply!(self.modules.app_control.enabled, overrides.app_control);
