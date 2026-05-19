@@ -28,6 +28,7 @@
 //! orchestrators land in Phase 2/3 (see task 1.13).
 
 use chrono::{DateTime, Duration, Utc};
+use ed25519_dalek::Verifier;
 use sda_event_bus::{Event, EventBus, EventKind, Priority};
 use tracing::warn;
 use uuid::Uuid;
@@ -203,7 +204,6 @@ impl JobValidationHooks for ProductionHooks {
             .map_err(|_| JobRefused::BadSignature)?;
         let signature = ed25519_dalek::Signature::from_bytes(&sig_bytes);
 
-        use ed25519_dalek::Verifier;
         key.verify(&pre_image, &signature)
             .map_err(|_| JobRefused::BadSignature)
     }
@@ -241,7 +241,6 @@ impl JobValidationHooks for ProductionHooks {
             .map_err(|_| JobRefused::BadSignature)?;
         let signature = ed25519_dalek::Signature::from_bytes(&sig_bytes);
 
-        use ed25519_dalek::Verifier;
         key.verify(&pre_image, &signature)
             .map_err(|_| JobRefused::BadSignature)
     }

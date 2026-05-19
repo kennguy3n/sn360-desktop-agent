@@ -2,8 +2,7 @@
 # Build a .pkg installer for sda-agent on macOS.
 #
 # Requires `pkgbuild` and `productbuild` (ship with Xcode Command Line
-# Tools). Code-signing is out of scope for this script — sign the
-# resulting .pkg with `productsign` in a downstream release job.
+# Tools).
 #
 # Usage:
 #   BIN=target/release/sda-agent packaging/macos/build-pkg.sh
@@ -48,6 +47,22 @@ install -d -m 0755 "$SCRIPTS_DIR"
 install -m 0755 "$ROOT/packaging/macos/scripts/preinstall"  "$SCRIPTS_DIR/preinstall"
 install -m 0755 "$ROOT/packaging/macos/scripts/postinstall" "$SCRIPTS_DIR/postinstall"
 
+# ---- Code signing (Apple Developer ID) ------------------------------------
+# Binary codesign MUST happen BEFORE pkgbuild so the signed binary is
+# archived into the .pkg. Notarization requires a codesigned binary
+# with hardened runtime inside the .pkg.
+#
+# Env vars:
+#   DEVELOPER_ID_APPLICATION  - "Developer ID Application: <Team> (<ID>)"
+#   DEVELOPER_ID_INSTALLER    - "Developer ID Installer: <Team> (<ID>)"
+#   APPLE_TEAM_ID             - 10-character Apple team ID (for notarize)
+if [ -n "${DEVELOPER_ID_APPLICATION:-}" ]; then
+    echo "[sign] codesigning binary with: ${DEVELOPER_ID_APPLICATION}"
+    codesign --force --options runtime --timestamp \
+        --sign "${DEVELOPER_ID_APPLICATION}" \
+        "$ROOTFS/usr/local/bin/sda-agent"
+fi
+
 COMPONENT="$WORK/sda-agent-component.pkg"
 FINAL="$OUT_DIR/sda-agent-$VERSION.pkg"
 
@@ -64,23 +79,6 @@ productbuild \
     --identifier "$IDENT" \
     --version "$VERSION" \
     "$FINAL"
-
-# ---- Code signing (Apple Developer ID) ------------------------------------
-# If DEVELOPER_ID_INSTALLER is set, sign the .pkg with productsign so
-# Gatekeeper passes. If DEVELOPER_ID_APPLICATION is set, also codesign
-# the binary before packaging. Notarization is handled by the CI
-# pipeline (xcrun notarytool) after signing.
-#
-# Env vars:
-#   DEVELOPER_ID_APPLICATION  - "Developer ID Application: <Team> (<ID>)"
-#   DEVELOPER_ID_INSTALLER    - "Developer ID Installer: <Team> (<ID>)"
-#   APPLE_TEAM_ID             - 10-character Apple team ID (for notarize)
-if [ -n "${DEVELOPER_ID_APPLICATION:-}" ]; then
-    echo "[sign] codesigning binary with: ${DEVELOPER_ID_APPLICATION}"
-    codesign --force --options runtime --timestamp \
-        --sign "${DEVELOPER_ID_APPLICATION}" \
-        "$ROOTFS/usr/local/bin/sda-agent"
-fi
 
 if [ -n "${DEVELOPER_ID_INSTALLER:-}" ]; then
     SIGNED_FINAL="$OUT_DIR/sda-agent-$VERSION-signed.pkg"

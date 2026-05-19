@@ -21,6 +21,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use sha2::{Digest, Sha256};
+use tokio::io::AsyncWriteExt;
 #[cfg(feature = "legacy-siem")]
 use tokio::sync::Mutex;
 #[cfg(feature = "legacy-siem")]
@@ -169,6 +171,7 @@ async fn main() -> Result<()> {
                     config.agent.geolocation_url = cloud.geolocation_url;
                 }
                 config.merge_cloud_config(cloud.agent_config);
+                apply_device_control_bridge(&mut config);
                 agent.update_config(config.clone());
                 info!("cloud config applied");
             }
@@ -741,7 +744,6 @@ async fn main() -> Result<()> {
             })
             .filter(|(tid, _)| !tid.is_nil())
             .map(|(tid, did)| {
-                use sha2::{Digest, Sha256};
                 // Deterministic seed from device identity for stable
                 // escrow key derivation across agent restarts.
                 let mut hasher = Sha256::new();
@@ -997,7 +999,6 @@ async fn main() -> Result<()> {
     //      agent enrolled, pulled cloud config, and started modules.
     let health_shutdown = agent.shutdown_signal();
     let _health_handle = tokio::spawn(async move {
-        use tokio::io::AsyncWriteExt;
         let listener = match tokio::net::TcpListener::bind("127.0.0.1:27015").await {
             Ok(l) => l,
             Err(e) => {
