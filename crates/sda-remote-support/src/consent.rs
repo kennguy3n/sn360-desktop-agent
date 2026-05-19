@@ -20,6 +20,8 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+#[cfg(target_os = "macos")]
+use std::io::Write;
 
 /// Outcome of a single consent prompt.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -140,13 +142,18 @@ fn native_dialog(title: &str, message: &str, timeout: std::time::Duration) -> Op
 fn macos_dialog(title: &str, message: &str, timeout: std::time::Duration) -> Option<bool> {
     let script = format!(
         r#"display dialog "{}" with title "{}" buttons {{"Deny", "Allow"}} default button "Deny" giving up after {}"#,
-        message.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n"),
-        title.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', " "),
+        message
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\n', "\\n"),
+        title
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\n', " "),
         timeout.as_secs(),
     );
     // Pipe the script via stdin instead of -e to avoid raw newline
     // characters in the message breaking the single-line argument.
-    use std::io::Write;
     let mut child = match std::process::Command::new("osascript")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
