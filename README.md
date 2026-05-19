@@ -77,10 +77,12 @@ toolchain required.
 Download the latest packages from the release page or your SN360
 provider's distribution endpoint.
 
-After installing, copy a feature profile to the config directory:
+After installing, copy a feature profile to the config directory and
+replace the `${SN360_GATEWAY_URL}` placeholder with your gateway address:
 
 ```bash
 sudo cp configs/profile-standard.yaml /etc/sn360-desktop-agent/config.yaml
+# Edit config.yaml — replace ${SN360_GATEWAY_URL} with your gateway URL
 sudo systemctl enable --now sn360-desktop-agent
 ```
 

@@ -31,8 +31,8 @@ These are injected into the agent config at install time. The config
 file is installed at:
 
 - **Linux:** `/etc/sn360-desktop-agent/config.yaml`
-- **macOS:** `/Library/Application Support/SN360/config.yaml`
-- **Windows:** `C:\ProgramData\SN360\config.yaml`
+- **macOS:** `/etc/sn360-desktop-agent/config.yaml`
+- **Windows:** `C:\Program Files\SN360DesktopAgent\config.yaml`
 
 Select a [feature profile](./feature-profiles.md) (Basic, Standard,
 or Advanced) as the base config and substitute the gateway URL and
@@ -57,7 +57,7 @@ msiexec /i sn360-desktop-agent-x64.msi /qn ^
    Software Installation**, add the MSI as an Assigned package.
 4. Deploy the config file via GPO Preferences (File):
    - Source: `\\share\sn360\config.yaml`
-   - Destination: `C:\ProgramData\SN360\config.yaml`
+   - Destination: `C:\Program Files\SN360DesktopAgent\config.yaml`
 5. Force a Group Policy update: `gpupdate /force` or wait for the
    next refresh cycle.
 
@@ -65,7 +65,7 @@ msiexec /i sn360-desktop-agent-x64.msi /qn ^
 
 Create an application deployment with:
 - Install command: `msiexec /i sn360-desktop-agent-x64.msi /qn SN360_GATEWAY_URL=... SN360_BOOTSTRAP_TOKEN=...`
-- Detection rule: file exists `C:\Program Files\SN360\sda-agent.exe`
+- Detection rule: file exists `C:\Program Files\SN360DesktopAgent\sda-agent.exe`
 - Uninstall: `msiexec /x {product-code} /qn`
 
 ## macOS — MDM
@@ -77,8 +77,8 @@ Create an application deployment with:
 
 ```bash
 #!/bin/bash
-mkdir -p "/Library/Application Support/SN360"
-cat > "/Library/Application Support/SN360/config.yaml" <<'EOF'
+mkdir -p "/etc/sn360-desktop-agent"
+cat > "/etc/sn360-desktop-agent/config.yaml" <<'EOF'
 # paste profile-standard.yaml contents with gateway URL + token
 EOF
 ```
