@@ -82,6 +82,8 @@ Profile templates use `${SN360_GATEWAY_URL}` as a placeholder —
 you **must** replace it with your actual gateway address before
 starting the agent:
 
+**Linux / macOS:**
+
 ```bash
 # Download the profile from the release page (or copy from the source
 # tree's configs/ directory if building from source):
@@ -92,6 +94,17 @@ sudo cp /tmp/profile-standard.yaml /etc/sn360-desktop-agent/config.yaml
 sudo sed -i 's|${SN360_GATEWAY_URL}|wss://gateway.example.com|' \
   /etc/sn360-desktop-agent/config.yaml
 sudo systemctl enable --now sn360-desktop-agent
+```
+
+**Windows (PowerShell):**
+
+```powershell
+Invoke-WebRequest -Uri "https://<release-server>/configs/profile-standard.yaml" `
+  -OutFile "$env:ProgramData\SN360DesktopAgent\config.yaml"
+(Get-Content "$env:ProgramData\SN360DesktopAgent\config.yaml") `
+  -replace '\$\{SN360_GATEWAY_URL\}', 'wss://gateway.example.com' |
+  Set-Content "$env:ProgramData\SN360DesktopAgent\config.yaml"
+Restart-Service sn360-desktop-agent
 ```
 
 For mass deployment via GPO, MDM, or configuration management, see

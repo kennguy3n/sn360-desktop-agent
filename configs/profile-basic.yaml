@@ -8,6 +8,11 @@
 # Memory footprint: ~8-12 MB resident.
 # CPU: sub-0.05% idle.
 #
+# NOTE: paths and log sources below are Linux-specific.  For Windows
+# or macOS deployments, adjust FIM directories, logcollector sources,
+# and SCA policy_dir to match the target OS.  The agent's serde
+# defaults handle platform-specific paths for fields you omit.
+#
 # To use: copy to /etc/sn360-desktop-agent/config.yaml or pass via
 # --config flag.
 

@@ -55,7 +55,7 @@ evidence collection. Recommended for regulated industries and
 high-value endpoints.
 
 **Enabled modules:** everything in Standard, plus:
-- Host isolation — per-OS firewall primitives for network quarantine
+- Host isolation — per-OS firewall primitives for network quarantine (requires `control_plane_cidrs` — see config)
 - Memory scanning — periodic RWX region scanning + in-memory YARA
 - Identity monitoring — LSASS access (Windows), `/etc/shadow` and `/proc/kcore` (Linux), keychain (macOS)
 - DLP — regex-based scanning of file writes with Blake3 fingerprinting

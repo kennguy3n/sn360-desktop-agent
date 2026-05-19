@@ -8,6 +8,11 @@
 # Memory footprint: ~40-60 MB resident (peak during memory scans).
 # CPU: sub-0.15% idle, periodic spikes during scans and sweeps.
 #
+# NOTE: paths and log sources below are Linux-specific.  For Windows
+# or macOS deployments, adjust FIM directories, logcollector sources,
+# and SCA policy_dir to match the target OS.  The agent's serde
+# defaults handle platform-specific paths for fields you omit.
+#
 # To use: copy to /etc/sn360-desktop-agent/config.yaml or pass via
 # --config flag.
 
@@ -87,6 +92,11 @@ modules:
 
   host_isolation:
     enabled: true
+    # REQUIRED: replace with your control-plane CIDR(s) so the agent
+    # keeps management connectivity during isolation.  Without at
+    # least one entry the module silently refuses IsolateHost jobs.
+    control_plane_cidrs:
+      - "${SN360_CONTROL_PLANE_CIDR}"
 
   memory_scanner:
     enabled: true
