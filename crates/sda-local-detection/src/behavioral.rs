@@ -52,7 +52,7 @@ pub struct BehavioralEvent<'a> {
     ///
     /// Carrying the parent chain and the leaf name as separate
     /// fields — rather than packing them into the same `text` string
-    /// — avoids an ambiguity that bit Phase E1.7: when `text` was
+    /// — avoids an ambiguity that was discovered earlier: when `text` was
     /// `"{parent_chain} > {name} {cmdline}"` and cmdline contained
     /// a literal `>` (PowerShell `-Command "... > out.txt"`, bash
     /// redirects, build scripts), `rfind(" > ")` matched inside
@@ -588,7 +588,7 @@ mod tests {
         assert_eq!(surviving, vec!["c", "d", "e"]);
     }
 
-    // --- ProcessChain matcher tests (Phase E1.7) ---
+    // --- ProcessChain matcher tests ---
 
     #[test]
     fn test_process_chain_office_spawns_powershell() {
@@ -755,7 +755,7 @@ mod tests {
         );
     }
 
-    /// Regression for the Phase E2 review finding: a ProcessChain
+    /// Regression: a ProcessChain
     /// rule with an uncompilable regex must (a) be excluded from the
     /// live `process_chain_regex` table, and (b) appear in the engine
     /// `take_skipped_rules()` drain so the LDE can emit a
@@ -820,7 +820,7 @@ mod tests {
         assert_eq!(hits[0].rule_id, "office-spawns-powershell");
     }
 
-    /// Regression for the Phase E3 review finding: a `ProcessCreated`
+    /// Regression: a `ProcessCreated`
     /// whose cmdline contains a literal `>` (shell redirect, PowerShell
     /// `-Command "... > out"`, build script) MUST still match the
     /// ProcessChain rule.  Before the refactor, `primary_text` was

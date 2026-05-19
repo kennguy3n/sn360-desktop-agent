@@ -6,9 +6,9 @@
 //! successful execution becomes an [`EventKind::QueryResult`] on
 //! the event bus.
 //!
-//! Phase 1 ships only the scheduling primitives; the actual loop
+//! Currently ships only the scheduling primitives; the actual loop
 //! is wired up by [`crate::QueryModule::start`] once we have a
-//! real [`OsqueryClient`] in Phase 2.
+//! real [`OsqueryClient`].
 
 use std::time::Duration;
 

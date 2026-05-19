@@ -1,4 +1,4 @@
-//! Memory scanning + fileless detection module (Phase E4 of the
+//! Memory scanning + fileless detection module (part of the
 //! EDR Parity workstream).
 //!
 //! Periodically enumerates committed RWX / anonymous / JIT regions
@@ -512,8 +512,7 @@ async fn run(
                 // threaded production runtime) stall whichever
                 // worker is unlucky enough to poll us at that
                 // moment. `spawn_blocking` hands the sleep to the
-                // blocking pool. Flagged by the Devin Review bot on
-                // PR #25.
+                // blocking pool.
                 let cpu_for_sample = cpu.clone();
                 let busy = tokio::task::spawn_blocking(move || cpu_for_sample.sample_percent())
                     .await
@@ -695,8 +694,7 @@ fn bounded_read_len(region_size: usize, cap: usize) -> usize {
 // Timestamps surfaced into MemoryScanAlert payloads are produced via
 // `sda_core::time::format_rfc3339_utc_millis`. There used to be a
 // private `civil_from_unix_secs` here; that duplicated logic with
-// `sda-identity-monitor`, which the Devin Review bot flagged as a
-// maintenance risk. Both crates now share the single
+// `sda-identity-monitor`.  Both crates now share the single
 // `sda_core::time` implementation.
 
 async fn emit_alert(

@@ -1,7 +1,7 @@
-//! Phase 4 remote-support end-to-end suite (task 4.12).
+//! Remote-support end-to-end suite.
 //!
 //! Hermetic exercises of the consent-gated remote-support session
-//! lifecycle shipped in PR #7. Verifies the supervisor walks the
+//! lifecycle.  Verifies the supervisor walks the
 //! state machine `Pending → ConsentRequested → Active → Ended`,
 //! emits the right events on the bus, and **never** activates a
 //! session without an explicit user click on the consent prompt
@@ -423,7 +423,7 @@ async fn back_to_back_sessions_each_get_consent() {
 // ---------- Scenario 8: PAL NotSupported -----------------------------------
 
 /// When the PAL provider returns
-/// `NotSupported` (every Phase-4 stub does), the supervisor must
+/// `NotSupported` (the PAL stub does), the supervisor must
 /// end the session cleanly rather than panicking.
 #[tokio::test(flavor = "current_thread")]
 async fn pal_not_supported_ends_session_cleanly() {

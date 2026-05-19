@@ -2,13 +2,13 @@
 //!
 //! Extends the base inventory ([`sda-inventory`]) with:
 //!
-//! * **Running software monitor** (task 4.7) — periodically snapshots
-//!   the process list on Linux, macOS and Windows and emits deltas on
+//! * **Running software monitor** — periodically snapshots the
+//!   process list on Linux, macOS and Windows and emits deltas on
 //!   the event bus (see [`running_software`]).
-//! * **Browser extensions** (task 4.8) — enumerates installed Chrome,
-//!   Firefox, Edge, and Safari extensions per user profile (see
+//! * **Browser extensions** — enumerates installed Chrome, Firefox,
+//!   Edge, and Safari extensions per user profile (see
 //!   [`browser_extensions`]).
-//! * **CycloneDX SBOM** (task 4.9) — generates a full Software Bill
+//! * **CycloneDX SBOM** — generates a full Software Bill
 //!   of Materials (CycloneDX 1.5 JSON) combining OS packages, running
 //!   processes, and browser extensions (see [`sbom`]). Publishes on
 //!   its own timer and on explicit server-pushed requests.
@@ -16,7 +16,7 @@
 //! The module publishes
 //! [`EventKind::EnhancedInventoryUpdate`](sda_event_bus::EventKind::EnhancedInventoryUpdate)
 //! events, which the agent maps to a `MessageType::Syscollector`
-//! queue on the Wazuh manager so the new categories land alongside
+//! queue on the server so the new categories land alongside
 //! the existing inventory indices.
 
 pub mod browser_extensions;
@@ -205,7 +205,7 @@ fn build_software_inventory_delta_payload(
 
 /// Publish a `SoftwareInventoryDelta` event for Device Control
 /// consumers. Bridges the existing running-software snapshot/delta
-/// stream into the Device Control event surface (task 1.10).
+/// stream into the Device Control event surface.
 async fn publish_software_inventory_delta(bus: &EventBus, payload: String) {
     let event = Event::new(
         "enhanced_inventory",
@@ -376,7 +376,7 @@ async fn run_sbom_tick(bus: &EventBus) {
 }
 
 /// Detect a server-pushed command that should trigger an out-of-band
-/// SBOM generation. Kept intentionally lenient — the Wazuh manager
+/// SBOM generation. Kept intentionally lenient — the server
 /// has historically sent command names in a few different shapes
 /// (raw `"sbom"`, `#!-sbom`, `execd`-wrapped JSON, …) — so we accept
 /// any payload that mentions `"sbom"` case-insensitively.
@@ -1015,7 +1015,7 @@ mod tests {
     }
 
     // ---------------------------------------------------------------
-    // Task 1.10 — Software Inventory Bridge
+    // Software Inventory Bridge
     //
     // The running-software monitor must mirror its baseline / delta
     // events as `EventKind::SoftwareInventoryDelta` for Device Control

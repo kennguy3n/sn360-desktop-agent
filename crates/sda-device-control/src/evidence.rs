@@ -128,7 +128,7 @@ pub fn sha256(bytes: &[u8]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
-/// Phase 1 placeholder signature for an `EvidenceRecord`. Phase 2
+/// Placeholder signature for an `EvidenceRecord`.  The real
 /// replaces this with a real Ed25519 signature once the
 /// `sda-evidence-keys` infrastructure lands. Until then the bytes
 /// stored in `EvidenceRecord.signature` are deterministically
@@ -136,12 +136,12 @@ pub fn sha256(bytes: &[u8]) -> [u8; 32] {
 /// through the bus and pass `EvidenceRecord::validate`.
 pub const PHASE1_STUB_KEY_ID: &str = "sda-evidence-stub-phase1";
 
-/// Build the deterministic Phase 1 stub signature: `SHA-256(pre_image)`
+/// Build the deterministic stub signature: `SHA-256(pre_image)`
 /// padded to 64 bytes by repeating the first 32 bytes. The shape is
 /// kept as `Vec<u8>` of length 64 to match the eventual Ed25519
 /// signature size — verifiers MUST treat any record signed with
 /// `PHASE1_STUB_KEY_ID` as untrusted, but the byte length stays
-/// stable across the Phase 1 → Phase 2 transition.
+/// stable across the stub → real-key transition.
 pub fn phase1_stub_signature(pre_image: &[u8]) -> Vec<u8> {
     let h = sha256(pre_image);
     let mut sig = Vec::with_capacity(64);
@@ -218,7 +218,7 @@ pub struct EvidenceContext<'a> {
 /// - hashes the *full* output bytes into `output_sha256`;
 /// - links into the chain by setting `prev_record_hash =
 ///   chain.next_prev_hash()`;
-/// - carries a deterministic Phase 1 stub signature
+/// - carries a deterministic stub signature
 ///   ([`phase1_stub_signature`]) keyed by [`PHASE1_STUB_KEY_ID`];
 /// - copies the canonical args of the originating job into
 ///   `args_canonical`; and

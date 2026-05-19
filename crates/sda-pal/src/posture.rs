@@ -9,7 +9,7 @@
 //! `os_patch_outdated` `FindingKind` variants documented in
 //! `docs/wire-protocols/device-control.md` § 5 (Finding).
 //!
-//! Phase 1 scope: every platform must produce a non-panicking
+//! Current scope: every platform must produce a non-panicking
 //! `PostureSnapshot`. Best-effort detection is acceptable —
 //! `Unknown` is a valid value. Server-side scoring tolerates
 //! `Unknown` and only fires `Finding`s when a value is positively
@@ -98,7 +98,7 @@ mod linux_impl {
     /// for crypto blockdevs, `firewall-cmd`/`ufw`/`nftables list`
     /// for the firewall state, and reads `/etc/os-release` for the
     /// OS version. Screen-lock detection is intentionally `Unknown`
-    /// in Phase 1 because there is no portable way to reach the
+    /// currently because there is no portable way to reach the
     /// active session's screensaver settings from a system daemon.
     pub struct LinuxPostureProvider;
 
@@ -531,7 +531,7 @@ mod windows_impl {
                 disk_encryption: self.detect_disk_encryption(),
                 firewall_enabled: self.detect_firewall(),
                 // Domain-policy screen-lock requires
-                // `secedit`/Group Policy parsing — leave for Phase 3.
+                // `secedit`/Group Policy parsing — not yet wired.
                 screen_lock_enabled: PostureToggle::Unknown,
                 os_patch_level: None,
                 os_version: self.detect_os_version(),

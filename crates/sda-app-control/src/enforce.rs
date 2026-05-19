@@ -28,7 +28,7 @@ pub enum RollbackError {
 }
 
 /// Snapshot held by the enforce controller so a misbehaving policy
-/// can be rolled back. Phase-4 keeps a single-step history; the
+/// can be rolled back.  Currently keeps a single-step history; the
 /// snapshot is consumed by the rollback and reset to empty so a
 /// second rollback fails cleanly rather than ping-ponging.
 #[derive(Debug, Clone, Default)]
@@ -124,7 +124,7 @@ impl EnforceController {
         // controller's state untouched.
         self.provider.apply_policy(&signed)?;
         // Move the now-displaced bundle into the rollback handle.
-        // Phase 4 keeps a single-step rollback history.
+        // Single-step rollback history.
         if let (Some(prev_signed), Some(prev_verified)) =
             (self.current_signed.take(), self.current_verified.take())
         {
@@ -139,7 +139,7 @@ impl EnforceController {
     }
 
     /// Roll back to the previously-applied policy by re-pushing the
-    /// recorded signed bundle to the OS backend. Phase-4 keeps a
+    /// recorded signed bundle to the OS backend.  Currently keeps a
     /// single-step history: the rollback snapshot is consumed and
     /// a second [`EnforceController::rollback`] returns
     /// [`RollbackError::NoPrevious`].

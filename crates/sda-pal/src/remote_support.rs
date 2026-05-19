@@ -1,12 +1,12 @@
-//! Remote-support session capture & transport (Phase 4).
+//! Remote-support session capture & transport.
 //!
 //! This module is the cross-platform PAL surface for the
-//! Device Control Phase-4 remote-support feature. The
+//! Device Control remote-support feature.  The
 //! [`RemoteSupportProvider`] trait is the binding spec from
 //! `docs/architecture.md` § 4.1 (Trait surface); per-OS implementations
 //! ship in this crate behind `cfg`-gates.
 //!
-//! Phase 4 scope (this file): every per-OS implementation is a
+//! Current scope (this file): every per-OS implementation is a
 //! deliberate **stub** that returns
 //! [`RemoteSupportError::NotSupported`] from
 //! [`RemoteSupportProvider::start_session`]. The real capture +
@@ -34,7 +34,7 @@ pub enum RemoteSupportError {
     /// The underlying capture API or transport returned an error.
     #[error("remote-support backend failed: {0}")]
     Backend(String),
-    /// The host platform has no capture backend yet (Phase-4 stubs).
+    /// The host platform has no capture backend yet.
     #[error("remote-support not supported on this platform")]
     NotSupported,
     /// The user declined the consent prompt.
@@ -90,12 +90,12 @@ pub struct SessionHandle {
 ///
 /// Implementations MUST be `Send + Sync` because the supervisor
 /// holds a `Box<dyn RemoteSupportProvider>` across `await` points
-/// in the Tokio runtime. Phase-4 stubs are zero-sized and trivially
+/// in the Tokio runtime.  Per-OS stubs are zero-sized and trivially
 /// satisfy these bounds.
 pub trait RemoteSupportProvider: Send + Sync {
     /// Begin a remote-support session subject to `params`.
     ///
-    /// Phase-4 stubs return [`RemoteSupportError::NotSupported`].
+    /// Per-OS stubs return [`RemoteSupportError::NotSupported`].
     fn start_session(&self, params: &SessionParams) -> Result<SessionHandle, RemoteSupportError>;
 
     /// Tear down a running session. Idempotent — calling
@@ -105,17 +105,17 @@ pub trait RemoteSupportProvider: Send + Sync {
 }
 
 // =====================================================================
-// Per-OS Phase-4 stubs
+// Per-OS stub providers
 // =====================================================================
 
-/// Linux Phase-4 placeholder. Will host the PipeWire / XCB
+/// Linux stub provider.  Will host the PipeWire / XCB
 /// capture backend in a later phase; today every call returns
 /// [`RemoteSupportError::NotSupported`].
 #[cfg(target_os = "linux")]
 pub mod linux_impl {
     use super::*;
 
-    /// Phase-4 Linux stub for [`RemoteSupportProvider`].
+    /// Linux stub for [`RemoteSupportProvider`].
     #[derive(Debug, Default)]
     pub struct LinuxRemoteSupportProvider;
 
@@ -145,14 +145,14 @@ pub mod linux_impl {
 #[cfg(target_os = "linux")]
 pub use linux_impl::LinuxRemoteSupportProvider;
 
-/// macOS Phase-4 placeholder. Will host the ScreenCaptureKit-style
+/// macOS stub provider.  Will host the ScreenCaptureKit-style
 /// backend in a later phase; today every call returns
 /// [`RemoteSupportError::NotSupported`].
 #[cfg(target_os = "macos")]
 pub mod mac_impl {
     use super::*;
 
-    /// Phase-4 macOS stub for [`RemoteSupportProvider`].
+    /// macOS stub for [`RemoteSupportProvider`].
     #[derive(Debug, Default)]
     pub struct MacRemoteSupportProvider;
 
@@ -180,14 +180,14 @@ pub mod mac_impl {
 #[cfg(target_os = "macos")]
 pub use mac_impl::MacRemoteSupportProvider;
 
-/// Windows Phase-4 placeholder. Will host the WGC + DDA backend in
+/// Windows stub provider.  Will host the WGC + DDA backend in
 /// a later phase; today every call returns
 /// [`RemoteSupportError::NotSupported`].
 #[cfg(target_os = "windows")]
 pub mod windows_impl {
     use super::*;
 
-    /// Phase-4 Windows stub for [`RemoteSupportProvider`].
+    /// Windows stub for [`RemoteSupportProvider`].
     #[derive(Debug, Default)]
     pub struct WindowsRemoteSupportProvider;
 
@@ -297,7 +297,7 @@ mod tests {
 
     #[test]
     fn stub_start_session_returns_not_supported() {
-        // The Phase-4 stubs deliberately fail closed. End-to-end
+        // The per-OS stubs deliberately fail closed. End-to-end
         // tests in `sda-remote-support` rely on this so the
         // supervisor exposes the NotSupported state on the bus.
         let provider = default_remote_support_provider();

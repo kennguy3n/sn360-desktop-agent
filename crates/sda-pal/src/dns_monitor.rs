@@ -1,7 +1,7 @@
 //! Cross-platform DNS telemetry PAL trait.
 //!
 //! Backs the DNS half of the `sda-network-monitor` module
-//! (Phase E3 of the EDR Parity workstream). See
+//! (part of the EDR Parity workstream). See
 //! `docs/architecture.md` § 4 (Platform abstraction layer) for the
 //! trait spec and per-OS implementation matrix.
 //!

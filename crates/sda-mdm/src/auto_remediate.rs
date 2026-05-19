@@ -1,4 +1,4 @@
-//! Auto-remediation supervisor (Phase M1.2).
+//! Auto-remediation supervisor.
 //!
 //! Subscribes to [`EventKind::DevicePostureState`] envelopes and
 //! self-heals the three posture failures the agent has authority to
@@ -528,7 +528,7 @@ mod tests {
         /// When set, the matching PAL method returns
         /// [`MdmError::Unsupported`] instead of a generic
         /// `Command` error. Used by the auto-remediator
-        /// tests covering Devin Review finding #19.
+        /// tests covering the unsupported-PAL regression.
         unsupported_on: Option<RemediateKind>,
     }
 
@@ -685,9 +685,9 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn failure_debounce_prevents_immediate_retry() {
-        // Regression test for Devin Review finding #14: before this
-        // fix, a PAL failure recorded NO debounce entry, so the next
-        // posture snapshot (default 300 s) would re-invoke the
+        // Regression: before the fix, a PAL failure recorded NO
+        // debounce entry, so the next posture snapshot (default
+        // 300 s) would re-invoke the
         // failing PAL call and re-emit the Failure event + fallback
         // finding pair forever. The fix records a Failure timestamp
         // and short-circuits to a Debounced envelope until
@@ -719,7 +719,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn unsupported_pal_skips_fallback_finding_and_blocks_retry() {
-        // Regression test for Devin Review finding #19: when the
+        // Regression: when the
         // PAL returns Unsupported (e.g. Linux LUKS on non-LUKS
         // root), the supervisor must NOT publish a fallback
         // DeviceControlFinding (it's a capability gap, not a

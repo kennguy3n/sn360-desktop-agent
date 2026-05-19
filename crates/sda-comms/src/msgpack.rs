@@ -1,4 +1,4 @@
-//! MessagePack event serialization (Phase 5.6 / proposal § 8.2).
+//! MessagePack event serialization (proposal § 8.2).
 //!
 //! This module is the opt-in alternative to `serde_json` when talking
 //! to an SDA-aware server. Wazuh 4.x servers do not understand
@@ -140,7 +140,7 @@ mod tests {
                 payload: String::new(),
             },
             // Device Control variants — every variant added under the
-            // Phase 0 wire-schema sign-off must round-trip through
+            // Wire-schema sign-off must round-trip through
             // MessagePack so the Agent Gateway can decode them on the
             // server side.
             EventKind::DeviceControlFinding {

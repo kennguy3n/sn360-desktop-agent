@@ -1,4 +1,4 @@
-//! Remote-support session orchestration (Phase 4, Task 4.2 / 4.3).
+//! Remote-support session orchestration.
 //!
 //! This crate sits between `sda-pal::remote_support` (the OS-level
 //! capture / transport stubs) and the agent supervisor. It owns:

@@ -3,7 +3,7 @@
 //! In monitor mode the agent never blocks a binary. It records a
 //! [`Decision`] for every observation so the operator can review
 //! what *would* have happened in enforce mode. This is the
-//! Phase-4 default per `docs/device-control.md` § 8.
+//! default per `docs/device-control.md` § 8.
 
 use chrono::{DateTime, Utc};
 use sda_pal::app_control::AppControlRule;
@@ -96,8 +96,8 @@ impl MonitorController {
 }
 
 /// Whether a single rule's `subject` field matches an observed
-/// subject. Phase 4 uses literal string matching only — wildcards /
-/// glob expansion will land in Phase 5+ when we wire real PAL
+/// subject.  Literal string matching only — wildcards /
+/// glob expansion will land when the real PAL
 /// backends.
 fn matches_subject(rule: &AppControlRule, subject: &str) -> bool {
     rule.subject == subject

@@ -1,4 +1,4 @@
-//! Lost-mode sub-module (Phase M2.3).
+//! Lost-mode sub-module.
 //!
 //! Implements the `EnterLostMode` / `ExitLostMode` handlers per
 //! `docs/desktop-mdm.md` § 4.2 (Lost mode).

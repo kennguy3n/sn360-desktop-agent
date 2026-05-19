@@ -1,4 +1,4 @@
-//! Phase E2.6 — hermetic end-to-end coverage for LDE TRDS hot-reload.
+//! Hermetic end-to-end coverage for LDE TRDS hot-reload.
 //!
 //! This suite stitches together:
 //!

@@ -1,4 +1,4 @@
-//! Approval-state surfacing (Phase 2.9).
+//! Approval-state surfacing.
 //!
 //! Compares the local set of installed packages (typically reported
 //! by `sda-pal::package_manager::PackageManager`) against the latest
@@ -251,7 +251,7 @@ impl ApprovalAuditor {
 /// `finding_ids` is left empty here — the supervisor task that owns
 /// the [`ApprovalAuditor`] is expected to insert the relevant
 /// `DeviceControlFinding` ids before marshalling onto the bus
-/// (see Phase 2.9 wiring in [`crate::module`]).
+/// (see wiring in [`crate::module`]).
 pub fn build_recommendation_payload(
     eval: &ApprovalEvaluation,
     tenant_id: Uuid,

@@ -1,5 +1,5 @@
 //! Linux app-control backend: clean-room dm-verity-aware binary
-//! enforcement (Task 4.8).
+//! enforcement.
 //!
 //! The Linux backend is intentionally minimalist. The agent:
 //!
@@ -19,11 +19,11 @@
 //!   (a key bypass vector on Linux) are visible to the
 //!   control-plane.
 //!
-//! The actual seccomp/eBPF kernel integration is out of scope for
-//! Phase 4 — it requires CAP_BPF, a supervisor process running as
-//! root, and per-distro hardening that lives in the agent's
-//! installer. Phase 4 ships the policy + decision substrate that
-//! the kernel-side enforcement code will consume in a later phase.
+//! The actual seccomp/eBPF kernel integration is not yet wired
+//! — it requires CAP_BPF, a supervisor process running as root,
+//! and per-distro hardening that lives in the agent's installer.
+//! This crate ships the policy + decision substrate that the
+//! kernel-side enforcement code will consume.
 //! This is consistent with the Santa-on-macOS pattern: the agent
 //! pushes rules into the trusted backend; the trusted backend
 //! enforces.

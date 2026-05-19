@@ -1,6 +1,6 @@
-//! Phase 3 JIT-admin end-to-end suite (task 3.8).
+//! JIT-admin end-to-end suite.
 //!
-//! Hermetic exercises of the JIT-admin lifecycle shipped in Phase 3
+//! Hermetic exercises of the JIT-admin lifecycle
 //! (grant request, approval, denial, time-boxed grant, automatic
 //! revoke triggers, drift detection, evidence-chain continuity).
 //! The harness reuses the in-process [`EventBus`] so every scenario

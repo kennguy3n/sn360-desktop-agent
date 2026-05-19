@@ -15,8 +15,7 @@
 //! (correct for negative seconds via `div_euclid`/`rem_euclid`) and
 //! one in `sda-identity-monitor` (slightly wrong: `secs / 86_400`
 //! and `secs % 86_400` round toward zero in the rare negative-secs
-//! path, and `year as u32` would wrap for negative years). The
-//! Devin Review bot flagged the divergence as a maintenance risk.
+//! path, and `year as u32` would wrap for negative years).
 //! Both crates now call into this module so the algorithm exists
 //! exactly once.
 //!
@@ -40,8 +39,7 @@ pub fn civil_from_unix_secs(secs: i64) -> (i32, u32, u32, u32, u32, u32) {
     // Parentheses around the `if-else` are semantically redundant
     // (the `let` binding context already parses the conditional as a
     // single expression before the `/`), but make the operator
-    // precedence unambiguous at a glance — addresses Devin Review's
-    // readability note on PR #25.
+    // precedence unambiguous at a glance.
     let era = (if z >= 0 { z } else { z - 146_096 }) / 146_097;
     let doe = (z - era * 146_097) as u32;
     let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;

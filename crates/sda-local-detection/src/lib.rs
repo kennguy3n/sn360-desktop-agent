@@ -156,7 +156,7 @@ impl DetectionPipeline {
 /// missing or unreadable bundle is *not* fatal — we degrade gracefully
 /// to the embedded [`default_bundle`](crate::default_bundle::default_bundle)
 /// so the run loop can still serve as a baseline detector while waiting
-/// for the first TRDS pull (Phase E2.4).
+/// for the first TRDS pull.
 fn load_initial_bundle(path: &std::path::Path) -> RuleBundle {
     match RuleBundle::load(path) {
         Ok(b) => {
@@ -314,7 +314,7 @@ async fn handle_event(pipeline: &DetectionPipeline, bus: &EventBus, event: &Even
     // `ProcessCreated` arm below; the ProcessChain behavioural
     // matcher reads `parent_chain` and `leaf_name` from
     // `BehavioralEvent::process` rather than parsing the composite
-    // `primary_text`.  Phase E3 review fix: lifting these out of the
+    // `primary_text`.  Lifting these out of the
     // free-form text avoids the `rfind(" > ")` ambiguity when a
     // cmdline contains a literal `>` (PowerShell `-Command`, shell
     // redirects, build scripts).
@@ -371,7 +371,7 @@ async fn handle_event(pipeline: &DetectionPipeline, bus: &EventBus, event: &Even
             extract_ipv4s(message),
         ),
 
-        // --- EDR Parity event arms (Phase E1-E3) ---
+        // --- EDR Parity event arms (process / network / DNS) ---
         // Process create: feed `exe_path` as the entity and the
         // joined parent-chain text as primary_text so behavioural
         // rules can match against the full ancestor history.
@@ -540,7 +540,7 @@ async fn handle_event(pipeline: &DetectionPipeline, bus: &EventBus, event: &Even
             ("dns", process_name, query_name, None, None, response_ips)
         }
 
-        // --- EDR Parity event arms (Phase E4) ---
+        // --- EDR Parity event arms (memory scanner) ---
         // MemoryScanAlert is emitted by `sda-memory-scanner` when a
         // YARA / AMSI match fires on a process memory region.  We
         // pull `process_name` as the entity (so per-process IOC
@@ -563,7 +563,7 @@ async fn handle_event(pipeline: &DetectionPipeline, bus: &EventBus, event: &Even
             ("memory", process_name, description, None, None, Vec::new())
         }
 
-        // --- EDR Parity event arms (Phase E5) ---
+        // --- EDR Parity event arms (identity + DLP) ---
         // IdentityAlert is emitted by `sda-identity-monitor` on
         // LSASS access (Windows), `/etc/shadow` or `/proc/kcore`
         // access (Linux), and keychain access (macOS).  We feed the
@@ -1264,7 +1264,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_memory_scan_alert_flows_through_lde_and_matches_string_ioc() {
-        // Phase E4.6: MemoryScanAlert payloads must be reachable by the
+        // MemoryScanAlert payloads must be reachable by the
         // string-IOC matcher via the `description` field. Verifies the
         // explicit arm in `handle_event` (vs. the catch-all `_ => return`).
         let tmp = tempfile::tempdir().unwrap();
@@ -1309,7 +1309,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_identity_alert_flows_through_lde_and_matches_string_ioc() {
-        // Phase E5.4: IdentityAlert payloads must be reachable by the
+        // IdentityAlert payloads must be reachable by the
         // string-IOC matcher via the `technique` field (MITRE ATT&CK ID).
         let tmp = tempfile::tempdir().unwrap();
         let cfg = test_config(&tmp);
@@ -1437,7 +1437,7 @@ mod tests {
 
     #[test]
     fn test_load_initial_bundle_missing_falls_back_to_default() {
-        // Phase E2.4: a missing on-disk bundle must fall back to the
+        // A missing on-disk bundle must fall back to the
         // embedded default bundle so the default-ON LDE has rules to
         // evaluate immediately.
         let b = load_initial_bundle(std::path::Path::new("/nonexistent"));
@@ -1448,9 +1448,9 @@ mod tests {
 
     #[test]
     fn test_local_detection_default_is_enabled() {
-        // Phase E2.3: LDE ships default-on.
+        // LDE ships default-on.
         let cfg = LocalDetectionConfig::default();
-        assert!(cfg.enabled, "LDE must be default-on after Phase E2.3");
+        assert!(cfg.enabled, "LDE must be default-on");
     }
 
     #[test]
@@ -1502,7 +1502,7 @@ rule_bundle_path: /var/lib/sn360-desktop-agent/rules.mp
 
     #[test]
     fn test_local_detection_default_trds_fields() {
-        // Phase E2.1: TRDS endpoint is absent by default; signing keys
+        // TRDS endpoint is absent by default; signing keys
         // are an empty rotation set; the pull timeout has a sane default.
         let cfg = LocalDetectionConfig::default();
         assert!(cfg.trds_endpoint.is_none());

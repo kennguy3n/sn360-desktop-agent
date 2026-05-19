@@ -1,6 +1,6 @@
-//! Phase M2 Desktop MDM end-to-end suite (PROGRESS.md task M2.6).
+//! Desktop MDM end-to-end suite.
 //!
-//! Hermetic exercises of the Phase-M2 surface (`docs/desktop-mdm/`)
+//! Hermetic exercises of the Desktop MDM actions surface (`docs/desktop-mdm/`)
 //! using a recording [`MdmProvider`] mock and the public
 //! [`sda_device_control::router::validate`] pipeline.
 //!
@@ -123,7 +123,7 @@ impl MdmProvider for RecordingProvider {
 
 /// Power-state stub used by [`mdm_wipe::handle`]. Tests choose
 /// between on-AC and on-battery to exercise the `wait_for_ac`
-/// gate that Devin Review finding #15 introduced.
+/// gate.
 struct StubPower {
     on_battery: bool,
 }

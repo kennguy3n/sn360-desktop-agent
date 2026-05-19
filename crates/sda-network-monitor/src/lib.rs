@@ -1,4 +1,4 @@
-//! Network + DNS telemetry module (Phase E3 of the EDR Parity workstream).
+//! Network + DNS telemetry module (part of the EDR Parity workstream).
 //!
 //! Subscribes to the platform [`sda_pal::network_monitor::NetworkMonitor`]
 //! and [`sda_pal::dns_monitor::DnsMonitor`] feeds, deduplicates the

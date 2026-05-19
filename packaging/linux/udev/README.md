@@ -1,7 +1,7 @@
 # SN360 Desktop Agent — udev integration (D2.2)
 
 This directory ships the udev rule template and helper binary
-launcher used by Phase D2 USB / removable-media policy
+launcher used by the USB / removable-media policy
 enforcement.
 
 ## Layout

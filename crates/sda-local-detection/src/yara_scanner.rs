@@ -135,7 +135,7 @@ impl YaraScanner {
     /// has no rules, the buffer exceeds the cap, or the rate budget
     /// is empty.
     ///
-    /// This is the entry point used by the Phase E4 memory scanner
+    /// This is the entry point used by the memory scanner
     /// (`sda-memory-scanner`).  Self-pid exclusion is enforced at the
     /// PAL layer (see `sda_pal::memory_scanner::MemoryScanner`):
     /// reads on the agent's own PID return `Err(PermissionDenied)`,

@@ -1,34 +1,31 @@
-//! Phase 2 software end-to-end suite (task 2.15).
+//! Software end-to-end suite.
 //!
-//! Hermetic exercises of the software-orchestration surfaces shipped
-//! in Phase 2 (catalogue verification, maintenance windows, software
-//! evidence emission, rollback, approval-state surfacing, script
-//! runner). The harness reuses the in-process [`EventBus`] so every
-//! scenario walks the same wire shape the supervisor publishes in
+//! Hermetic exercises of the software-orchestration surfaces
+//! (catalogue verification, maintenance windows, software evidence
+//! emission, rollback, approval-state surfacing, script runner).
+//! The harness reuses the in-process [`EventBus`] so every scenario
+//! walks the same wire shape the supervisor publishes in
 //! `sda-agent::main`.
 //!
 //! Coverage:
 //!
 //! 1. Catalogue verifier rejects manifests signed under the wrong
-//!    pinned key with `ManifestError::SignatureMismatch`
-//!    (task 2.6).
+//!    pinned key with `ManifestError::SignatureMismatch`.
 //! 2. The maintenance-window policy returns `Defer` for jobs landing
-//!    outside the configured allow-list (task 2.8).
+//!    outside the configured allow-list.
 //! 3. A successful install/update/uninstall sequence emits one
 //!    chain-linked `EvidenceRecord` per action and the chain head
-//!    matches `prev_record_hash` of the next record
-//!    (task 2.11).
+//!    matches `prev_record_hash` of the next record.
 //! 4. A failed `UpdatePackage` triggers an automatic re-install of
 //!    the previously-installed version and emits two chain-linked
 //!    evidence records sharing the same `job_id` but with distinct
-//!    `evidence_id`s (task 2.10).
+//!    `evidence_id`s.
 //! 5. An installed package whose catalogue state is `Pending` lands
 //!    on the bus as a `DeviceControlRecommendation` with the
-//!    plain-English text from `sda-software` (task 2.9).
+//!    plain-English text from `sda-software`.
 //! 6. The script runner accepts a properly-signed script, refuses
 //!    one whose signature does not verify, and kills a runaway
-//!    script when the wall-clock budget elapses
-//!    (task 2.7).
+//!    script when the wall-clock budget elapses.
 //!
 //! All scenarios run on in-process state (mock `PackageManager`,
 //! tempdirs, in-process bus). `make e2e-software` runs in

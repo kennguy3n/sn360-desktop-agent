@@ -1,6 +1,5 @@
 //! Windows app-control backend: WDAC (Windows Defender Application
-//! Control) with an AppLocker fallback for legacy Windows builds
-//! (Task 4.7).
+//! Control) with an AppLocker fallback for legacy Windows builds.
 //!
 //! The translation layer is host-OS-agnostic so unit tests can run
 //! anywhere — only the actual policy push (writing the XML to a temp

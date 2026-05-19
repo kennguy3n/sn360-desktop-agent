@@ -107,7 +107,7 @@ impl KernelChannel for MockMacosKernelChannel {
 ///
 /// Without the `kernel-macos` feature this always returns
 /// [`AttachError::NotPresent`] so the supervisor falls back to the
-/// user-mode Endpoint Security client from Phase E1.
+/// user-mode Endpoint Security client.
 pub fn attach_to_system_extension() -> AttachResult<Box<dyn KernelChannel>> {
     #[cfg(all(feature = "kernel-macos", target_os = "macos"))]
     {

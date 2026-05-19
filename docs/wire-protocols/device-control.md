@@ -501,7 +501,7 @@ public-key SHA-256.
 
 ## 10. Versioning
 
-Each schema carries a `schema_version: u16`. Phase 1 ships
+Each schema carries a `schema_version: u16`.  The initial release ships
 schema_version = 1 for all five schemas.
 
 | Change | Version bump |

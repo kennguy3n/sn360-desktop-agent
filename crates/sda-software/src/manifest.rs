@@ -111,7 +111,7 @@ pub enum ManifestError {
         max_age_secs: u64,
     },
     /// Manifest is missing a `signed_at` timestamp. Required as of
-    /// schema version 1 hardening (task 2.6); old unsigned-time
+    /// schema version 1 hardening; old unsigned-time
     /// manifests cannot be evaluated for expiry and are therefore
     /// rejected.
     #[error("manifest is missing the required signed_at timestamp")]
@@ -165,7 +165,7 @@ pub struct Artefact {
     pub url: String,
     /// Lowercase-hex SHA-256 of the artefact bytes (64 chars).
     pub sha256: String,
-    /// Approval state — Phase 2 surfaces this as a Recommendation.
+    /// Approval state — surfaced as a Recommendation on the bus.
     /// Defaults to `"Approved"` when the field is missing for back-
     /// compat with early manifests.
     #[serde(default = "default_approval_state")]

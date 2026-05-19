@@ -1,4 +1,4 @@
-//! Declarative-config-profile sub-module (Phase M3.1–M3.3).
+//! Declarative-config-profile sub-module.
 //!
 //! Implements signed config-profile loading and enforcement per
 //! `docs/desktop-mdm.md` § 7 (Configuration profiles).
@@ -516,7 +516,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn publish_tampered_emits_finding_and_applied_pair() {
-        // Regression test for Devin Review finding #16. The
+        // Regression: The
         // dispatch path in `MdmModule::dispatch` cross-checks the
         // job's `profile_id` and `profile_sha256` against the
         // on-disk profile and routes mismatches through

@@ -1,24 +1,28 @@
 //! `sda-device-control` — Device Control router and canonical
 //! schemas for the SN360 Desktop Agent.
 //!
-//! This crate ships the Phase 1 scaffold of the Device Control
-//! feature set described in `docs/device-control.md`. It contains:
+//! This crate contains:
 //!
 //! * The five canonical schemas: [`Finding`], [`Recommendation`],
 //!   [`SignedActionJob`], [`ActionResult`], [`EvidenceRecord`].
 //! * RFC 8785 [canonical-JSON] serialiser used as the signature
 //!   pre-image and for evidence-chain hashing.
-//! * The 10-step signed-job validation [`router`].
+//! * The 12-step signed-job validation [`router`] with pluggable
+//!   [`JobValidationHooks`] (Ed25519 signature verification,
+//!   maintenance-window evaluation, dual-control, local ephemeral
+//!   keys).
+//! * USB device-policy enforcement via [`usb_policy`] and
+//!   per-platform watchers (Linux udev, macOS IOKit, Windows
+//!   SetupDi).
 //!
-//! The crate is intentionally executor-free for Phase 1 — the
-//! per-`ActionKind` orchestration (install, update, JIT admin
-//! grant, …) is wired up in Phase 2/3 in dedicated executor
-//! crates. The Phase 1 [`DeviceControlModule::start`] entry point
-//! parks on the shutdown signal so a `modules.device_control.enabled`
-//! flag can be flipped on without any executable side effects.
+//! The [`DeviceControlModule::start`] entry point parks on the
+//! shutdown signal when enabled — per-action executors are
+//! dispatched through the router’s hooks.  When
+//! `modules.device_control.enabled = false` (the default), the
+//! module is never spawned.
 //!
 //! All wire types match `docs/wire-protocols/device-control.md`
-//! exactly. Diverging from that document is a major-version
+//! exactly.  Diverging from that document is a major-version
 //! protocol break.
 
 pub mod action_result;
@@ -103,14 +107,11 @@ use sda_core::signal::ShutdownSignal;
 use sda_event_bus::EventBus;
 use tracing::{info, warn};
 
-/// Phase 1 module entry point.
+/// Device Control module entry point.
 ///
-/// In Phase 1 this future does no work beyond logging that it
-/// started; the per-action executors and the inbound-job listener
-/// land in later phases. Importantly, when
-/// `modules.device_control.enabled = false` (the default), this
-/// task is never spawned at all — the agent's idle footprint is
-/// unchanged from a pre-Device-Control build (`docs/device-control.md` § 11).
+/// When `modules.device_control.enabled = false` (the default),
+/// this task is never spawned at all — the agent's idle footprint
+/// is unchanged (`docs/device-control.md` § 11).
 ///
 /// The signature mirrors the existing `sda-fim` / `sda-rootcheck`
 /// modules so the agent's wiring code can call all modules through
@@ -121,22 +122,19 @@ impl DeviceControlModule {
     /// Spawn the Device Control supervisor task, returning a
     /// [`ModuleHandle`] that the agent's lifecycle code owns.
     ///
-    /// `_bus` is unused in Phase 1 — the bus subscription lands
-    /// together with the per-action executors. `_config` is
-    /// retained so the call site doesn't change between phases.
+    /// `_bus` is unused — the bus subscription will land together
+    /// with the per-action executors.  `_config` is retained so
+    /// the call site is stable.
     pub fn start(
         _config: &AgentConfig,
         _bus: EventBus,
         mut shutdown: ShutdownSignal,
     ) -> ModuleHandle {
-        info!(
-            "device-control module starting (Phase 1 scaffold; \
-            executors land in Phase 2/3)"
-        );
+        info!("device-control module starting");
         let task = tokio::spawn(async move {
             // Park on the shared shutdown signal. We deliberately
-            // do not consume bus traffic in Phase 1 because there
-            // is no executor to run yet.
+            // do not consume bus traffic because there is no
+            // executor to run yet.
             shutdown.wait().await;
             warn!("device-control module shutting down");
             Ok(())

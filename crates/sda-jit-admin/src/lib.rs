@@ -1,5 +1,5 @@
 //! `sda-jit-admin` — just-in-time admin grant lifecycle + revocation
-//! watchdog + drift detector (Phase 3.2 / 3.3 / 3.5).
+//! watchdog + drift detector.
 //!
 //! See `docs/device-control.md` § 7 (Just-in-Time admin) and
 //! `docs/architecture.md` § 4 (PAL traits) for the full
@@ -20,7 +20,7 @@
 //! 5. [`drift::DriftDetector`] — pure-logic comparison between
 //!    [`AdminManager::list_admins`](sda_pal::admin_manager::AdminManager::list_admins)
 //!    and the active grant ledger; surfaces unauthorised admins as
-//!    [`drift::Drift`] entries (Phase 3.5 / `docs/device-control.md` § 7).
+//!    [`drift::Drift`] entries (`docs/device-control.md` § 7).
 //!
 //! [`module::JitAdminModule`] is the agent-supervisor entry point
 //! that wires all five pieces together against

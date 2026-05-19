@@ -4,7 +4,7 @@
 //! `docs/architecture.md` § 4 (PAL) and `docs/desktop-mdm.md` for
 //! the trait spec and per-OS implementation matrix.
 //!
-//! Phase M1-M3 scope: every method on every platform must invoke a real
+//! Every method on every platform must invoke a real
 //! OS-native tool via `std::process::Command` (or the platform crate
 //! equivalent). Returning `MdmError::Unsupported` is acceptable only
 //! when the underlying OS feature is genuinely absent on the host
@@ -1274,9 +1274,8 @@ mod tests {
 
     #[test]
     fn should_perform_factory_reset_honours_crypto_shred_only() {
-        // Regression test for the bug Devin Review flagged: all
-        // three platform `wipe()` impls named the parameter `_opts`
-        // and ran the irreversible factory-reset step
+        // Regression: all three platform `wipe()` impls named the
+        // parameter `_opts` and ran the irreversible factory-reset step
         // unconditionally. The policy now lives in this single
         // helper so all three platforms share it.
         //
@@ -1689,8 +1688,8 @@ mod linux_tests {
         assert_eq!(LinuxMdmProvider::root_luks_device(mounts), None);
     }
 
-    /// Regression test for the early-return-on-malformed-line bug
-    /// caught by Devin Review on commit `22c95fc`. The previous
+    /// Regression test for the early-return-on-malformed-line bug.
+    /// The previous
     /// implementation used `?` on `cols.next()` inside the loop, so
     /// any empty or single-token line *before* the root mount line
     /// would return `None` from the whole function — falsely

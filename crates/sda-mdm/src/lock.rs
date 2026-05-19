@@ -1,4 +1,4 @@
-//! Remote-lock sub-module (Phase M2.2).
+//! Remote-lock sub-module.
 //!
 //! Handles inbound [`sda_device_control::signed_job::SignedActionJob`]s
 //! whose [`sda_device_control::types::ActionKind`] is `RemoteLock`.

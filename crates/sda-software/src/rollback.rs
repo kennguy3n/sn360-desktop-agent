@@ -1,4 +1,4 @@
-//! Rollback path for failed package updates (Task 2.10).
+//! Rollback path for failed package updates.
 //!
 //! Per `docs/device-control.md` § 6 (Approved software catalogue) the agent maintains a
 //! local rollback manifest before any `UpdatePackage` action runs.

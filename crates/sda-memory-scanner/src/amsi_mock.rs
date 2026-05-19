@@ -1,5 +1,4 @@
-//! Test-only AMSI mock used by the AMSI integration tests
-//! (Phase E4.7).
+//! Test-only AMSI mock used by the AMSI integration tests.
 //!
 //! Real AMSI integration requires Windows + SYSTEM, neither of which
 //! is available in CI. The mock simulates the surface area that

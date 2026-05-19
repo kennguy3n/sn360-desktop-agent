@@ -1,4 +1,4 @@
-//! Integration tests for the CycloneDX SBOM generator (task 4.9).
+//! Integration tests for the CycloneDX SBOM generator.
 //!
 //! These exercise [`generate_sbom`] end-to-end against the live host
 //! and verify the CycloneDX envelope is well-formed. They also drive

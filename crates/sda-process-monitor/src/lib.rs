@@ -1,4 +1,4 @@
-//! Process telemetry module (Phase E1 of the EDR Parity workstream).
+//! Process telemetry module (part of the EDR Parity workstream).
 //!
 //! Subscribes to the platform [`sda_pal::process_monitor::ProcessMonitor`]
 //! feed, enriches each `Created` event with a parent chain, and

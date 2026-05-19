@@ -137,7 +137,7 @@ pub enum EventKind {
     /// Message received from the server.
     ServerCommand { command: String, payload: String },
 
-    // --- Device Control events (Phase 1) ---
+    // --- Device Control events ---
     //
     // The agent encodes Device Control payloads as already-serialized
     // canonical JSON strings so the bus does not need to know the per-
@@ -200,7 +200,7 @@ pub enum EventKind {
     /// `EvidenceRecord`.
     EvidenceRecord { payload: String },
 
-    /// A USB / removable-media policy decision (Phase D2). Emitted
+    /// A USB / removable-media policy decision. Emitted
     /// once per OS attach event the supervisor evaluates. Payload:
     /// RFC 8785 canonical JSON `{ "connector_type": "device-control",
     /// "tenant_id": ..., "decision": "block"|"allow"|"audit",
@@ -208,7 +208,7 @@ pub enum EventKind {
     /// produced by `sda_device_control::usb_policy::Decision::to_event_payload`.
     UsbDevicePolicyDecision { payload: String },
 
-    // --- Desktop MDM events (Phase M1–M3) ---
+    // --- Desktop MDM events ---
     //
     // Each variant carries an already-serialised canonical JSON
     // payload describing the result of an MDM action. The agent's
@@ -435,7 +435,7 @@ mod tests {
 
     #[test]
     fn edr_event_count_matches_phase_e0_signoff() {
-        // Phase E0 froze the EDR EventKind sign-off list at 8
+        // The EDR EventKind sign-off list was frozen at 8
         // variants. Any change requires a new ADR.
         assert_eq!(edr_event_kinds().len(), 8);
     }
@@ -455,10 +455,9 @@ mod tests {
 
     #[test]
     fn device_control_event_count_matches_phase0_signoff() {
-        // Phase 0 task 0.12 froze the EventKind sign-off list at 15
-        // Device Control variants. Phase 4 added 2 app-control
-        // variants → 17. Phase D2 added the
-        // `UsbDevicePolicyDecision` audit envelope → 18. Any change
+        // The EventKind sign-off list was frozen at 15 Device
+        // Control variants.  App-control added 2 → 17.
+        // `UsbDevicePolicyDecision` added 1 → 18.  Any change
         // requires a new ADR + a major schema-version bump
         // (`docs/wire-protocols/device-control.md` § 10).
         assert_eq!(dc_event_kinds().len(), 18);

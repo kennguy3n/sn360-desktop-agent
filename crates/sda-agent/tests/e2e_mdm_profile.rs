@@ -1,6 +1,6 @@
-//! Phase M3 Desktop MDM end-to-end suite (PROGRESS.md task M3.4).
+//! Desktop MDM config-profile end-to-end suite.
 //!
-//! Hermetic exercises of the Phase-M3 surface (`docs/desktop-mdm/`)
+//! Hermetic exercises of the Desktop MDM config-profile surface (`docs/desktop-mdm/`)
 //! using a recording [`MdmProvider`] mock and the public
 //! [`sda_mdm::config_profile::load_and_verify`] / `apply_and_publish`
 //! pipeline.

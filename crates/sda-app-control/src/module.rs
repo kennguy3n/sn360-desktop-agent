@@ -119,11 +119,10 @@ impl AppControlSupervisor {
     ///
     /// On Linux the rich [`crate::linux::LinuxAppControlProvider`]
     /// is used so the supervisor exercises the dm-verity-aware
-    /// policy persistence path (Task 4.8). On Windows the rich
+    /// policy persistence path.  On Windows the rich
     /// [`crate::wdac::WdacAppControlProvider`] is used so the
     /// supervisor renders WDAC / AppLocker XML and invokes the
-    /// signed-policy push (Task 4.7). On macOS the PAL Santa
-    /// stub is used (Task 4.6, already shipped in PR #7).
+    /// signed-policy push.  On macOS the PAL Santa stub is used.
     pub fn with_defaults(config: AppControlConfig, bus: Arc<EventBus>) -> Option<Self> {
         let provider: Box<dyn AppControlProvider> = {
             #[cfg(target_os = "linux")]

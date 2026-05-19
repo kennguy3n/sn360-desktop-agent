@@ -4,8 +4,8 @@
 //! check) in a small in-process cache so the action orchestrator can
 //! look an artefact up by id without re-fetching for every install /
 //! update / uninstall job. The network fetch itself is intentionally
-//! NOT in this module — it lands in Phase 2.6 alongside the
-//! action-executor wiring. Phase 2.5 (this scaffold) only ships the
+//! NOT in this module — it will land alongside the
+//! action-executor wiring.  Currently only the
 //! verifier surface so unit tests can drive the catalogue with
 //! hand-crafted manifest bytes.
 

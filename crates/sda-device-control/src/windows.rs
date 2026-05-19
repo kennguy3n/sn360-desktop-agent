@@ -1,4 +1,4 @@
-//! Maintenance window + quiet-hours policy evaluator (Phase 2.8).
+//! Maintenance window + quiet-hours policy evaluator.
 //!
 //! Mirrors `docs/device-control.md` § 4 (Signed-job lifecycle) and
 //! step 9 of the validation pipeline in
@@ -167,7 +167,7 @@ impl MaintenanceWindowPolicy {
     }
 
     /// Convenience constructor for a policy that always permits
-    /// execution. Used by tests and by Phase 1 deployments that have
+    /// execution. Used by tests and by deployments that have
     /// not yet enabled either window.
     pub fn always_open() -> Self {
         Self {

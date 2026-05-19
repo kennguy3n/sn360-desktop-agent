@@ -195,7 +195,7 @@ impl TrdsClient {
 /// Verify a [`SignedBundleEnvelope`] against the local key rotation set
 /// and return the decoded, validated bundle.
 ///
-/// Verification steps (Phase E2.2):
+/// Verification steps:
 ///
 /// 1. The envelope's `key_id` must appear in `keys`.
 /// 2. The envelope's `bundle_b64` and `signature_b64` must base64-decode.
@@ -415,7 +415,7 @@ mod tests {
         assert!(matches!(err, TrdsError::HttpStatus(404)));
     }
 
-    /// Regression for the Phase E2 review finding: a `204 No Content`
+    /// Regression: a `204 No Content`
     /// response from the TRDS server (the steady-state "no newer
     /// bundle" signal — see `crates/sda-agent/tests/e2e_lde_hotreload.rs`)
     /// must be treated as `Ok(None)`, not as a transport error.  Before

@@ -1,4 +1,4 @@
-//! Identity-attack detection module (Phase E5 of EDR Parity).
+//! Identity-attack detection module (part of the EDR Parity workstream).
 //!
 //! Surfaces three classes of credential-theft signals across the
 //! supported platforms and re-encodes them as canonical

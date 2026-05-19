@@ -1,4 +1,4 @@
-//! Phase E5.8 — hermetic end-to-end coverage for the EDR DLP module
+//! Hermetic end-to-end coverage for the EDR DLP module
 //! (`sda-dlp`).
 //!
 //! The DLP module subscribes to `EventKind::FileCreated` /

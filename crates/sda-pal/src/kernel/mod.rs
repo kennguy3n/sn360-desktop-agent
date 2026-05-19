@@ -1,10 +1,10 @@
-//! Kernel-mode PAL backends (Phase E6 of the EDR Parity workstream).
+//! Kernel-mode PAL backends (part of the EDR Parity workstream).
 //!
 //! E0–E5 ship user-mode telemetry: ETW for Windows process / network
 //! events, Endpoint Security framework for macOS, `cn_proc` + audit
 //! for Linux. These backends are sufficient for parity but are
 //! tamper-visible — a user-mode rootkit or a sufficiently privileged
-//! adversary can detach them. Phase E6 introduces *optional*
+//! adversary can detach them.  The kernel PAL introduces *optional*
 //! kernel-mode replacements that preserve the same user-mode trait
 //! surface (`ProcessMonitor`, `NetworkMonitor`, `MemoryScanner`) so
 //! they can be swapped in by feature flag without code changes in

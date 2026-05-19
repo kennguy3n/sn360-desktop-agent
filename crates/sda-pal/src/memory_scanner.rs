@@ -1,4 +1,4 @@
-//! Memory scanning PAL (Phase E4 of the EDR Parity workstream).
+//! Memory scanning PAL (part of the EDR Parity workstream).
 //!
 //! Defines the [`MemoryScanner`] trait which enumerates committed
 //! memory regions of a target process and reads bounded byte slices
@@ -100,8 +100,7 @@ const WIN_PAGE_HIGH_MODIFIERS: u32 = 0xF000_0000;
 /// those modifiers set, classifying the region as no-access — which
 /// in turn made [`MemoryRegion::is_interesting`] return `false` for
 /// `MEM_IMAGE`/`MEM_MAPPED` RWX guard pages (.NET CLR JITs, attacker
-/// `PAGE_GUARD`-flagged shellcode). Devin Review flagged this as
-/// BUG-0002 on PR #25.
+/// `PAGE_GUARD`-flagged shellcode).
 ///
 /// This helper masks out `PAGE_GUARD` / `PAGE_NOCACHE` /
 /// `PAGE_WRITECOMBINE` and the high-bit `PAGE_TARGETS_*` /
@@ -564,10 +563,8 @@ pub mod windows_imp {
     /// follows scope. If anything between `OpenProcess` and the
     /// final return panics — including the `unsafe` blocks around
     /// `VirtualQueryEx` and `ReadProcessMemory` — the handle is
-    /// still released by the unwind. This is the defence-in-depth
-    /// pattern the Devin Review bot recommended on PR #25 and
-    /// mirrors how the kernel-mode Windows code is expected to
-    /// manage its own handles in E6.1.
+    /// still released by the unwind.  This RAII pattern mirrors
+    /// how the kernel-mode Windows code manages its own handles.
     struct ProcessHandleGuard(HANDLE);
 
     impl Drop for ProcessHandleGuard {
@@ -699,13 +696,8 @@ pub mod windows_imp {
                 address = next;
             }
             // `handle_guard` releases the underlying HANDLE via its
-            // `Drop` impl at end of scope. A leftover manual
-            // `CloseHandle(handle)` here (referencing the old
-            // pre-RAII binding name) was the regression Devin Review
-            // flagged as BUG-0001 on PR #25 — it both (a) failed to
-            // compile on Windows because `handle` is not in scope
-            // and (b) would have double-closed the handle if it had.
-            // Removed entirely; the RAII guard is the only owner.
+            // `Drop` impl at end of scope.  The RAII guard is the
+            // only owner of the handle.
             Ok(out)
         }
 
@@ -1014,10 +1006,9 @@ mod tests {
     //
     // Exercises the parent module's `permissions_from_win_protect`
     // helper on every host OS — the production Windows backend
-    // delegates to this same function. Devin Review flagged the
-    // exact-equality match it replaces as BUG-0002 on PR #25 because
-    // it silently dropped PAGE_GUARD / PAGE_NOCACHE / PAGE_WRITECOMBINE
-    // RWX pages to the `_ => default()` arm.
+    // delegates to this same function.  The previous exact-equality
+    // match silently dropped PAGE_GUARD / PAGE_NOCACHE /
+    // PAGE_WRITECOMBINE RWX pages to the `_ => default()` arm.
 
     #[test]
     fn win_protect_translates_each_base_constant() {

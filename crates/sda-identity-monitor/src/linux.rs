@@ -65,8 +65,7 @@ impl IdentityProvider for LinuxShadowAccessProvider {
         // closure, the scheduler is free to delay the first poll
         // long enough for a publisher to race ahead and drop events
         // before the receiver exists. The DLP module and memory
-        // scanner already follow this pattern; the Devin Review bot
-        // flagged the deviation on PR #25 as a consistency hazard.
+        // scanner already follow this pattern.
         let mut rx = self.bus.subscribe();
         let mut shutdown = shutdown;
         tokio::spawn(async move {

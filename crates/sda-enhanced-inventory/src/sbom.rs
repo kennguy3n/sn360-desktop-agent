@@ -1,4 +1,4 @@
-//! CycloneDX SBOM (Software Bill of Materials) generator — task 4.9.
+//! CycloneDX SBOM (Software Bill of Materials) generator.
 //!
 //! Produces a CycloneDX 1.5 JSON document describing every piece of
 //! software the enhanced-inventory module can see on the host:

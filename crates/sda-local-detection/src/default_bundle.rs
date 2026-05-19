@@ -1,8 +1,8 @@
-//! Embedded default rule bundle (Phase E2.4).
+//! Embedded default rule bundle.
 //!
 //! When the on-disk `rule_bundle_path` is missing or unreadable AND no
 //! TRDS endpoint is configured, the LDE falls back to this small set
-//! of baseline rules so the default-ON configuration (Phase E2.3) still
+//! of baseline rules so the default-ON configuration still
 //! provides immediate value out-of-the-box.
 //!
 //! Keep this list intentionally minimal — operators are expected to
@@ -83,7 +83,7 @@ pub fn default_bundle() -> RuleBundle {
                 kind: BehavioralRuleKind::ProcessChain {
                     // Note: this fires on `lsass.exe` *creation* from an
                     // unexpected parent — full handle-open detection
-                    // requires kernel telemetry (Phase E4).
+                    // requires kernel telemetry.
                     name_regex: r"^lsass\.exe$".into(),
                     parent_chain_regex: r"^(?!.*\b(services|wininit|smss)\.exe).*$".into(),
                 },

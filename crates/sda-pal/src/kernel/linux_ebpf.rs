@@ -1,4 +1,4 @@
-//! Linux eBPF backend (Phase E6.4).
+//! Linux eBPF backend.
 //!
 //! Production architecture (NOT exercised in CI — requires kernel
 //! ≥ 5.8, `CAP_BPF`, and the Aya toolchain to compile the eBPF
@@ -18,7 +18,7 @@
 //! Fallback contract: when kernel < 5.8 or `CAP_BPF` is unavailable,
 //! [`detect_ebpf_capability`] returns `false` and the supervisor
 //! continues running the user-mode `cn_proc` + `audit` backends
-//! from Phase E1. This file defines the perf-record layout so that
+//! from the process-monitor module.  This file defines the perf-record layout so that
 //! the user-mode parser is testable in CI without the Aya
 //! toolchain.
 

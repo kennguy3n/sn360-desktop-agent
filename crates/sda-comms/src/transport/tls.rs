@@ -1,4 +1,4 @@
-//! TLS 1.3 transport primitives (Phase 5.6 / proposal § 8.2).
+//! TLS 1.3 transport primitives (proposal § 8.2).
 //!
 //! This module produces a `rustls` [`ClientConfig`] from the agent's
 //! config surface (`config.server.enhanced.*`) and exposes a helper

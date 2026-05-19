@@ -1,18 +1,18 @@
 //! `sda-posture` — periodic device-posture snapshot module for the
-//! SN360 Desktop Agent (Phase 1).
+//! SN360 Desktop Agent.
 //!
 //! This crate is the SDA-side counterpart to
-//! [`sda_pal::posture::DevicePostureProvider`]. It owns the timer
+//! [`sda_pal::posture::DevicePostureProvider`].  It owns the timer
 //! that asks the PAL for a fresh [`PostureSnapshot`] every
 //! `modules.posture.interval_secs` seconds, the [`DeltaTracker`]
 //! that decides whether the snapshot is worth publishing, and the
 //! power-aware deferral logic that pauses the loop on battery.
 //!
-//! The Phase 1 supervisor is intentionally minimal — it parks on
-//! the shutdown signal so that flipping `modules.posture.enabled`
-//! to `false` (the default) keeps idle CPU at zero. The full
-//! snapshot loop ships in Phase 2 alongside the bus subscription
-//! infrastructure.
+//! When `modules.posture.enabled = false` (the default) the module
+//! is never spawned — idle footprint is zero.  When enabled, it
+//! runs the periodic collect → delta-filter → publish loop on each
+//! interval tick, skipping ticks while the device is on battery
+//! (`defer_on_battery`).
 
 pub mod snapshot;
 
@@ -128,11 +128,10 @@ mod tests {
 
     #[test]
     fn integration_payload_is_valid_json() {
-        // Mirrors task 1.6's "snapshot produces valid PostureSnapshot
-        // JSON" requirement. We construct the snapshot directly
-        // (rather than through `default_posture_provider()`) so the
-        // test is hermetic on every CI host regardless of which
-        // platform implementation is compiled in.
+        // Construct the snapshot directly (rather than through
+        // `default_posture_provider()`) so the test is hermetic on
+        // every CI host regardless of which platform implementation
+        // is compiled in.
         use sda_pal::posture::{PostureSnapshot, PostureToggle};
         let snap = PostureSnapshot {
             disk_encryption: PostureToggle::On,

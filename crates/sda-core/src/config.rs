@@ -268,7 +268,7 @@ pub struct ModulesConfig {
     #[serde(default)]
     pub updater: UpdateConfig,
 
-    // --- Device Control modules (Phase 1) ---
+    // --- Device Control modules ---
     //
     // All Device Control modules default to `enabled: false` per the
     // lazy-module-loading principle. With `device_control.enabled =
@@ -293,9 +293,9 @@ pub struct ModulesConfig {
     #[serde(default)]
     pub agent_vitals: AgentVitalsConfig,
 
-    // --- Desktop MDM module (Phase M1–M3) ---
+    // --- Desktop MDM module ---
     //
-    // Unlike every other Phase-1+ module, MDM defaults to `enabled =
+    // Unlike every other module, MDM defaults to `enabled =
     // true` per `docs/desktop-mdm.md` § 1 (Product loop) and the
     // Desktop MDM section of `docs/configuration-reference.md`.
     // Operators that need to disable it must explicitly set
@@ -303,7 +303,7 @@ pub struct ModulesConfig {
     #[serde(default)]
     pub mdm: MdmConfig,
 
-    // --- EDR Parity modules (Phase E1-E3) ---
+    // --- EDR modules ---
     //
     // Each EDR module defaults to `enabled: false` per the lazy
     // module-loading principle. See `docs/configuration-reference.md`
@@ -317,7 +317,7 @@ pub struct ModulesConfig {
     #[serde(default)]
     pub host_isolation: HostIsolationConfig,
 
-    // --- EDR Parity modules (Phase E4) ---
+    // --- Memory scanner module ---
     //
     // Memory scanning + fileless detection. Defaults to `enabled:
     // false` per the lazy module-loading principle; the agent process
@@ -327,7 +327,7 @@ pub struct ModulesConfig {
     #[serde(default)]
     pub memory_scanner: MemoryScannerConfig,
 
-    // --- EDR Parity modules (Phase E5) ---
+    // --- Identity / DLP modules ---
     //
     // Identity attack detection (LSASS / shadow / keychain) and DLP
     // (PII / PCI on file writes + optional clipboard). Both default
@@ -491,7 +491,7 @@ pub struct RootcheckConfig {
 pub struct LocalDetectionConfig {
     /// Whether the LDE is enabled.
     ///
-    /// **Default**: `true` (since EDR Parity Phase E2.3 — see
+    /// **Default**: `true` (see
     /// `docs/configuration-reference.md` and the CHANGELOG migration
     /// note).  Agents that omit this key now run the LDE against the
     /// embedded baseline bundle at startup; to preserve the previous
@@ -562,13 +562,13 @@ pub struct LocalDetectionConfig {
     /// Optional HTTPS endpoint of the Tenant Rule Distribution Service
     /// (TRDS).  When `None`, the LDE keeps the bundle loaded from
     /// `rule_bundle_path` (or the embedded default) and never attempts
-    /// hot-reload (Phase E2.1).
+    /// hot-reload.
     #[serde(default)]
     pub trds_endpoint: Option<String>,
     /// Ed25519 public keys (lower-case hex, 32-byte raw) that are
     /// permitted to sign TRDS bundles.  Bundles signed by keys outside
     /// this rotation set are rejected with a `LocalDetectionAlert` and
-    /// the last-known-good pipeline is preserved (Phase E2.2).
+    /// the last-known-good pipeline is preserved.
     #[serde(default)]
     pub rule_bundle_signing_keys: Vec<String>,
     /// Connect / read timeout (seconds) for TRDS bundle pulls.
@@ -579,8 +579,8 @@ pub struct LocalDetectionConfig {
 /// Enhanced Inventory module configuration.
 ///
 /// The enhanced inventory extends the base inventory with running
-/// software monitoring (task 4.7), browser extension enumeration
-/// (task 4.8), and CycloneDX SBOM generation (task 4.9). See
+/// software monitoring, browser extension enumeration, and
+/// CycloneDX SBOM generation.  See
 /// [`docs/architecture.md`](../../../docs/architecture.md) § 7
 /// (Module reference) for design details.
 ///
@@ -603,7 +603,7 @@ pub struct EnhancedInventoryConfig {
     pub sbom: SbomConfig,
     /// When `true`, the running-software monitor mirrors each
     /// snapshot/delta as an `EventKind::SoftwareInventoryDelta` event
-    /// for Device Control consumers (task 1.10). The agent
+    /// for Device Control consumers.  The agent
     /// flips this on when `modules.device_control.enabled = true` and
     /// `modules.enhanced_inventory.running_software.enabled = true`.
     /// Not user-configurable from on-disk YAML — it is set internally
@@ -1084,7 +1084,7 @@ impl Default for RootcheckConfig {
 impl Default for LocalDetectionConfig {
     fn default() -> Self {
         Self {
-            // Phase E2.3 — LDE is on by default once the embedded
+            // LDE is on by default once the embedded
             // bundle ships with baseline rules.
             enabled: true,
             rule_pull_interval: default_lde_rule_pull_interval(),
@@ -1242,7 +1242,7 @@ impl Default for LoggingConfig {
 }
 
 // =============================================================
-// Device Control configuration sections (Phase 1)
+// Device Control configuration sections
 // =============================================================
 //
 // All structs in this section default to `enabled: false`. The
@@ -1279,7 +1279,7 @@ pub struct DeviceControlConfig {
     #[serde(default)]
     pub job_budget: JobBudget,
 
-    /// USB / removable-media policy enforcement (Phase D2).
+    /// USB / removable-media policy enforcement.
     /// Off by default; flipping `usb_policy.enabled` to `true` lights
     /// up the per-OS enforcement helper IPC server and wires the
     /// supervisor into the bundle apply path.
@@ -1503,8 +1503,7 @@ impl Default for PostureConfig {
     }
 }
 
-/// Software management module configuration (Phase 2). Defaults to
-/// disabled.
+/// Software management module configuration.  Defaults to disabled.
 ///
 /// When `enabled = true` and `modules.device_control.enabled = true`,
 /// the [`SoftwareModule`](../../../sda-software/index.html) refreshes
@@ -1512,7 +1511,7 @@ impl Default for PostureConfig {
 /// and gates every install / update / uninstall on a verified
 /// Ed25519 signature against the configured pinned keys.
 ///
-/// Phase 2.6 hardens this with key rotation
+/// Key rotation support is provided by
 /// ([`Self::pinned_signing_keys`]) and manifest expiry
 /// ([`Self::manifest_max_age_secs`]). The legacy
 /// [`Self::pinned_signing_key_hex`] field is retained as a backward
@@ -1584,7 +1583,7 @@ impl Default for SoftwareConfig {
 
 /// JIT-admin module configuration.
 ///
-/// Phase 3.2 introduces the `sda-jit-admin` module which owns the
+/// The `sda-jit-admin` module owns the
 /// grant lifecycle state machine and revocation watchdog. Defaults
 /// to disabled so an SDA built without jit-admin work configured
 /// keeps idle CPU at zero.
@@ -1607,7 +1606,7 @@ pub struct JitAdminConfig {
     /// (`AdminManager::list_admins` vs the active grant ledger). The
     /// supervisor emits a `FindingKind::AdminDrift` payload + paired
     /// `EvidenceRecord` for each discrepancy. Defaults to 300 s
-    /// (Phase 3.5 / `docs/device-control.md` § 7 — Just-in-Time admin).
+    /// (`docs/device-control.md` § 7 — Just-in-Time admin).
     #[serde(default = "default_jit_drift_check_interval_secs")]
     pub drift_check_interval_secs: u64,
 }
@@ -1625,7 +1624,7 @@ impl Default for JitAdminConfig {
 
 /// Script-runner module configuration.
 ///
-/// Phase 2.7 introduces the `sda-script-runner` module which
+/// The `sda-script-runner` module
 /// executes signed scripts against an allow-list of canonical names.
 /// Defaults to disabled so the surface area stays at zero on
 /// builds that do not opt in.
@@ -1667,9 +1666,9 @@ impl Default for ScriptRunnerConfig {
     }
 }
 
-/// Application-control module configuration (Phase 4).
+/// Application-control module configuration.
 ///
-/// Defaults to disabled. The Phase-4 default mode is `Monitor` per
+/// Defaults to disabled.  The default mode is `Monitor` per
 /// `docs/device-control.md` § 8 (Application control) —
 /// `Enforce` requires explicit tenant opt-in plus dual-control
 /// rollback per the same section.
@@ -1680,7 +1679,7 @@ pub struct AppControlConfig {
     pub enabled: bool,
     /// Operating mode: `"monitor"`, `"enforce"`, or `"disabled"`.
     /// Mapped onto `sda_pal::app_control::AppControlMode` at module
-    /// startup. Defaults to `"monitor"` so a Phase-4 enable does
+    /// startup.  Defaults to `"monitor"` so enabling the module does
     /// not accidentally start blocking traffic.
     #[serde(default = "default_app_control_mode")]
     pub mode: String,
@@ -1702,7 +1701,7 @@ impl Default for AppControlConfig {
     }
 }
 
-/// Remote-support module configuration (Phase 4).
+/// Remote-support module configuration.
 ///
 /// Defaults to disabled. When `enabled = true` the module shows a
 /// consent prompt on every session per `docs/device-control.md` § 9 and
@@ -1735,7 +1734,7 @@ impl Default for RemoteSupportConfig {
     }
 }
 
-/// Agent-vitals heartbeat configuration (Phase 1, Task 1.12).
+/// Agent-vitals heartbeat configuration.
 ///
 /// When `enabled = true`, the
 /// [`VitalsModule`](../../../sda_agent_vitals/index.html) emits an
@@ -1903,14 +1902,14 @@ fn default_agent_vitals_interval_secs() -> u64 {
     60
 }
 
-/// Default Phase-4 application-control mode. `docs/device-control.md` § 8
+/// Default application-control mode.  `docs/device-control.md` § 8
 /// mandates `Monitor` so an accidental `enabled = true` does not start
 /// blocking traffic.
 fn default_app_control_mode() -> String {
     "monitor".to_string()
 }
 
-/// Default Phase-4 remote-support session cap (30 minutes).
+/// Default remote-support session cap (30 minutes).
 /// `docs/device-control.md` § 9 specifies "≤30 min" as the typical bound; the
 /// supervisor truncates anything longer.
 fn default_remote_support_max_session_minutes() -> u32 {
@@ -1918,12 +1917,11 @@ fn default_remote_support_max_session_minutes() -> u32 {
 }
 
 // -------------------------------------------------------------------------
-// ShieldNet Desktop MDM (Phase M1–M3) — configuration schema.
+// ShieldNet Desktop MDM — configuration schema.
 //
 // Mirrors the Desktop MDM section of `docs/configuration-reference.md`
 // verbatim. The distinguishing property versus every other
-// Phase-1+ module config
-// is that `MdmConfig::default()` produces `enabled = true` with every
+// module config is that `MdmConfig::default()` produces `enabled = true` with every
 // `auto_remediate.*` flag also `true`. This is the documented
 // "defaults-on" posture per `docs/desktop-mdm.md` § 1 (Product loop).
 // -------------------------------------------------------------------------
@@ -1936,30 +1934,30 @@ pub struct MdmConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
 
-    /// Auto-remediation supervisor settings (Phase M1.2). Drives the
+    /// Auto-remediation supervisor settings.  Drives the
     /// posture-snapshot subscriber that self-signs local jobs when
     /// FDE / firewall / screen-lock are off.
     #[serde(default)]
     pub auto_remediate: AutoRemediateConfig,
 
-    /// OS patch orchestration settings (Phase M1.4).
+    /// OS patch orchestration settings.
     #[serde(default)]
     pub os_patch: OsPatchConfig,
 
-    /// Recovery-key escrow settings (Phase M1.3).
+    /// Recovery-key escrow settings.
     #[serde(default)]
     pub recovery_key_escrow: RecoveryKeyEscrowConfig,
 
-    /// Lost-mode settings (Phase M2.3).
+    /// Lost-mode settings.
     #[serde(default)]
     pub lost_mode: LostModeConfig,
 
-    /// Declarative configuration profiles (Phase M3).
+    /// Declarative configuration profiles.
     #[serde(default)]
     pub config_profiles: ConfigProfilesConfig,
 
     /// Filesystem path of the TRDS-pushed signed config profile
-    /// bundle. The Phase M3 watcher mounts a `notify` watcher here
+    /// bundle. The watcher mounts a `notify` watcher here
     /// and re-applies the profile on every successful signature
     /// verification.
     #[serde(default = "default_mdm_bundle_path")]
@@ -1967,7 +1965,7 @@ pub struct MdmConfig {
 }
 
 impl Default for MdmConfig {
-    /// MDM is the **only** Phase-1+ module whose default is
+    /// MDM is the **only** module whose default is
     /// `enabled = true` with every `auto_remediate.*` flag also
     /// `true`. This intentionally diverges from every sibling
     /// module (Device Control, Software, Posture, Query, JIT-admin,
@@ -2265,7 +2263,7 @@ fn default_mdm_bundle_path() -> PathBuf {
 }
 
 // ===========================================================================
-// EDR Parity (Phase E1-E3) module configurations.
+// EDR module configurations.
 //
 // All four EDR modules default to `enabled = false` per the lazy-
 // module-loading principle — the agent's idle footprint is bit-for-
@@ -2274,7 +2272,7 @@ fn default_mdm_bundle_path() -> PathBuf {
 // section).
 // ===========================================================================
 
-/// Process Telemetry (Phase E1) configuration.
+/// Process telemetry configuration.
 ///
 /// Drives the `sda-process-monitor` crate which subscribes to the
 /// platform process feed (Linux `cn_proc` + `/proc`, Windows ETW,
@@ -2325,7 +2323,7 @@ fn default_process_monitor_poll_interval_ms() -> u64 {
     500
 }
 
-/// Network Telemetry (Phase E3) configuration.
+/// Network telemetry configuration.
 ///
 /// Drives the `sda-network-monitor` crate which subscribes to the
 /// platform network connection feed (Linux audit + `/proc/net`,
@@ -2365,7 +2363,7 @@ fn default_network_monitor_event_buffer_size() -> usize {
     8192
 }
 
-/// DNS Telemetry (Phase E3) configuration.
+/// DNS telemetry configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DnsMonitorConfig {
     /// Whether the DNS telemetry module is enabled.
@@ -2391,7 +2389,7 @@ fn default_dns_monitor_source() -> String {
     "auto".to_string()
 }
 
-/// Host Isolation (Phase E3) configuration.
+/// Host isolation configuration.
 ///
 /// Drives the `sda-host-isolation` crate which consumes
 /// `IsolateHost` / `UnisolateHost` `SignedActionJob`s and flips the
@@ -2428,7 +2426,7 @@ impl Default for HostIsolationConfig {
     }
 }
 
-/// Memory Scanner (Phase E4) configuration.
+/// Memory scanner configuration.
 ///
 /// Drives the `sda-memory-scanner` crate which periodically enumerates
 /// committed RWX / anonymous / JIT regions of running processes via
@@ -2500,7 +2498,7 @@ fn default_memory_max_region_bytes() -> usize {
     4 * 1024 * 1024
 }
 
-/// Identity Monitor (Phase E5) configuration.
+/// Identity monitor configuration.
 ///
 /// Drives the `sda-identity-monitor` crate which surfaces LSASS
 /// access (Windows ETW), `/etc/shadow` + `/proc/kcore` reads (Linux,
@@ -2534,7 +2532,7 @@ impl Default for IdentityMonitorConfig {
     }
 }
 
-/// DLP (Phase E5) configuration.
+/// DLP configuration.
 ///
 /// Drives the `sda-dlp` crate which scans file-write payloads (and
 /// optionally clipboard contents) for PII / PCI patterns.

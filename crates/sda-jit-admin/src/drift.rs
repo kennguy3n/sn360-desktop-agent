@@ -1,4 +1,4 @@
-//! Phase 3.5 — JIT-admin drift detection.
+//! JIT-admin drift detection.
 //!
 //! Compares the OS-level admin/root group membership returned by
 //! [`AdminManager::list_admins`] against the active grants in the

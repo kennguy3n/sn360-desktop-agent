@@ -1,5 +1,5 @@
 //! `sda-script-runner` — signed-script execution module for SDA
-//! Device Control (Phase 2.7).
+//! Device Control.
 //!
 //! See `docs/device-control.md` § 2 (Modules — `sda-script-runner`)
 //! and § 4 (Signed-job lifecycle).

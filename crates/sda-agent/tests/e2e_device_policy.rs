@@ -1,4 +1,4 @@
-//! Phase D2.6 — USB / removable-media device-policy end-to-end suite.
+//! USB / removable-media device-policy end-to-end suite.
 //!
 //! Hermetic exercises of the per-OS USB policy enforcement surface
 //! shipped in this PR. The harness:

@@ -1,4 +1,4 @@
-//! Cross-platform browser-extension enumeration (task 4.8).
+//! Cross-platform browser-extension enumeration.
 //!
 //! Discovers installed extensions for:
 //!

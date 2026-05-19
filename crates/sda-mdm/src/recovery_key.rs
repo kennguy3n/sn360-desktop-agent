@@ -1,4 +1,4 @@
-//! Recovery-key escrow sub-module (Phase M1.3).
+//! Recovery-key escrow sub-module.
 //!
 //! Implements the once-per-boot escrow described in
 //! `docs/desktop-mdm.md` § 5 (Recovery-key escrow).
@@ -304,9 +304,9 @@ mod tests {
 
     #[test]
     fn guard_reset_bypasses_dedup_for_one_call() {
-        // Regression test for the bug Devin Review flagged: the
-        // `EscrowRecoveryKey` dispatch arm destructured args with
-        // `_`, dropping the `force` field, so an operator-signed
+        // Regression: the `EscrowRecoveryKey` dispatch arm
+        // destructured args with `_`, dropping the `force` field,
+        // so an operator-signed
         // `force = true` job was a no-op against unchanged
         // material. The dispatch arm now calls `guard.reset()` on
         // `force = true` and then re-enters the normal
