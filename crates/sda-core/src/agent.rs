@@ -80,6 +80,11 @@ impl Agent {
         &self.config
     }
 
+    /// Replace the agent configuration (e.g. after cloud-config merge).
+    pub fn update_config(&mut self, config: AgentConfig) {
+        self.config = config;
+    }
+
     /// Get a clone of the event bus (for passing to modules).
     pub fn event_bus(&self) -> EventBus {
         self.event_bus.clone()

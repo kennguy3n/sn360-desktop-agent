@@ -9,6 +9,14 @@ use tracing::info;
 /// Top-level agent configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AgentConfig {
+    /// Bootstrap / cloud-config transport settings written by the
+    /// installer. The only fields the 1-click installer writes are
+    /// `tenant_gateway` and `bootstrap_token_file`; every other
+    /// module toggle arrives via the cloud config pull after
+    /// enrollment.
+    #[serde(default)]
+    pub agent: AgentBootstrapConfig,
+
     /// Server connection settings.
     #[serde(default)]
     pub server: ServerConfig,
@@ -33,6 +41,32 @@ pub struct AgentConfig {
     /// protection (P3.3).
     #[serde(default)]
     pub security: SecurityConfig,
+}
+
+/// Bootstrap settings written by the 1-click installer. These are
+/// the only values present in the minimal `agent.yaml` that
+/// `install.sh` / `install.ps1` drop on disk.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AgentBootstrapConfig {
+    /// URL of the SN360 Agent Gateway (mTLS endpoint). Used for
+    /// enrollment and the cloud-config pull.
+    #[serde(default)]
+    pub tenant_gateway: Option<String>,
+    /// Path to the bootstrap token file used for initial enrollment.
+    #[serde(default)]
+    pub bootstrap_token_file: Option<PathBuf>,
+    /// Tenant ID populated after enrollment completes.
+    #[serde(default)]
+    pub tenant_id: Option<String>,
+    /// Device ID populated after enrollment completes.
+    #[serde(default)]
+    pub device_id: Option<String>,
+    /// Log directory override.
+    #[serde(default)]
+    pub log_dir: Option<PathBuf>,
+    /// IP geolocation service URL for MDM lost-mode location reports.
+    #[serde(default)]
+    pub geolocation_url: Option<String>,
 }
 
 /// Security hardening settings: privilege separation (P3.2) and
@@ -2625,5 +2659,70 @@ impl AgentConfig {
             .server
             .as_deref()
             .unwrap_or(&self.server.address)
+    }
+
+    /// Merge a cloud-provisioned config into this (local) config.
+    ///
+    /// The cloud config is the authority for module enable/disable
+    /// toggles — the gateway knows which tier the tenant is on and
+    /// which modules should be active. Local-only values are
+    /// preserved:
+    ///
+    /// * **bootstrap settings** (`agent.*`) — kept from local
+    /// * **server connection** — kept from local
+    /// * **enrollment** — kept from local
+    /// * **security** — kept from local
+    /// * **resource limits** — kept from local (operator override)
+    /// * **logging** — kept from local (operator override)
+    /// * **modules** — cloud wins for `enabled` flags; local
+    ///   overrides survive for per-module tuning knobs that are
+    ///   set in the local config (e.g. custom FIM directories)
+    pub fn merge_cloud_config(&mut self, cloud: AgentConfig) {
+        // Module toggles: cloud is authoritative.
+        self.modules.fim.enabled = cloud.modules.fim.enabled;
+        self.modules.logcollector.enabled = cloud.modules.logcollector.enabled;
+        self.modules.inventory.enabled = cloud.modules.inventory.enabled;
+        self.modules.sca.enabled = cloud.modules.sca.enabled;
+        self.modules.active_response.enabled = cloud.modules.active_response.enabled;
+        self.modules.rootcheck.enabled = cloud.modules.rootcheck.enabled;
+        self.modules.local_detection.enabled = cloud.modules.local_detection.enabled;
+        self.modules.enhanced_inventory.enabled = cloud.modules.enhanced_inventory.enabled;
+        self.modules.agent_vitals.enabled = cloud.modules.agent_vitals.enabled;
+
+        // EDR modules
+        self.modules.process_monitor.enabled = cloud.modules.process_monitor.enabled;
+        self.modules.network_monitor.enabled = cloud.modules.network_monitor.enabled;
+        self.modules.dns_monitor.enabled = cloud.modules.dns_monitor.enabled;
+        self.modules.memory_scanner.enabled = cloud.modules.memory_scanner.enabled;
+        self.modules.identity_monitor.enabled = cloud.modules.identity_monitor.enabled;
+        self.modules.host_isolation.enabled = cloud.modules.host_isolation.enabled;
+        self.modules.dlp.enabled = cloud.modules.dlp.enabled;
+
+        // Device control / MDM
+        self.modules.device_control.enabled = cloud.modules.device_control.enabled;
+        self.modules.mdm.enabled = cloud.modules.mdm.enabled;
+        self.modules.posture.enabled = cloud.modules.posture.enabled;
+        self.modules.software.enabled = cloud.modules.software.enabled;
+
+        // Management modules
+        self.modules.query.enabled = cloud.modules.query.enabled;
+        self.modules.jit_admin.enabled = cloud.modules.jit_admin.enabled;
+        self.modules.script_runner.enabled = cloud.modules.script_runner.enabled;
+        self.modules.remote_support.enabled = cloud.modules.remote_support.enabled;
+
+        // App control: cloud is authoritative for both enable and mode.
+        self.modules.app_control.enabled = cloud.modules.app_control.enabled;
+        self.modules.app_control.mode = cloud.modules.app_control.mode.clone();
+
+        // Updater: cloud provides the server URL and public key.
+        self.modules.updater.enabled = cloud.modules.updater.enabled;
+        if !cloud.modules.updater.server_url.is_empty() {
+            self.modules.updater.server_url = cloud.modules.updater.server_url;
+        }
+        if !cloud.modules.updater.public_key.is_empty() {
+            self.modules.updater.public_key = cloud.modules.updater.public_key;
+        }
+
+        info!("merged cloud-provisioned config into local config");
     }
 }
