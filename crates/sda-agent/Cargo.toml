@@ -56,10 +56,15 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+reqwest = { workspace = true }
 gethostname = { workspace = true }
 sha2 = { workspace = true }
 uuid = { workspace = true }
+ed25519-dalek = { workspace = true }
+chrono = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 nix = { workspace = true }

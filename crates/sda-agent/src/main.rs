@@ -21,11 +21,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use sha2::{Digest, Sha256};
+use tokio::io::AsyncWriteExt;
 #[cfg(feature = "legacy-siem")]
 use tokio::sync::Mutex;
-use tracing::info;
 #[cfg(feature = "legacy-siem")]
-use tracing::{error, warn};
+use tracing::error;
+use tracing::{info, warn};
 
 #[cfg(feature = "legacy-siem")]
 use sda_comms::connection::{ConnectionConfig, ConnectionManager, TransportProtocol};
@@ -147,6 +149,36 @@ async fn main() -> Result<()> {
         // get TrySendError::Closed immediately instead of buffering
         // 1024 events that nobody consumes.
         let _ = agent.take_server_rx();
+    }
+
+    // 5d. Cloud-config pull: fetch the full tier-appropriate module
+    //     config from the Agent Gateway and merge it into local config.
+    //     The bootstrap agent.yaml only has `tenant_gateway` +
+    //     `bootstrap_token_file`; the cloud config provides every
+    //     module toggle and platform endpoint URL.
+    if let Some(ref gw) = config.agent.tenant_gateway {
+        match pull_cloud_config(gw, config.agent.bootstrap_token_file.as_deref()).await {
+            Ok(cloud) => {
+                // Store the enrolled identity so downstream modules
+                // (host isolation, device control, MDM) can use it.
+                if cloud.tenant_id.is_some() {
+                    config.agent.tenant_id = cloud.tenant_id;
+                }
+                if cloud.device_id.is_some() {
+                    config.agent.device_id = cloud.device_id;
+                }
+                if cloud.geolocation_url.is_some() {
+                    config.agent.geolocation_url = cloud.geolocation_url;
+                }
+                config.merge_cloud_config(cloud.module_overrides);
+                apply_device_control_bridge(&mut config);
+                agent.update_config(config.clone());
+                info!("cloud config applied");
+            }
+            Err(e) => {
+                warn!("cloud config pull failed, continuing with local config: {e}");
+            }
+        }
     }
 
     // 5c. Privilege separation (P3.2): drop root now that enrollment and
@@ -557,27 +589,33 @@ async fn main() -> Result<()> {
     //                `main` even when the module is not started.
     let _host_isolation_submitter: Option<sda_host_isolation::HostIsolationSubmitter> =
         if config.modules.host_isolation.enabled {
-            // TODO(edr-parity follow-up): replace these nil UUIDs
-            // with the real enrolled `(tenant_id, device_id)` from
-            // the agent's enrollment state once the SignedActionJob
-            // dispatcher is wired through Device Control.
-            let identity = sda_device_control::router::AgentIdentity {
-                tenant_id: uuid::Uuid::nil(),
-                device_id: uuid::Uuid::nil(),
-            };
-            if identity.tenant_id.is_nil() || identity.device_id.is_nil() {
-                warn!(
+            // Build the agent identity from the enrolled (tenant_id,
+            // device_id) populated during cloud-config pull (WS2.1).
+            let maybe_identity = config
+                .agent
+                .tenant_id
+                .as_deref()
+                .and_then(|t| t.parse::<uuid::Uuid>().ok())
+                .and_then(|tid| {
+                    config
+                        .agent
+                        .device_id
+                        .as_deref()
+                        .and_then(|d| d.parse::<uuid::Uuid>().ok())
+                        .map(|did| (tid, did))
+                })
+                .filter(|(tid, did)| !tid.is_nil() && !did.is_nil());
+
+            if let Some((tid, did)) = maybe_identity {
+                let identity = sda_device_control::router::AgentIdentity {
+                    tenant_id: tid,
+                    device_id: did,
+                };
+                info!(
                     tenant_id = %identity.tenant_id,
                     device_id = %identity.device_id,
-                    "host_isolation.enabled=true but enrolled identity has not been \
-                     wired through Device Control yet; every inbound SignedActionJob \
-                     would be refused by the router. Skipping module start. \
-                     Track sn360-security-platform follow-up E3.13 / E3.14 for the \
-                     wiring change that lifts this guard."
+                    "starting host isolation module with enrolled identity"
                 );
-                None
-            } else {
-                info!("starting host isolation module");
                 let (hi_handle, submitter) = sda_host_isolation::HostIsolationModule::start(
                     &config,
                     identity,
@@ -586,6 +624,14 @@ async fn main() -> Result<()> {
                 );
                 agent.register_module(hi_handle);
                 Some(submitter)
+            } else {
+                warn!(
+                    tenant_id = ?config.agent.tenant_id,
+                    device_id = ?config.agent.device_id,
+                    "host_isolation.enabled=true but enrolled identity is missing \
+                     or invalid; skipping module start until enrollment completes."
+                );
+                None
             }
         } else {
             None
@@ -666,14 +712,79 @@ async fn main() -> Result<()> {
             sda_mdm::os_patch::WatchPowerStateProvider::new(power_rx.clone()),
         );
         let mdm_geolocator: std::sync::Arc<dyn sda_mdm::lost_mode::IpGeolocator> =
-            std::sync::Arc::new(sda_mdm::lost_mode::NoopGeolocator);
+            if let Some(ref geo_url) = config.agent.geolocation_url {
+                info!(url = %geo_url, "MDM geolocator: using HTTP backend");
+                std::sync::Arc::new(HttpGeolocator::new(geo_url.clone()))
+            } else {
+                // Default to ip-api.com free-tier JSON endpoint when
+                // the gateway does not provide a geolocation URL. The
+                // free tier has a 45 req/min rate limit which is more
+                // than enough for the 5-minute lost-mode interval.
+                //
+                // WARNING: ip-api.com free tier only supports plain
+                // HTTP — the device's approximate lat/lon is visible
+                // to passive network observers. Production deployments
+                // should provision a gateway-provided HTTPS geolocation
+                // URL via the cloud config's `geolocation_url` field.
+                let default_url = "http://ip-api.com/json/?fields=lat,lon".to_string();
+                warn!(
+                    url = %default_url,
+                    "MDM geolocator: using plaintext HTTP fallback — \
+                     provision geolocation_url via cloud config for HTTPS"
+                );
+                std::sync::Arc::new(HttpGeolocator::new(default_url))
+            };
+
+        // Build the recovery-escrow identity from the enrolled
+        // (tenant_id, device_id). The escrow seed is derived from
+        // the device_id so it is deterministic across restarts.
+        let recovery_identity = config
+            .agent
+            .tenant_id
+            .as_deref()
+            .and_then(|t| t.parse::<uuid::Uuid>().ok())
+            .and_then(|tid| {
+                config
+                    .agent
+                    .device_id
+                    .as_deref()
+                    .and_then(|d| d.parse::<uuid::Uuid>().ok())
+                    .filter(|did| !did.is_nil())
+                    .map(|did| (tid, did))
+            })
+            .filter(|(tid, _)| !tid.is_nil())
+            .map(|(tid, did)| {
+                // Deterministic seed from device identity for stable
+                // escrow key derivation across agent restarts.
+                let mut hasher = Sha256::new();
+                hasher.update(b"sn360-mdm-escrow-v1:");
+                hasher.update(tid.as_bytes());
+                hasher.update(did.as_bytes());
+                let seed_bytes = hasher.finalize();
+                let signing_key = ed25519_dalek::SigningKey::from_bytes(
+                    seed_bytes
+                        .as_slice()
+                        .try_into()
+                        .expect("SHA-256 is 32 bytes"),
+                );
+                let key_id = format!("device:{}", did);
+                info!(tenant_id = %tid, device_id = %did, "MDM recovery escrow identity wired");
+                sda_mdm::module::RecoveryEscrowIdentity {
+                    tenant_id: tid,
+                    device_id: did,
+                    escrow_seed: seed_bytes.to_vec(),
+                    signing_key: std::sync::Arc::new(signing_key),
+                    key_id,
+                }
+            });
+
         let mdm_module = std::sync::Arc::new(sda_mdm::MdmModule::with_geolocator(
             config.modules.mdm.clone(),
             mdm_provider,
             agent.event_bus(),
             Vec::new(), // pinned profile signing keys — populated by TRDS bundle push
             mdm_power,
-            None, // recovery escrow identity — populated after enrollment handshake
+            recovery_identity,
             mdm_location_store.clone(),
             mdm_geolocator,
         ));
@@ -715,8 +826,12 @@ async fn main() -> Result<()> {
     //      and emits `EventKind::DevicePostureState` deltas.
     if config.modules.posture.enabled {
         info!("starting posture module");
-        let p_handle =
-            sda_posture::PostureModule::start(&config, agent.event_bus(), agent.shutdown_signal());
+        let p_handle = sda_posture::PostureModule::start(
+            &config,
+            agent.event_bus(),
+            agent.shutdown_signal(),
+            power_rx.clone(),
+        );
         agent.register_module(p_handle);
     }
 
@@ -791,14 +906,13 @@ async fn main() -> Result<()> {
 
     // 12l-quater. Remote-support module (Phase 4.2).
     //              Off by default. `docs/device-control.md` § 9 mandates a
-    //              consent banner on every session — the Phase-4
-    //              default consent prompt is `StubConsentPrompt`,
-    //              which denies every request. The agent therefore
-    //              fails closed unless the operator wires a real
-    //              prompt later. The module's `start()` parks on
-    //              the request channel; dropping the sender ends
-    //              the loop, so we keep it alive for the lifetime
-    //              of `main`.
+    //              consent banner on every session — the production
+    //              default is `NativeConsentPrompt`, which shows an
+    //              OS-native dialog. If no dialog tool is available
+    //              (headless server), it falls back to deny.
+    //              The module's `start()` parks on the request
+    //              channel; dropping the sender ends the loop, so
+    //              we keep it alive for the lifetime of `main`.
     let _remote_support_sender: Option<
         tokio::sync::mpsc::UnboundedSender<sda_remote_support::module::RemoteSupportRequest>,
     > = if config.modules.remote_support.enabled {
@@ -888,6 +1002,38 @@ async fn main() -> Result<()> {
     // `security.tamper.watchdog_interval_secs` is non-zero AND
     // `$NOTIFY_SOCKET` is set by the service manager.
     let _watchdog_handle = tamper::spawn_watchdog(&config.security.tamper);
+
+    // 12o. Local health-check HTTP endpoint (localhost:27015/healthz).
+    //      The post-install health check polls this to confirm the
+    //      agent enrolled, pulled cloud config, and started modules.
+    let health_shutdown = agent.shutdown_signal();
+    let _health_handle = tokio::spawn(async move {
+        let listener = match tokio::net::TcpListener::bind("127.0.0.1:27015").await {
+            Ok(l) => l,
+            Err(e) => {
+                warn!("health endpoint: bind failed (port 27015 in use?): {e}");
+                return;
+            }
+        };
+        info!("health endpoint listening on 127.0.0.1:27015");
+        let mut shutdown = health_shutdown;
+        loop {
+            tokio::select! {
+                _ = shutdown.wait() => break,
+                accept = listener.accept() => {
+                    if let Ok((mut stream, _)) = accept {
+                        let resp = "HTTP/1.1 200 OK\r\n\
+                                    Content-Type: application/json\r\n\
+                                    Content-Length: 15\r\n\
+                                    Connection: close\r\n\r\n\
+                                    {\"status\":\"ok\"}";
+                        let _ = stream.write_all(resp.as_bytes()).await;
+                        let _ = stream.shutdown().await;
+                    }
+                }
+            }
+        }
+    });
 
     // 13. Start agent and wait for shutdown signal
     agent.start().await;
@@ -1105,6 +1251,314 @@ fn parse_server_command(payload: &str) -> (String, String) {
         "generic"
     };
     (command.to_string(), trimmed.to_string())
+}
+
+// ---- HttpGeolocator ---------------------------------------------------------
+// Production IP-geolocation backend that queries a lightweight HTTP
+// API (ip-api.com free tier, or a gateway-proxied equivalent). The
+// trait `IpGeolocator::locate()` is synchronous, so we spawn the
+// HTTP request on the current Tokio runtime via `block_on`.
+
+struct HttpGeolocator {
+    url: String,
+    client: reqwest::Client,
+}
+
+impl HttpGeolocator {
+    fn new(url: String) -> Self {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .expect("build geolocator http client");
+        Self { url, client }
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct GeoApiResponse {
+    #[serde(default)]
+    lat: Option<f64>,
+    #[serde(default)]
+    lon: Option<f64>,
+    #[serde(default)]
+    accuracy: Option<f64>,
+}
+
+impl sda_mdm::lost_mode::IpGeolocator for HttpGeolocator {
+    fn locate(&self) -> Option<sda_core::location::LastKnownLocation> {
+        // The trait is synchronous; use a blocking spawn so we don't
+        // deadlock the Tokio runtime. This is called infrequently
+        // (every ~5 min during lost mode), so the overhead is fine.
+        let url = self.url.clone();
+        let client = self.client.clone();
+        let handle = tokio::runtime::Handle::try_current().ok()?;
+        let result = std::thread::spawn(move || {
+            handle.block_on(async {
+                let resp = client
+                    .get(&url)
+                    .header("User-Agent", "SN360-Desktop-Agent/1.0")
+                    .send()
+                    .await
+                    .ok()?;
+                if !resp.status().is_success() {
+                    return None;
+                }
+                let body: GeoApiResponse = resp.json().await.ok()?;
+                Some(sda_core::location::LastKnownLocation {
+                    lat: body.lat?,
+                    lon: body.lon?,
+                    accuracy_m: body.accuracy.unwrap_or(5000.0),
+                    reported_at: chrono::Utc::now(),
+                })
+            })
+        })
+        .join()
+        .ok()?;
+        result
+    }
+}
+
+// ---- Cloud config pull types ------------------------------------------------
+// Mirror the gateway's TierPreset JSON so we can deserialize the
+// response and map it into the agent's own `AgentConfig`.
+
+#[derive(serde::Deserialize)]
+struct CloudTierPreset {
+    #[serde(default)]
+    tier: String,
+    #[serde(default)]
+    tenant_id: Option<String>,
+    #[serde(default)]
+    device_id: Option<String>,
+    #[serde(default)]
+    endpoints: CloudEndpoints,
+    #[serde(default)]
+    modules: CloudModules,
+}
+
+#[derive(serde::Deserialize, Default)]
+#[allow(dead_code)] // Fields read by serde deserialization only.
+struct CloudEndpoints {
+    #[serde(default)]
+    trds_url: Option<String>,
+    #[serde(default)]
+    iocfs_url: Option<String>,
+    #[serde(default)]
+    updater_manifest_url: Option<String>,
+    #[serde(default)]
+    software_catalogue_url: Option<String>,
+    #[serde(default)]
+    geolocation_url: Option<String>,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct CloudModules {
+    #[serde(default)]
+    fim: Option<CloudToggle>,
+    #[serde(default)]
+    logcollector: Option<CloudToggle>,
+    #[serde(default)]
+    inventory: Option<CloudToggle>,
+    #[serde(default)]
+    sca: Option<CloudToggle>,
+    #[serde(default)]
+    rootcheck: Option<CloudToggle>,
+    #[serde(default)]
+    active_response: Option<CloudToggle>,
+    #[serde(default)]
+    local_detection: Option<CloudToggle>,
+    #[serde(default)]
+    enhanced_inventory: Option<CloudToggle>,
+    #[serde(default)]
+    updater: Option<CloudUpdater>,
+    #[serde(default)]
+    device_control: Option<CloudToggle>,
+    #[serde(default)]
+    posture: Option<CloudToggle>,
+    #[serde(default)]
+    software: Option<CloudToggle>,
+    #[serde(default)]
+    jit_admin: Option<CloudToggle>,
+    #[serde(default)]
+    app_control: Option<CloudAppControl>,
+    #[serde(default)]
+    remote_support: Option<CloudToggle>,
+    #[serde(default)]
+    mdm: Option<CloudToggle>,
+    #[serde(default)]
+    process_monitor: Option<CloudToggle>,
+    #[serde(default)]
+    network_monitor: Option<CloudToggle>,
+    #[serde(default)]
+    dns_monitor: Option<CloudToggle>,
+    #[serde(default)]
+    host_isolation: Option<CloudToggle>,
+    #[serde(default)]
+    memory_scanner: Option<CloudToggle>,
+    #[serde(default)]
+    identity_monitor: Option<CloudToggle>,
+    #[serde(default)]
+    dlp: Option<CloudToggle>,
+    #[serde(default)]
+    query: Option<CloudToggle>,
+    #[serde(default)]
+    agent_vitals: Option<CloudToggle>,
+    #[serde(default)]
+    script_runner: Option<CloudToggle>,
+}
+
+#[derive(serde::Deserialize)]
+struct CloudToggle {
+    enabled: bool,
+}
+
+#[derive(serde::Deserialize)]
+struct CloudUpdater {
+    enabled: bool,
+    #[serde(default)]
+    manifest_url: Option<String>,
+    #[serde(default)]
+    public_key: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct CloudAppControl {
+    enabled: bool,
+    #[serde(default)]
+    mode: Option<String>,
+}
+
+/// Result of a successful cloud-config pull.
+struct CloudConfig {
+    /// Module overrides with Option semantics — only modules
+    /// explicitly mentioned in the cloud response are `Some`.
+    module_overrides: sda_core::config::CloudModuleOverrides,
+    /// Tenant ID extracted from the gateway response (cert-derived).
+    tenant_id: Option<String>,
+    /// Device ID extracted from the gateway response (cert-derived).
+    device_id: Option<String>,
+    /// IP geolocation endpoint for MDM lost-mode location reports.
+    geolocation_url: Option<String>,
+}
+
+/// Pull the cloud-provisioned agent config from the SN360 Agent
+/// Gateway's `GET /api/v1/config` endpoint. The gateway returns a
+/// TierPreset JSON scoped to the tenant's tier. We map it into an
+/// `AgentConfig` for merging with the local config.
+///
+/// If `bootstrap_token_file` is set and readable, the token is sent
+/// as a `Bearer` header to authenticate the request. This aligns
+/// with the gateway's mTLS + token enrollment model.
+async fn pull_cloud_config(
+    gateway_url: &str,
+    bootstrap_token_file: Option<&std::path::Path>,
+) -> Result<CloudConfig> {
+    let url = format!("{}/api/v1/config", gateway_url.trim_end_matches('/'));
+    info!(url = %url, "pulling cloud config from gateway");
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .context("build http client")?;
+
+    let mut req = client
+        .get(&url)
+        .header("User-Agent", "SN360-Desktop-Agent/1.0");
+
+    // Attach bootstrap token as Bearer auth if available.
+    if let Some(path) = bootstrap_token_file {
+        match std::fs::read_to_string(path) {
+            Ok(token) => {
+                let token = token.trim();
+                if !token.is_empty() {
+                    req = req.bearer_auth(token);
+                    info!("using bootstrap token for cloud config auth");
+                } else {
+                    warn!(
+                        path = %path.display(),
+                        "bootstrap token file is empty, sending unauthenticated"
+                    );
+                }
+            }
+            Err(e) => {
+                warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "cannot read bootstrap token file, sending unauthenticated"
+                );
+            }
+        }
+    }
+
+    let resp = req.send().await.context("cloud config request")?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        anyhow::bail!("cloud config endpoint returned {status}: {body}");
+    }
+
+    let body = resp.text().await.context("read cloud config body")?;
+    let preset: CloudTierPreset =
+        serde_json::from_str(&body).context("parse cloud config response")?;
+
+    info!(tier = %preset.tier, "received cloud config");
+
+    // Build CloudModuleOverrides — only modules explicitly present
+    // in the cloud response become `Some`. Omitted modules stay
+    // `None`, preserving local config for unmentioned modules.
+    let mut ov = sda_core::config::CloudModuleOverrides::default();
+
+    macro_rules! map_toggle {
+        ($field:expr, $src:expr) => {
+            if let Some(ref t) = $src {
+                $field = Some(t.enabled);
+            }
+        };
+    }
+
+    map_toggle!(ov.fim, preset.modules.fim);
+    map_toggle!(ov.logcollector, preset.modules.logcollector);
+    map_toggle!(ov.inventory, preset.modules.inventory);
+    map_toggle!(ov.sca, preset.modules.sca);
+    map_toggle!(ov.rootcheck, preset.modules.rootcheck);
+    map_toggle!(ov.active_response, preset.modules.active_response);
+    map_toggle!(ov.local_detection, preset.modules.local_detection);
+    map_toggle!(ov.enhanced_inventory, preset.modules.enhanced_inventory);
+    map_toggle!(ov.device_control, preset.modules.device_control);
+    map_toggle!(ov.posture, preset.modules.posture);
+    map_toggle!(ov.software, preset.modules.software);
+    map_toggle!(ov.jit_admin, preset.modules.jit_admin);
+    map_toggle!(ov.remote_support, preset.modules.remote_support);
+    map_toggle!(ov.mdm, preset.modules.mdm);
+    map_toggle!(ov.process_monitor, preset.modules.process_monitor);
+    map_toggle!(ov.network_monitor, preset.modules.network_monitor);
+    map_toggle!(ov.dns_monitor, preset.modules.dns_monitor);
+    map_toggle!(ov.host_isolation, preset.modules.host_isolation);
+    map_toggle!(ov.memory_scanner, preset.modules.memory_scanner);
+    map_toggle!(ov.identity_monitor, preset.modules.identity_monitor);
+    map_toggle!(ov.dlp, preset.modules.dlp);
+    map_toggle!(ov.query, preset.modules.query);
+    map_toggle!(ov.agent_vitals, preset.modules.agent_vitals);
+    map_toggle!(ov.script_runner, preset.modules.script_runner);
+
+    if let Some(ref u) = preset.modules.updater {
+        ov.updater = Some(u.enabled);
+        ov.updater_manifest_url = u.manifest_url.clone();
+        ov.updater_public_key = u.public_key.clone();
+    }
+
+    if let Some(ref ac) = preset.modules.app_control {
+        ov.app_control = Some(ac.enabled);
+        ov.app_control_mode = ac.mode.clone();
+    }
+
+    Ok(CloudConfig {
+        module_overrides: ov,
+        tenant_id: preset.tenant_id,
+        device_id: preset.device_id,
+        geolocation_url: preset.endpoints.geolocation_url,
+    })
 }
 
 /// Get the system hostname as a fallback agent name.

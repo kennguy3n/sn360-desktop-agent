@@ -46,6 +46,7 @@ chrono-tz = { workspace = true }
 uuid = { workspace = true }
 sha2 = { workspace = true }
 ipnet = { workspace = true }
+ed25519-dalek = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "test-util"] }

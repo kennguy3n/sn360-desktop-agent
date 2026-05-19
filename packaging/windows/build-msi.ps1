@@ -39,6 +39,22 @@ $wxs     = Join-Path $PSScriptRoot "sda-agent.wxs"
 $wixobj  = Join-Path $outPath     "sda-agent.wixobj"
 $msi     = Join-Path $outPath     "sda-agent-$version.msi"
 
+# ---- Authenticode signing --------------------------------------------------
+# Binary signing MUST happen BEFORE WiX packages it into the MSI so
+# the signed binary is embedded. The MSI itself is signed after WiX.
+#
+# Env vars:
+#   SIGN_CERT_THUMBPRINT  - SHA-1 thumbprint of the code signing cert
+#   SIGN_TIMESTAMP_URL    - RFC 3161 timestamp server (default: DigiCert)
+$TimestampUrl = if ($env:SIGN_TIMESTAMP_URL) { $env:SIGN_TIMESTAMP_URL } else { "http://timestamp.digicert.com" }
+
+if ($env:SIGN_CERT_THUMBPRINT) {
+    Write-Host "[sign] Authenticode-signing binary with thumbprint: $($env:SIGN_CERT_THUMBPRINT)"
+    & signtool.exe sign /sha1 $env:SIGN_CERT_THUMBPRINT /fd SHA256 `
+        /tr $TimestampUrl /td SHA256 /v "$Binary"
+    if ($LASTEXITCODE -ne 0) { throw "signtool binary sign failed" }
+}
+
 & candle.exe -nologo `
     -dVersion="$version" `
     -dBinary="$Binary" `
@@ -52,5 +68,16 @@ if ($LASTEXITCODE -ne 0) { throw "candle failed" }
     -o "$msi" `
     "$wixobj"
 if ($LASTEXITCODE -ne 0) { throw "light failed" }
+
+if ($env:SIGN_CERT_THUMBPRINT) {
+    Write-Host "[sign] Authenticode-signing MSI"
+    & signtool.exe sign /sha1 $env:SIGN_CERT_THUMBPRINT /fd SHA256 `
+        /tr $TimestampUrl /td SHA256 /v "$msi"
+    if ($LASTEXITCODE -ne 0) { throw "signtool MSI sign failed" }
+
+    Write-Host "[sign] signed $msi"
+} else {
+    Write-Host "[sign] skipping Authenticode signing (SIGN_CERT_THUMBPRINT not set)"
+}
 
 Write-Host "built $msi"

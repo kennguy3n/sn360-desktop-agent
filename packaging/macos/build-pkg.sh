@@ -2,8 +2,7 @@
 # Build a .pkg installer for sda-agent on macOS.
 #
 # Requires `pkgbuild` and `productbuild` (ship with Xcode Command Line
-# Tools). Code-signing is out of scope for this script — sign the
-# resulting .pkg with `productsign` in a downstream release job.
+# Tools).
 #
 # Usage:
 #   BIN=target/release/sda-agent packaging/macos/build-pkg.sh
@@ -48,6 +47,22 @@ install -d -m 0755 "$SCRIPTS_DIR"
 install -m 0755 "$ROOT/packaging/macos/scripts/preinstall"  "$SCRIPTS_DIR/preinstall"
 install -m 0755 "$ROOT/packaging/macos/scripts/postinstall" "$SCRIPTS_DIR/postinstall"
 
+# ---- Code signing (Apple Developer ID) ------------------------------------
+# Binary codesign MUST happen BEFORE pkgbuild so the signed binary is
+# archived into the .pkg. Notarization requires a codesigned binary
+# with hardened runtime inside the .pkg.
+#
+# Env vars:
+#   DEVELOPER_ID_APPLICATION  - "Developer ID Application: <Team> (<ID>)"
+#   DEVELOPER_ID_INSTALLER    - "Developer ID Installer: <Team> (<ID>)"
+#   APPLE_TEAM_ID             - 10-character Apple team ID (for notarize)
+if [ -n "${DEVELOPER_ID_APPLICATION:-}" ]; then
+    echo "[sign] codesigning binary with: ${DEVELOPER_ID_APPLICATION}"
+    codesign --force --options runtime --timestamp \
+        --sign "${DEVELOPER_ID_APPLICATION}" \
+        "$ROOTFS/usr/local/bin/sda-agent"
+fi
+
 COMPONENT="$WORK/sda-agent-component.pkg"
 FINAL="$OUT_DIR/sda-agent-$VERSION.pkg"
 
@@ -64,5 +79,29 @@ productbuild \
     --identifier "$IDENT" \
     --version "$VERSION" \
     "$FINAL"
+
+if [ -n "${DEVELOPER_ID_INSTALLER:-}" ]; then
+    SIGNED_FINAL="$OUT_DIR/sda-agent-$VERSION-signed.pkg"
+    echo "[sign] signing .pkg with: ${DEVELOPER_ID_INSTALLER}"
+    productsign --sign "${DEVELOPER_ID_INSTALLER}" "$FINAL" "$SIGNED_FINAL"
+    mv -f "$SIGNED_FINAL" "$FINAL"
+    echo "[sign] signed $FINAL"
+
+    # Notarize if credentials are available.
+    if [ -n "${APPLE_TEAM_ID:-}" ] && [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_APP_PASSWORD:-}" ]; then
+        echo "[sign] submitting for notarization..."
+        xcrun notarytool submit "$FINAL" \
+            --apple-id "${APPLE_ID}" \
+            --team-id "${APPLE_TEAM_ID}" \
+            --password "${APPLE_APP_PASSWORD}" \
+            --wait
+        xcrun stapler staple "$FINAL"
+        echo "[sign] notarization complete"
+    else
+        echo "[sign] skipping notarization (APPLE_ID / APPLE_TEAM_ID / APPLE_APP_PASSWORD not set)"
+    fi
+else
+    echo "[sign] skipping code signing (DEVELOPER_ID_INSTALLER not set)"
+fi
 
 echo "built $FINAL"

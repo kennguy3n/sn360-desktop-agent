@@ -11,13 +11,17 @@
 //! * [`ConsentDecision`] — the outcome of a single prompt. Captured
 //!   verbatim in evidence / audit records.
 //!
-//! The Phase-4 default prompt — [`StubConsentPrompt`] — denies every
-//! request, matching the agent's fail-closed posture: if the
-//! operator wires a `RemoteSupportModule` without supplying a real
-//! prompt, no remote-support session ever activates.
+//! The production default prompt — [`NativeConsentPrompt`] — shows an
+//! OS-native dialog asking the end-user for consent.
+//! [`StubConsentPrompt`] is still available as a fail-closed fallback:
+//! if the operator wires a `RemoteSupportModule` with the stub
+//! instead of the native prompt, no remote-support session ever
+//! activates.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+#[cfg(target_os = "macos")]
+use std::io::Write;
 
 /// Outcome of a single consent prompt.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -35,10 +39,10 @@ pub enum ConsentDecision {
 /// proceed.
 ///
 /// Implementations MUST be `Send + Sync` because the supervisor
-/// holds them in a `Box<dyn ConsentPrompt>`. The Phase-4 default
-/// is [`StubConsentPrompt`]; real implementations will land in
-/// later phases (one per OS, wired into the desktop notification
-/// surface).
+/// holds them in a `Box<dyn ConsentPrompt>`. The production default
+/// is [`NativeConsentPrompt`], which shows an OS-native dialog.
+/// [`StubConsentPrompt`] is available as a fail-closed fallback
+/// (always denies).
 pub trait ConsentPrompt: Send + Sync {
     /// Show a prompt for `operator_id` and `session_id` and block
     /// until the user responds (or the implementation's internal
@@ -58,6 +62,227 @@ impl ConsentPrompt for StubConsentPrompt {
     fn ask(&self, _session_id: &str, _operator_id: &str) -> ConsentDecision {
         ConsentDecision::Denied
     }
+}
+
+/// Platform-native consent dialog.
+///
+/// Uses OS-level dialog commands to present a consent prompt to the
+/// end user:
+/// - **macOS**: `osascript` driving an NSAlert via AppleScript
+/// - **Windows**: PowerShell `MessageBox` via `Add-Type`
+/// - **Linux**: `zenity` (GTK) with `kdialog` (KDE) fallback
+///
+/// Falls back to [`ConsentDecision::Denied`] if no dialog tool is
+/// available, preserving the fail-closed posture.
+#[derive(Debug)]
+pub struct NativeConsentPrompt {
+    /// Timeout in seconds for the dialog. Defaults to 120.
+    pub timeout_secs: u64,
+}
+
+impl Default for NativeConsentPrompt {
+    fn default() -> Self {
+        Self { timeout_secs: 120 }
+    }
+}
+
+impl NativeConsentPrompt {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_timeout(timeout_secs: u64) -> Self {
+        Self { timeout_secs }
+    }
+}
+
+impl ConsentPrompt for NativeConsentPrompt {
+    fn ask(&self, session_id: &str, operator_id: &str) -> ConsentDecision {
+        let title = "SN360 Remote Support";
+        let message = format!(
+            "A support analyst ({}) is requesting remote access to \
+             this device.\n\nSession: {}\n\nDo you want to allow this?",
+            operator_id, session_id,
+        );
+        let timeout = std::time::Duration::from_secs(self.timeout_secs);
+
+        match native_dialog(title, &message, timeout) {
+            Some(true) => ConsentDecision::Approved,
+            Some(false) => ConsentDecision::Denied,
+            None => ConsentDecision::TimedOut,
+        }
+    }
+}
+
+/// Show a platform-native yes/no dialog. Returns `Some(true)` for
+/// yes, `Some(false)` for no/cancel, `None` on timeout or if no
+/// dialog tool is available.
+fn native_dialog(title: &str, message: &str, timeout: std::time::Duration) -> Option<bool> {
+    #[cfg(target_os = "macos")]
+    {
+        macos_dialog(title, message, timeout)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        windows_dialog(title, message, timeout)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        linux_dialog(title, message, timeout)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        let _ = (title, message, timeout);
+        tracing::warn!("native consent dialog: unsupported platform, denying");
+        Some(false)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_dialog(title: &str, message: &str, timeout: std::time::Duration) -> Option<bool> {
+    // AppleScript does not recognise \n as an escape; use the
+    // `return` constant via string concatenation for line breaks.
+    let escaped_msg = message
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\" & return & \"");
+    let escaped_title = title
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', " ");
+    let script = format!(
+        r#"display dialog "{escaped_msg}" with title "{escaped_title}" buttons {{"Deny", "Allow"}} default button "Deny" giving up after {}"#,
+        timeout.as_secs(),
+    );
+    // Pipe the script via stdin instead of -e to avoid raw newline
+    // characters in the message breaking the single-line argument.
+    let mut child = match std::process::Command::new("osascript")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("osascript failed to spawn: {e}");
+            return Some(false);
+        }
+    };
+    if let Some(ref mut stdin) = child.stdin {
+        let _ = stdin.write_all(script.as_bytes());
+    }
+    drop(child.stdin.take());
+    let output = child.wait_with_output();
+    match output {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            if stdout.contains("gave up:true") {
+                None
+            } else if stdout.contains("Allow") {
+                Some(true)
+            } else {
+                Some(false)
+            }
+        }
+        Ok(_) => Some(false),
+        Err(e) => {
+            tracing::warn!("osascript failed: {e}");
+            Some(false)
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn windows_dialog(title: &str, message: &str, timeout: std::time::Duration) -> Option<bool> {
+    let ps_script = format!(
+        r#"Add-Type -AssemblyName System.Windows.Forms; $r = [System.Windows.Forms.MessageBox]::Show('{}', '{}', 'YesNo', 'Question'); if ($r -eq 'Yes') {{ exit 0 }} else {{ exit 1 }}"#,
+        message.replace('\'', "''"),
+        title.replace('\'', "''"),
+    );
+    // Spawn the PowerShell process and poll with a deadline so the
+    // dialog times out on Windows — MessageBox::Show has no native
+    // timeout support.  The pattern mirrors the kdialog fallback.
+    let mut child = match std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &ps_script])
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("powershell dialog failed to spawn: {e}");
+            return Some(false);
+        }
+    };
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Some(status.success()),
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None; // TimedOut
+                }
+                std::thread::sleep(std::time::Duration::from_millis(250));
+            }
+            Err(e) => {
+                tracing::warn!("powershell dialog wait failed: {e}");
+                return Some(false);
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_dialog(title: &str, message: &str, timeout: std::time::Duration) -> Option<bool> {
+    // Try zenity first (GTK), then kdialog (KDE).
+    if let Ok(output) = std::process::Command::new("zenity")
+        .args([
+            "--question",
+            "--title",
+            title,
+            "--text",
+            message,
+            "--ok-label",
+            "Allow",
+            "--cancel-label",
+            "Deny",
+            "--timeout",
+            &timeout.as_secs().to_string(),
+        ])
+        .output()
+    {
+        return match output.status.code() {
+            Some(0) => Some(true),  // Allow
+            Some(1) => Some(false), // Deny
+            Some(5) => None,        // Timeout
+            _ => Some(false),
+        };
+    }
+
+    if let Ok(mut child) = std::process::Command::new("kdialog")
+        .args(["--title", title, "--yesno", message])
+        .spawn()
+    {
+        // kdialog has no native --timeout; poll with a deadline.
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => return Some(status.success()),
+                Ok(None) => {
+                    if std::time::Instant::now() >= deadline {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return None;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(250));
+                }
+                Err(_) => return Some(false),
+            }
+        }
+    }
+
+    tracing::warn!("no dialog tool found (zenity / kdialog); denying consent");
+    Some(false)
 }
 
 /// Test helper: always approve. Not exposed in production builds.

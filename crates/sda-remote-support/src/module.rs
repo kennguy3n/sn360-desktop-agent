@@ -27,7 +27,7 @@ use sda_pal::remote_support::{
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, Mutex};
 
-use crate::consent::{ConsentDecision, ConsentManager, ConsentPrompt, StubConsentPrompt};
+use crate::consent::{ConsentDecision, ConsentManager, ConsentPrompt, NativeConsentPrompt};
 use crate::session::{EndReason, Session, SessionState};
 
 /// Errors produced by the supervisor.
@@ -99,14 +99,14 @@ impl std::fmt::Debug for RemoteSupportSupervisor {
 
 impl RemoteSupportSupervisor {
     /// Build a supervisor with the platform-default provider and
-    /// the deny-all stub consent prompt.
+    /// the native OS consent dialog.
     pub fn with_defaults(config: RemoteSupportConfig, bus: Arc<EventBus>) -> Option<Self> {
         let provider = default_remote_support_provider()?;
         Some(Self::new(
             config,
             bus,
             provider,
-            Box::new(StubConsentPrompt),
+            Box::new(NativeConsentPrompt::new()),
         ))
     }
 
@@ -342,7 +342,7 @@ pub struct RemoteSupportModule {
 
 impl RemoteSupportModule {
     /// Build a module with the platform-default provider and the
-    /// deny-all stub consent prompt. Returns `None` on unsupported
+    /// native OS consent dialog. Returns `None` on unsupported
     /// hosts.
     pub fn with_defaults(config: RemoteSupportConfig, bus: Arc<EventBus>) -> Option<Self> {
         let supervisor = RemoteSupportSupervisor::with_defaults(config, bus)?;
@@ -378,10 +378,16 @@ impl RemoteSupportModule {
                     biased;
                     request = rx.recv() => match request {
                         Some(req) => {
-                            let mut sup = supervisor.lock().await;
-                            if let Err(e) = sup.handle_request(req) {
-                                tracing::debug!(error = %e, "remote-support request failed");
-                            }
+                            // Run handle_request on the blocking thread pool
+                            // because NativeConsentPrompt spawns OS dialog
+                            // processes that block for up to 120 seconds.
+                            let sup_clone = supervisor.clone();
+                            let _ = tokio::task::spawn_blocking(move || {
+                                let mut sup = sup_clone.blocking_lock();
+                                if let Err(e) = sup.handle_request(req) {
+                                    tracing::debug!(error = %e, "remote-support request failed");
+                                }
+                            }).await;
                         }
                         None => break,
                     },

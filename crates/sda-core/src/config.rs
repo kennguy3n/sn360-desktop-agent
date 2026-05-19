@@ -9,6 +9,14 @@ use tracing::info;
 /// Top-level agent configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AgentConfig {
+    /// Bootstrap / cloud-config transport settings written by the
+    /// installer. The only fields the 1-click installer writes are
+    /// `tenant_gateway` and `bootstrap_token_file`; every other
+    /// module toggle arrives via the cloud config pull after
+    /// enrollment.
+    #[serde(default)]
+    pub agent: AgentBootstrapConfig,
+
     /// Server connection settings.
     #[serde(default)]
     pub server: ServerConfig,
@@ -33,6 +41,32 @@ pub struct AgentConfig {
     /// protection (P3.3).
     #[serde(default)]
     pub security: SecurityConfig,
+}
+
+/// Bootstrap settings written by the 1-click installer. These are
+/// the only values present in the minimal `agent.yaml` that
+/// `install.sh` / `install.ps1` drop on disk.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AgentBootstrapConfig {
+    /// URL of the SN360 Agent Gateway (mTLS endpoint). Used for
+    /// enrollment and the cloud-config pull.
+    #[serde(default)]
+    pub tenant_gateway: Option<String>,
+    /// Path to the bootstrap token file used for initial enrollment.
+    #[serde(default)]
+    pub bootstrap_token_file: Option<PathBuf>,
+    /// Tenant ID populated after enrollment completes.
+    #[serde(default)]
+    pub tenant_id: Option<String>,
+    /// Device ID populated after enrollment completes.
+    #[serde(default)]
+    pub device_id: Option<String>,
+    /// Log directory override.
+    #[serde(default)]
+    pub log_dir: Option<PathBuf>,
+    /// IP geolocation service URL for MDM lost-mode location reports.
+    #[serde(default)]
+    pub geolocation_url: Option<String>,
 }
 
 /// Security hardening settings: privilege separation (P3.2) and
@@ -2626,4 +2660,155 @@ impl AgentConfig {
             .as_deref()
             .unwrap_or(&self.server.address)
     }
+
+    /// Merge cloud-provisioned module overrides into this (local) config.
+    ///
+    /// Only modules explicitly mentioned by the cloud gateway are
+    /// overwritten. Modules omitted from the cloud response keep
+    /// their local values — this prevents `AgentConfig::default()`
+    /// from silently toggling modules the cloud didn't intend to
+    /// change.
+    ///
+    /// Local-only values are always preserved:
+    ///
+    /// * **bootstrap settings** (`agent.*`) — kept from local
+    /// * **server connection** — kept from local
+    /// * **enrollment** — kept from local
+    /// * **security** — kept from local
+    /// * **resource limits** — kept from local (operator override)
+    /// * **logging** — kept from local (operator override)
+    /// * **per-module tuning** (e.g. custom FIM dirs) — kept from local
+    pub fn merge_cloud_config(&mut self, overrides: CloudModuleOverrides) {
+        macro_rules! apply {
+            ($field:expr, $src:expr) => {
+                if let Some(v) = $src {
+                    $field = v;
+                }
+            };
+        }
+
+        // Core modules
+        apply!(self.modules.fim.enabled, overrides.fim);
+        apply!(self.modules.logcollector.enabled, overrides.logcollector);
+        apply!(self.modules.inventory.enabled, overrides.inventory);
+        apply!(self.modules.sca.enabled, overrides.sca);
+        apply!(
+            self.modules.active_response.enabled,
+            overrides.active_response
+        );
+        apply!(self.modules.rootcheck.enabled, overrides.rootcheck);
+        apply!(
+            self.modules.local_detection.enabled,
+            overrides.local_detection
+        );
+        apply!(
+            self.modules.enhanced_inventory.enabled,
+            overrides.enhanced_inventory
+        );
+        apply!(self.modules.agent_vitals.enabled, overrides.agent_vitals);
+
+        // EDR modules
+        apply!(
+            self.modules.process_monitor.enabled,
+            overrides.process_monitor
+        );
+        apply!(
+            self.modules.network_monitor.enabled,
+            overrides.network_monitor
+        );
+        apply!(self.modules.dns_monitor.enabled, overrides.dns_monitor);
+        apply!(
+            self.modules.memory_scanner.enabled,
+            overrides.memory_scanner
+        );
+        apply!(
+            self.modules.identity_monitor.enabled,
+            overrides.identity_monitor
+        );
+        apply!(
+            self.modules.host_isolation.enabled,
+            overrides.host_isolation
+        );
+        apply!(self.modules.dlp.enabled, overrides.dlp);
+
+        // Device control / MDM
+        apply!(
+            self.modules.device_control.enabled,
+            overrides.device_control
+        );
+        apply!(self.modules.mdm.enabled, overrides.mdm);
+        apply!(self.modules.posture.enabled, overrides.posture);
+        apply!(self.modules.software.enabled, overrides.software);
+
+        // Management modules
+        apply!(self.modules.query.enabled, overrides.query);
+        apply!(self.modules.jit_admin.enabled, overrides.jit_admin);
+        apply!(self.modules.script_runner.enabled, overrides.script_runner);
+        apply!(
+            self.modules.remote_support.enabled,
+            overrides.remote_support
+        );
+
+        // App control: cloud is authoritative for both enable and mode.
+        apply!(self.modules.app_control.enabled, overrides.app_control);
+        if let Some(mode) = overrides.app_control_mode {
+            self.modules.app_control.mode = mode;
+        }
+
+        // Updater: cloud provides the server URL and public key.
+        apply!(self.modules.updater.enabled, overrides.updater);
+        if let Some(url) = overrides.updater_manifest_url {
+            if !url.is_empty() {
+                self.modules.updater.server_url = url;
+            }
+        }
+        if let Some(pk) = overrides.updater_public_key {
+            if !pk.is_empty() {
+                self.modules.updater.public_key = pk;
+            }
+        }
+
+        info!("merged cloud-provisioned config into local config");
+    }
+}
+
+/// Cloud module overrides with `Option` semantics.
+///
+/// Each field is `None` when the cloud response did not mention
+/// that module, and `Some(bool)` when the cloud explicitly set
+/// its `enabled` flag. This lets [`AgentConfig::merge_cloud_config`]
+/// distinguish "cloud disabled this" from "cloud didn't say anything
+/// about this" — preserving local operator overrides for omitted
+/// modules.
+#[derive(Debug, Default)]
+pub struct CloudModuleOverrides {
+    pub fim: Option<bool>,
+    pub logcollector: Option<bool>,
+    pub inventory: Option<bool>,
+    pub sca: Option<bool>,
+    pub active_response: Option<bool>,
+    pub rootcheck: Option<bool>,
+    pub local_detection: Option<bool>,
+    pub enhanced_inventory: Option<bool>,
+    pub agent_vitals: Option<bool>,
+    pub process_monitor: Option<bool>,
+    pub network_monitor: Option<bool>,
+    pub dns_monitor: Option<bool>,
+    pub memory_scanner: Option<bool>,
+    pub identity_monitor: Option<bool>,
+    pub host_isolation: Option<bool>,
+    pub dlp: Option<bool>,
+    pub device_control: Option<bool>,
+    pub mdm: Option<bool>,
+    pub posture: Option<bool>,
+    pub software: Option<bool>,
+    pub query: Option<bool>,
+    pub jit_admin: Option<bool>,
+    pub script_runner: Option<bool>,
+    pub remote_support: Option<bool>,
+    pub app_control: Option<bool>,
+    pub app_control_mode: Option<String>,
+    pub updater: Option<bool>,
+    pub updater_manifest_url: Option<String>,
+    pub updater_public_key: Option<String>,
 }

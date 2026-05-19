@@ -22,7 +22,7 @@ pub mod module;
 pub mod protocol;
 pub mod session;
 
-pub use consent::{ConsentDecision, ConsentManager, ConsentPrompt};
+pub use consent::{ConsentDecision, ConsentManager, ConsentPrompt, NativeConsentPrompt};
 pub use module::{
     RemoteSupportError, RemoteSupportEvent, RemoteSupportModule, RemoteSupportRequest,
     RemoteSupportSupervisor,

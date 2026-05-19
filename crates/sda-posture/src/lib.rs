@@ -20,35 +20,95 @@ pub use snapshot::{should_snapshot, DeltaDecision, DeltaTracker, PosturePayload}
 
 use sda_core::config::AgentConfig;
 use sda_core::module::ModuleHandle;
+use sda_core::power::PowerProfileReceiver;
 use sda_core::signal::ShutdownSignal;
-use sda_event_bus::EventBus;
+use sda_event_bus::{Event, EventBus, EventKind, Priority};
 use tracing::{info, warn};
 
-/// Phase 1 entry point.
+/// Posture snapshot module.
 ///
-/// In Phase 1 this task only logs its status and parks on the
-/// shared shutdown signal. The real loop — call
-/// [`sda_pal::posture::DevicePostureProvider::snapshot`], delta-
-/// filter via [`DeltaTracker`], publish on the bus — lands in
-/// Phase 2.
-///
-/// When `modules.posture.enabled = false` (the default), this
-/// task is never spawned and idle footprint is unchanged.
+/// Periodically collects device-posture data (disk encryption,
+/// firewall, screen lock, OS patch level) via the PAL
+/// [`DevicePostureProvider`] and publishes `DevicePostureState`
+/// events on the bus when the snapshot changes. The delta filter
+/// avoids bus traffic for unchanged state. Power-aware scheduling
+/// defers snapshots while on battery.
 pub struct PostureModule;
 
 impl PostureModule {
     pub fn start(
-        _config: &AgentConfig,
-        _bus: EventBus,
+        config: &AgentConfig,
+        bus: EventBus,
         mut shutdown: ShutdownSignal,
+        power_rx: PowerProfileReceiver,
     ) -> ModuleHandle {
-        info!(
-            "posture module starting (Phase 1 scaffold; \
-             snapshot loop lands in Phase 2)"
-        );
+        let interval_secs = config.modules.posture.interval_secs;
+        let defer_on_battery = config.modules.posture.defer_on_battery;
+
+        info!(interval_secs, defer_on_battery, "posture module starting");
+
         let task = tokio::spawn(async move {
-            shutdown.wait().await;
-            warn!("posture module shutting down");
+            let provider = match sda_pal::posture::default_posture_provider() {
+                Some(p) => p,
+                None => {
+                    warn!("posture: no platform provider available; parking");
+                    shutdown.wait().await;
+                    return Ok(());
+                }
+            };
+            let mut tracker = DeltaTracker::new();
+            let mut interval =
+                tokio::time::interval(std::time::Duration::from_secs(interval_secs.max(10)));
+
+            loop {
+                tokio::select! {
+                    _ = shutdown.wait() => {
+                        warn!("posture module shutting down");
+                        break;
+                    }
+                    _ = interval.tick() => {
+                        // Power-aware deferral.
+                        if defer_on_battery {
+                            let profile = *power_rx.borrow();
+                            if !should_snapshot(profile) {
+                                continue;
+                            }
+                        }
+
+                        match provider.snapshot() {
+                            Ok(snap) => {
+                                let decision = tracker.observe(snap.clone());
+                                if decision == DeltaDecision::Emit {
+                                    let payload = PosturePayload {
+                                        captured_at: chrono::Utc::now(),
+                                        snapshot: snap,
+                                    };
+                                    match serde_json::to_string(&payload) {
+                                        Ok(json) => {
+                                            let event = Event::new(
+                                                "posture",
+                                                Priority::Low,
+                                                EventKind::DevicePostureState {
+                                                    payload: json,
+                                                },
+                                            );
+                                            if let Err(e) = bus.publish(event) {
+                                                warn!("posture: bus publish failed: {e}");
+                                            }
+                                        }
+                                        Err(e) => {
+                                            warn!("posture: JSON serialize failed: {e}");
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                warn!("posture: snapshot failed: {e}");
+                            }
+                        }
+                    }
+                }
+            }
             Ok(())
         });
         ModuleHandle::new("posture", task)
