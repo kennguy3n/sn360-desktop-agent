@@ -60,8 +60,8 @@ pub use finding::{
 };
 pub use recommendation::{Recommendation, RecommendationError, RECOMMENDATION_PLAIN_ENGLISH_MAX};
 pub use router::{
-    validate as validate_signed_job, AgentIdentity, JobValidationHooks, Phase1Stub, ValidatedJob,
-    CLOCK_SKEW_TOLERANCE,
+    validate as validate_signed_job, AgentIdentity, JobValidationHooks, Phase1Stub,
+    ProductionHooks, ValidatedJob, CLOCK_SKEW_TOLERANCE,
 };
 pub use signed_job::{
     EndRemoteSupportArgs, GrantJitAdminArgs, InstallPackageArgs, JobArgs, PushAppControlPolicyArgs,
