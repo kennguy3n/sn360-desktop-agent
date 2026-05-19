@@ -9,7 +9,7 @@ endpoint resource constraints.
 
 | Profile | Modules enabled | Memory | Use case |
 |---------|----------------|--------|----------|
-| **Basic** | FIM, log collection, software inventory, SCA, TRDS | ~8-12 MB | SMEs on day one; minimal endpoint overhead |
+| **Basic** | FIM, log collection, software inventory, SCA, TRDS, active response | ~8-12 MB | SMEs on day one; minimal endpoint overhead |
 | **Standard** | Basic + EDR (process telemetry + local detection) + network telemetry | ~20-30 MB | SMEs with compliance needs or wanting threat visibility |
 | **Advanced** | Standard + DLP, identity monitoring, memory scanning, device control, MDM, host isolation, rootcheck, enhanced inventory | ~40-60 MB | Regulated industries (healthcare, finance, government) |
 

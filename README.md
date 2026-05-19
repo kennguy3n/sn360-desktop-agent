@@ -117,7 +117,7 @@ are active:
 
 | Profile | What it includes | Memory |
 |---------|-----------------|--------|
-| **Basic** | FIM, log collection, inventory, SCA, TRDS | ~8-12 MB |
+| **Basic** | FIM, log collection, inventory, SCA, TRDS, active response | ~8-12 MB |
 | **Standard** | Basic + EDR + network telemetry | ~20-30 MB |
 | **Advanced** | Standard + DLP, identity monitoring, memory scanning, device control, MDM, host isolation, rootcheck, enhanced inventory (running software, browser extensions, SBOM) | ~40-60 MB |
 
@@ -357,6 +357,9 @@ The full configuration schema lives in
 | [`docs/platform-testing.md`](./docs/platform-testing.md) | CI matrix and manual procedures |
 | [`docs/release-process.md`](./docs/release-process.md) | Release runbook |
 | [`docs/benchmarks.md`](./docs/benchmarks.md) | Performance budgets and current numbers |
+| [`docs/feature-profiles.md`](./docs/feature-profiles.md) | Tiered feature profiles (Basic / Standard / Advanced) |
+| [`docs/msp-deployment.md`](./docs/msp-deployment.md) | MSP / MSSP mass deployment guide (GPO, SCCM, MDM, apt/yum) |
+| [`docs/agent-shared-patterns.md`](./docs/agent-shared-patterns.md) | Cross-agent shared patterns and crate mapping |
 | [`CHANGELOG.md`](./CHANGELOG.md) | Release notes |
 | [`CONTRIBUTING.md`](./CONTRIBUTING.md) | Branching, commits, tests, code review |
 | [`SECURITY.md`](./SECURITY.md) | Reporting a vulnerability |
