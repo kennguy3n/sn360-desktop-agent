@@ -1,4 +1,4 @@
-//! Fuzz the MessagePack event decoder introduced in Phase 5.6.
+//! Fuzz the MessagePack event decoder.
 //!
 //! When the enhanced protocol is enabled the agent round-trips
 //! `EventKind` values through `rmp-serde`; arbitrary server-side
