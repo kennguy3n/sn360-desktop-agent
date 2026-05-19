@@ -11,7 +11,7 @@ endpoint resource constraints.
 |---------|----------------|--------|----------|
 | **Basic** | FIM, log collection, software inventory, SCA, TRDS | ~8-12 MB | SMEs on day one; minimal endpoint overhead |
 | **Standard** | Basic + EDR (process telemetry + local detection) + network telemetry | ~20-30 MB | SMEs with compliance needs or wanting threat visibility |
-| **Advanced** | Standard + DLP, identity monitoring, memory scanning, device control, MDM, host isolation | ~40-60 MB | Regulated industries (healthcare, finance, government) |
+| **Advanced** | Standard + DLP, identity monitoring, memory scanning, device control, MDM, host isolation, rootcheck, enhanced inventory | ~40-60 MB | Regulated industries (healthcare, finance, government) |
 
 ## Profile details
 
@@ -68,11 +68,15 @@ high-value endpoints.
 
 ## Deploying a profile
 
-Copy the profile YAML to the agent's config directory and restart:
+Copy the profile YAML to the agent's config directory, replace the
+`${SN360_GATEWAY_URL}` placeholder with your actual gateway address,
+and restart:
 
 ```bash
 # Example: deploy standard profile
 sudo cp configs/profile-standard.yaml /etc/sn360-desktop-agent/config.yaml
+sudo sed -i 's|${SN360_GATEWAY_URL}|wss://gateway.example.com|' \
+  /etc/sn360-desktop-agent/config.yaml
 sudo systemctl restart sn360-desktop-agent
 ```
 

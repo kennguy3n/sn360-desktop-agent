@@ -10,6 +10,16 @@ minor bump.
 
 ### Added
 
+- **Feature profiles for tiered deployment.** Three pre-configured
+  YAML profiles (`configs/profile-basic.yaml`,
+  `configs/profile-standard.yaml`, `configs/profile-advanced.yaml`)
+  that enable operators and MSSPs to deploy the agent at a chosen
+  capability tier (Basic, Standard, Advanced) with a single config
+  file. Each profile curates the active modules, resource limits,
+  and response actions appropriate for its tier.  See
+  [`docs/feature-profiles.md`](./docs/feature-profiles.md) and
+  [`docs/msp-deployment.md`](./docs/msp-deployment.md) for details.
+
 - **EDR — memory scanning and fileless detection.** New
   `sda-pal::MemoryScanner` trait with Linux `/proc/<pid>/maps`
   enumeration + bounded `pread` on `/proc/<pid>/mem` (requires

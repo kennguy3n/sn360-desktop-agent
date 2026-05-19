@@ -77,12 +77,20 @@ toolchain required.
 Download the latest packages from the release page or your SN360
 provider's distribution endpoint.
 
-After installing, copy a feature profile to the config directory and
-replace the `${SN360_GATEWAY_URL}` placeholder with your gateway address:
+After installing, deploy a feature profile as the agent config.
+Profile templates use `${SN360_GATEWAY_URL}` as a placeholder —
+you **must** replace it with your actual gateway address before
+starting the agent:
 
 ```bash
-sudo cp configs/profile-standard.yaml /etc/sn360-desktop-agent/config.yaml
-# Edit config.yaml — replace ${SN360_GATEWAY_URL} with your gateway URL
+# Download the profile from the release page (or copy from the source
+# tree's configs/ directory if building from source):
+curl -o /tmp/profile-standard.yaml \
+  https://<release-server>/configs/profile-standard.yaml
+
+sudo cp /tmp/profile-standard.yaml /etc/sn360-desktop-agent/config.yaml
+sudo sed -i 's|${SN360_GATEWAY_URL}|wss://gateway.example.com|' \
+  /etc/sn360-desktop-agent/config.yaml
 sudo systemctl enable --now sn360-desktop-agent
 ```
 
@@ -98,7 +106,7 @@ are active:
 |---------|-----------------|--------|
 | **Basic** | FIM, log collection, inventory, SCA, TRDS | ~8-12 MB |
 | **Standard** | Basic + EDR + network telemetry | ~20-30 MB |
-| **Advanced** | Standard + DLP, identity, memory scanning, device control, MDM, host isolation, rootcheck, enhanced inventory | ~40-60 MB |
+| **Advanced** | Standard + DLP, identity monitoring, memory scanning, device control, MDM, host isolation, rootcheck, enhanced inventory (running software, browser extensions, SBOM) | ~40-60 MB |
 
 Profile configs are in [`configs/`](./configs/). See
 [`docs/feature-profiles.md`](./docs/feature-profiles.md) for details.
