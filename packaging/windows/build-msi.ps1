@@ -53,4 +53,30 @@ if ($LASTEXITCODE -ne 0) { throw "candle failed" }
     "$wixobj"
 if ($LASTEXITCODE -ne 0) { throw "light failed" }
 
+# ---- Authenticode signing --------------------------------------------------
+# If SIGN_CERT_THUMBPRINT is set, sign the binary and .msi with
+# signtool so SmartScreen passes. The certificate must be installed
+# in the Windows cert store (or available via an EV token).
+#
+# Env vars:
+#   SIGN_CERT_THUMBPRINT  - SHA-1 thumbprint of the code signing cert
+#   SIGN_TIMESTAMP_URL    - RFC 3161 timestamp server (default: DigiCert)
+$TimestampUrl = if ($env:SIGN_TIMESTAMP_URL) { $env:SIGN_TIMESTAMP_URL } else { "http://timestamp.digicert.com" }
+
+if ($env:SIGN_CERT_THUMBPRINT) {
+    Write-Host "[sign] Authenticode-signing binary with thumbprint: $($env:SIGN_CERT_THUMBPRINT)"
+    & signtool.exe sign /sha1 $env:SIGN_CERT_THUMBPRINT /fd SHA256 `
+        /tr $TimestampUrl /td SHA256 /v "$Binary"
+    if ($LASTEXITCODE -ne 0) { throw "signtool binary sign failed" }
+
+    Write-Host "[sign] Authenticode-signing MSI"
+    & signtool.exe sign /sha1 $env:SIGN_CERT_THUMBPRINT /fd SHA256 `
+        /tr $TimestampUrl /td SHA256 /v "$msi"
+    if ($LASTEXITCODE -ne 0) { throw "signtool MSI sign failed" }
+
+    Write-Host "[sign] signed $msi"
+} else {
+    Write-Host "[sign] skipping Authenticode signing (SIGN_CERT_THUMBPRINT not set)"
+}
+
 Write-Host "built $msi"

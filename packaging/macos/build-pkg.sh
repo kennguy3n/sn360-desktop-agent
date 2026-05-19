@@ -65,4 +65,45 @@ productbuild \
     --version "$VERSION" \
     "$FINAL"
 
+# ---- Code signing (Apple Developer ID) ------------------------------------
+# If DEVELOPER_ID_INSTALLER is set, sign the .pkg with productsign so
+# Gatekeeper passes. If DEVELOPER_ID_APPLICATION is set, also codesign
+# the binary before packaging. Notarization is handled by the CI
+# pipeline (xcrun notarytool) after signing.
+#
+# Env vars:
+#   DEVELOPER_ID_APPLICATION  - "Developer ID Application: <Team> (<ID>)"
+#   DEVELOPER_ID_INSTALLER    - "Developer ID Installer: <Team> (<ID>)"
+#   APPLE_TEAM_ID             - 10-character Apple team ID (for notarize)
+if [ -n "${DEVELOPER_ID_APPLICATION:-}" ]; then
+    echo "[sign] codesigning binary with: ${DEVELOPER_ID_APPLICATION}"
+    codesign --force --options runtime --timestamp \
+        --sign "${DEVELOPER_ID_APPLICATION}" \
+        "$ROOTFS/usr/local/bin/sda-agent"
+fi
+
+if [ -n "${DEVELOPER_ID_INSTALLER:-}" ]; then
+    SIGNED_FINAL="$OUT_DIR/sda-agent-$VERSION-signed.pkg"
+    echo "[sign] signing .pkg with: ${DEVELOPER_ID_INSTALLER}"
+    productsign --sign "${DEVELOPER_ID_INSTALLER}" "$FINAL" "$SIGNED_FINAL"
+    mv -f "$SIGNED_FINAL" "$FINAL"
+    echo "[sign] signed $FINAL"
+
+    # Notarize if credentials are available.
+    if [ -n "${APPLE_TEAM_ID:-}" ] && [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_APP_PASSWORD:-}" ]; then
+        echo "[sign] submitting for notarization..."
+        xcrun notarytool submit "$FINAL" \
+            --apple-id "${APPLE_ID}" \
+            --team-id "${APPLE_TEAM_ID}" \
+            --password "${APPLE_APP_PASSWORD}" \
+            --wait
+        xcrun stapler staple "$FINAL"
+        echo "[sign] notarization complete"
+    else
+        echo "[sign] skipping notarization (APPLE_ID / APPLE_TEAM_ID / APPLE_APP_PASSWORD not set)"
+    fi
+else
+    echo "[sign] skipping code signing (DEVELOPER_ID_INSTALLER not set)"
+fi
+
 echo "built $FINAL"
