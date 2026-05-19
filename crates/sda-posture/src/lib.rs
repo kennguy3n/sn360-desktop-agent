@@ -60,9 +60,6 @@ impl PostureModule {
             let mut interval =
                 tokio::time::interval(std::time::Duration::from_secs(interval_secs.max(10)));
 
-            // Take the first snapshot immediately.
-            interval.tick().await;
-
             loop {
                 tokio::select! {
                     _ = shutdown.wait() => {

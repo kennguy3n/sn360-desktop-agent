@@ -138,6 +138,10 @@ pub struct ProductionHooks {
     /// Local ephemeral key IDs generated at startup by the auto-
     /// remediation supervisor.
     local_ephemeral_key_ids: std::collections::HashSet<String>,
+    /// Maps `key_id` → approver user UUID for dual-control
+    /// validation. Required so `RemoteWipe` can enforce the "all
+    /// signatures must come from distinct approvers" invariant.
+    approver_user_ids: std::collections::HashMap<String, Uuid>,
 }
 
 impl ProductionHooks {
@@ -148,6 +152,7 @@ impl ProductionHooks {
             keys: keys.into_iter().collect(),
             permitted_actions: None,
             local_ephemeral_key_ids: std::collections::HashSet::new(),
+            approver_user_ids: std::collections::HashMap::new(),
         }
     }
 
@@ -171,6 +176,19 @@ impl ProductionHooks {
     /// refresh).
     pub fn upsert_key(&mut self, key_id: String, key: ed25519_dalek::VerifyingKey) {
         self.keys.insert(key_id, key);
+    }
+
+    /// Register the approver identity for a signing key. The TRDS
+    /// bundle includes `(key_id, approver_user_uuid)` pairs so the
+    /// router can enforce the dual-control invariant on `RemoteWipe`.
+    pub fn register_approver(&mut self, key_id: String, user_id: Uuid) {
+        self.approver_user_ids.insert(key_id, user_id);
+    }
+
+    /// Builder variant of [`register_approver`](Self::register_approver).
+    pub fn with_approver(mut self, key_id: impl Into<String>, user_id: Uuid) -> Self {
+        self.approver_user_ids.insert(key_id.into(), user_id);
+        self
     }
 
     /// Build the canonical pre-image for an Ed25519 signature
@@ -243,6 +261,10 @@ impl JobValidationHooks for ProductionHooks {
 
         key.verify(&pre_image, &signature)
             .map_err(|_| JobRefused::BadSignature)
+    }
+
+    fn approver_user_id(&self, key_id: &str) -> Option<Uuid> {
+        self.approver_user_ids.get(key_id).copied()
     }
 
     fn is_local_ephemeral_key(&self, key_id: &str) -> bool {
