@@ -62,7 +62,48 @@ script execution), rootkit detection, and posture snapshots (disk
 encryption, firewall, screen lock, OS patch level). Adaptive
 scheduling backs off scans on battery and during user activity.
 
-## Prerequisites
+## Installation
+
+For most deployments, install from pre-built packages — no build
+toolchain required.
+
+| Platform | Package | Command |
+|----------|---------|---------|
+| **Windows** | `.msi` | `msiexec /i sn360-desktop-agent-x64.msi /qn` |
+| **macOS** | `.pkg` | `sudo installer -pkg sn360-desktop-agent-arm64.pkg -target /` |
+| **Debian / Ubuntu** | `.deb` | `sudo apt install ./sn360-desktop-agent_*_amd64.deb` |
+| **RHEL / Fedora** | `.rpm` | `sudo dnf install ./sn360-desktop-agent-*.x86_64.rpm` |
+
+Download the latest packages from the release page or your SN360
+provider's distribution endpoint.
+
+After installing, copy a feature profile to the config directory:
+
+```bash
+sudo cp configs/profile-standard.yaml /etc/sn360-desktop-agent/config.yaml
+sudo systemctl enable --now sn360-desktop-agent
+```
+
+For mass deployment via GPO, MDM, or configuration management, see
+[`docs/msp-deployment.md`](./docs/msp-deployment.md).
+
+## Feature profiles
+
+SDA ships three pre-configured profiles that control which modules
+are active:
+
+| Profile | What it includes | Memory |
+|---------|-----------------|--------|
+| **Basic** | FIM, log collection, inventory, SCA, TRDS | ~8-12 MB |
+| **Standard** | Basic + EDR + network telemetry | ~20-30 MB |
+| **Advanced** | Standard + DLP, identity, memory scanning, device control, MDM, host isolation | ~40-60 MB |
+
+Profile configs are in [`configs/`](./configs/). See
+[`docs/feature-profiles.md`](./docs/feature-profiles.md) for details.
+
+## Development
+
+### Prerequisites
 
 - **Rust 1.75+** (install via [rustup](https://rustup.rs/))
 - **Linux:** `pkg-config`, `libssl-dev`, `libyara-dev` (or the
@@ -76,7 +117,7 @@ scheduling backs off scans on battery and during user activity.
 YARA is a **required** runtime dependency of the Local Detection
 Engine. Build hosts must have YARA development headers available.
 
-## Quick start
+### Building from source
 
 ```bash
 # Clone the repository
