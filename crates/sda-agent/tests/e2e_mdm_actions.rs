@@ -1,6 +1,6 @@
 //! Desktop MDM end-to-end suite.
 //!
-//! Hermetic exercises of the Phase-M2 surface (`docs/desktop-mdm/`)
+//! Hermetic exercises of the Desktop MDM actions surface (`docs/desktop-mdm/`)
 //! using a recording [`MdmProvider`] mock and the public
 //! [`sda_device_control::router::validate`] pipeline.
 //!

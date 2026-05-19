@@ -3,7 +3,7 @@
 //! In monitor mode the agent never blocks a binary. It records a
 //! [`Decision`] for every observation so the operator can review
 //! what *would* have happened in enforce mode. This is the
-//! Default per `docs/device-control.md` § 8.
+//! default per `docs/device-control.md` § 8.
 
 use chrono::{DateTime, Utc};
 use sda_pal::app_control::AppControlRule;

@@ -1,6 +1,6 @@
 //! Desktop MDM end-to-end suite.
 //!
-//! Hermetic exercises of the Phase-M1 surface (`docs/desktop-mdm/`)
+//! Hermetic exercises of the Desktop MDM surface (`docs/desktop-mdm/`)
 //! using a recording [`MdmProvider`] mock — the same harness pattern
 //! used by `e2e_device_control.rs` and `e2e_remote_support.rs`.
 //!
