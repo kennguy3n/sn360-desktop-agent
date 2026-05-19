@@ -720,8 +720,18 @@ async fn main() -> Result<()> {
                 // the gateway does not provide a geolocation URL. The
                 // free tier has a 45 req/min rate limit which is more
                 // than enough for the 5-minute lost-mode interval.
+                //
+                // WARNING: ip-api.com free tier only supports plain
+                // HTTP — the device's approximate lat/lon is visible
+                // to passive network observers. Production deployments
+                // should provision a gateway-provided HTTPS geolocation
+                // URL via the cloud config's `geolocation_url` field.
                 let default_url = "http://ip-api.com/json/?fields=lat,lon".to_string();
-                info!(url = %default_url, "MDM geolocator: using default ip-api.com");
+                warn!(
+                    url = %default_url,
+                    "MDM geolocator: using plaintext HTTP fallback — \
+                     provision geolocation_url via cloud config for HTTPS"
+                );
                 std::sync::Arc::new(HttpGeolocator::new(default_url))
             };
 

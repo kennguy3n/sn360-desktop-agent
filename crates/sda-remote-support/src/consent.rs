@@ -11,10 +11,12 @@
 //! * [`ConsentDecision`] — the outcome of a single prompt. Captured
 //!   verbatim in evidence / audit records.
 //!
-//! The Phase-4 default prompt — [`StubConsentPrompt`] — denies every
-//! request, matching the agent's fail-closed posture: if the
-//! operator wires a `RemoteSupportModule` without supplying a real
-//! prompt, no remote-support session ever activates.
+//! The production default prompt — [`NativeConsentPrompt`] — shows an
+//! OS-native dialog asking the end-user for consent.
+//! [`StubConsentPrompt`] is still available as a fail-closed fallback:
+//! if the operator wires a `RemoteSupportModule` with the stub
+//! instead of the native prompt, no remote-support session ever
+//! activates.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -172,14 +174,35 @@ fn windows_dialog(title: &str, message: &str, timeout: std::time::Duration) -> O
         message.replace('\'', "''"),
         title.replace('\'', "''"),
     );
-    let output = std::process::Command::new("powershell")
+    // Spawn the PowerShell process and poll with a deadline so the
+    // dialog times out on Windows — MessageBox::Show has no native
+    // timeout support.  The pattern mirrors the kdialog fallback.
+    let mut child = match std::process::Command::new("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", &ps_script])
-        .output();
-    match output {
-        Ok(o) => Some(o.status.success()),
+        .spawn()
+    {
+        Ok(c) => c,
         Err(e) => {
-            tracing::warn!("powershell dialog failed: {e}");
-            Some(false)
+            tracing::warn!("powershell dialog failed to spawn: {e}");
+            return Some(false);
+        }
+    };
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Some(status.success()),
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None; // TimedOut
+                }
+                std::thread::sleep(std::time::Duration::from_millis(250));
+            }
+            Err(e) => {
+                tracing::warn!("powershell dialog wait failed: {e}");
+                return Some(false);
+            }
         }
     }
 }
