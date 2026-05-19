@@ -170,7 +170,7 @@ async fn main() -> Result<()> {
                 if cloud.geolocation_url.is_some() {
                     config.agent.geolocation_url = cloud.geolocation_url;
                 }
-                config.merge_cloud_config(cloud.agent_config);
+                config.merge_cloud_config(cloud.module_overrides);
                 apply_device_control_bridge(&mut config);
                 agent.update_config(config.clone());
                 info!("cloud config applied");
@@ -1328,6 +1328,7 @@ struct CloudTierPreset {
 }
 
 #[derive(serde::Deserialize, Default)]
+#[allow(dead_code)] // Fields read by serde deserialization only.
 struct CloudEndpoints {
     #[serde(default)]
     trds_url: Option<String>,
@@ -1420,8 +1421,9 @@ struct CloudAppControl {
 
 /// Result of a successful cloud-config pull.
 struct CloudConfig {
-    /// The full agent config with cloud-provided module toggles.
-    agent_config: AgentConfig,
+    /// Module overrides with Option semantics — only modules
+    /// explicitly mentioned in the cloud response are `Some`.
+    module_overrides: sda_core::config::CloudModuleOverrides,
     /// Tenant ID extracted from the gateway response (cert-derived).
     tenant_id: Option<String>,
     /// Device ID extracted from the gateway response (cert-derived).
@@ -1462,101 +1464,57 @@ async fn pull_cloud_config(gateway_url: &str) -> Result<CloudConfig> {
 
     info!(tier = %preset.tier, "received cloud config");
 
-    // Map the preset into an AgentConfig so merge_cloud_config works.
-    let mut cfg = AgentConfig::default();
+    // Build CloudModuleOverrides — only modules explicitly present
+    // in the cloud response become `Some`. Omitted modules stay
+    // `None`, preserving local config for unmentioned modules.
+    let mut ov = sda_core::config::CloudModuleOverrides::default();
 
-    // Helper: apply a toggle to an enabled field.
-    macro_rules! toggle {
+    macro_rules! map_toggle {
         ($field:expr, $src:expr) => {
             if let Some(ref t) = $src {
-                $field = t.enabled;
+                $field = Some(t.enabled);
             }
         };
     }
 
-    toggle!(cfg.modules.fim.enabled, preset.modules.fim);
-    toggle!(
-        cfg.modules.logcollector.enabled,
-        preset.modules.logcollector
-    );
-    toggle!(cfg.modules.inventory.enabled, preset.modules.inventory);
-    toggle!(cfg.modules.sca.enabled, preset.modules.sca);
-    toggle!(cfg.modules.rootcheck.enabled, preset.modules.rootcheck);
-    toggle!(
-        cfg.modules.active_response.enabled,
-        preset.modules.active_response
-    );
-    toggle!(
-        cfg.modules.local_detection.enabled,
-        preset.modules.local_detection
-    );
-    toggle!(
-        cfg.modules.enhanced_inventory.enabled,
-        preset.modules.enhanced_inventory
-    );
-    toggle!(
-        cfg.modules.device_control.enabled,
-        preset.modules.device_control
-    );
-    toggle!(cfg.modules.posture.enabled, preset.modules.posture);
-    toggle!(cfg.modules.software.enabled, preset.modules.software);
-    toggle!(cfg.modules.jit_admin.enabled, preset.modules.jit_admin);
-    toggle!(
-        cfg.modules.remote_support.enabled,
-        preset.modules.remote_support
-    );
-    toggle!(cfg.modules.mdm.enabled, preset.modules.mdm);
-    toggle!(
-        cfg.modules.process_monitor.enabled,
-        preset.modules.process_monitor
-    );
-    toggle!(
-        cfg.modules.network_monitor.enabled,
-        preset.modules.network_monitor
-    );
-    toggle!(cfg.modules.dns_monitor.enabled, preset.modules.dns_monitor);
-    toggle!(
-        cfg.modules.host_isolation.enabled,
-        preset.modules.host_isolation
-    );
-    toggle!(
-        cfg.modules.memory_scanner.enabled,
-        preset.modules.memory_scanner
-    );
-    toggle!(
-        cfg.modules.identity_monitor.enabled,
-        preset.modules.identity_monitor
-    );
-    toggle!(cfg.modules.dlp.enabled, preset.modules.dlp);
-    toggle!(cfg.modules.query.enabled, preset.modules.query);
-    toggle!(
-        cfg.modules.agent_vitals.enabled,
-        preset.modules.agent_vitals
-    );
-    toggle!(
-        cfg.modules.script_runner.enabled,
-        preset.modules.script_runner
-    );
+    map_toggle!(ov.fim, preset.modules.fim);
+    map_toggle!(ov.logcollector, preset.modules.logcollector);
+    map_toggle!(ov.inventory, preset.modules.inventory);
+    map_toggle!(ov.sca, preset.modules.sca);
+    map_toggle!(ov.rootcheck, preset.modules.rootcheck);
+    map_toggle!(ov.active_response, preset.modules.active_response);
+    map_toggle!(ov.local_detection, preset.modules.local_detection);
+    map_toggle!(ov.enhanced_inventory, preset.modules.enhanced_inventory);
+    map_toggle!(ov.device_control, preset.modules.device_control);
+    map_toggle!(ov.posture, preset.modules.posture);
+    map_toggle!(ov.software, preset.modules.software);
+    map_toggle!(ov.jit_admin, preset.modules.jit_admin);
+    map_toggle!(ov.remote_support, preset.modules.remote_support);
+    map_toggle!(ov.mdm, preset.modules.mdm);
+    map_toggle!(ov.process_monitor, preset.modules.process_monitor);
+    map_toggle!(ov.network_monitor, preset.modules.network_monitor);
+    map_toggle!(ov.dns_monitor, preset.modules.dns_monitor);
+    map_toggle!(ov.host_isolation, preset.modules.host_isolation);
+    map_toggle!(ov.memory_scanner, preset.modules.memory_scanner);
+    map_toggle!(ov.identity_monitor, preset.modules.identity_monitor);
+    map_toggle!(ov.dlp, preset.modules.dlp);
+    map_toggle!(ov.query, preset.modules.query);
+    map_toggle!(ov.agent_vitals, preset.modules.agent_vitals);
+    map_toggle!(ov.script_runner, preset.modules.script_runner);
 
     if let Some(ref u) = preset.modules.updater {
-        cfg.modules.updater.enabled = u.enabled;
-        if let Some(ref url) = u.manifest_url {
-            cfg.modules.updater.server_url = url.clone();
-        }
-        if let Some(ref pk) = u.public_key {
-            cfg.modules.updater.public_key = pk.clone();
-        }
+        ov.updater = Some(u.enabled);
+        ov.updater_manifest_url = u.manifest_url.clone();
+        ov.updater_public_key = u.public_key.clone();
     }
 
     if let Some(ref ac) = preset.modules.app_control {
-        cfg.modules.app_control.enabled = ac.enabled;
-        if let Some(ref m) = ac.mode {
-            cfg.modules.app_control.mode = m.clone();
-        }
+        ov.app_control = Some(ac.enabled);
+        ov.app_control_mode = ac.mode.clone();
     }
 
     Ok(CloudConfig {
-        agent_config: cfg,
+        module_overrides: ov,
         tenant_id: preset.tenant_id,
         device_id: preset.device_id,
         geolocation_url: preset.endpoints.geolocation_url,

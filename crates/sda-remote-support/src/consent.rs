@@ -70,15 +70,21 @@ impl ConsentPrompt for StubConsentPrompt {
 ///
 /// Falls back to [`ConsentDecision::Denied`] if no dialog tool is
 /// available, preserving the fail-closed posture.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct NativeConsentPrompt {
     /// Timeout in seconds for the dialog. Defaults to 120.
     pub timeout_secs: u64,
 }
 
+impl Default for NativeConsentPrompt {
+    fn default() -> Self {
+        Self { timeout_secs: 120 }
+    }
+}
+
 impl NativeConsentPrompt {
     pub fn new() -> Self {
-        Self { timeout_secs: 120 }
+        Self::default()
     }
 
     pub fn with_timeout(timeout_secs: u64) -> Self {
@@ -205,11 +211,26 @@ fn linux_dialog(title: &str, message: &str, timeout: std::time::Duration) -> Opt
         };
     }
 
-    if let Ok(output) = std::process::Command::new("kdialog")
+    if let Ok(mut child) = std::process::Command::new("kdialog")
         .args(["--title", title, "--yesno", message])
-        .output()
+        .spawn()
     {
-        return Some(output.status.success());
+        // kdialog has no native --timeout; poll with a deadline.
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => return Some(status.success()),
+                Ok(None) => {
+                    if std::time::Instant::now() >= deadline {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return None;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(250));
+                }
+                Err(_) => return Some(false),
+            }
+        }
     }
 
     tracing::warn!("no dialog tool found (zenity / kdialog); denying consent");

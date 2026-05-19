@@ -2661,12 +2661,15 @@ impl AgentConfig {
             .unwrap_or(&self.server.address)
     }
 
-    /// Merge a cloud-provisioned config into this (local) config.
+    /// Merge cloud-provisioned module overrides into this (local) config.
     ///
-    /// The cloud config is the authority for module enable/disable
-    /// toggles — the gateway knows which tier the tenant is on and
-    /// which modules should be active. Local-only values are
-    /// preserved:
+    /// Only modules explicitly mentioned by the cloud gateway are
+    /// overwritten. Modules omitted from the cloud response keep
+    /// their local values — this prevents `AgentConfig::default()`
+    /// from silently toggling modules the cloud didn't intend to
+    /// change.
+    ///
+    /// Local-only values are always preserved:
     ///
     /// * **bootstrap settings** (`agent.*`) — kept from local
     /// * **server connection** — kept from local
@@ -2674,55 +2677,108 @@ impl AgentConfig {
     /// * **security** — kept from local
     /// * **resource limits** — kept from local (operator override)
     /// * **logging** — kept from local (operator override)
-    /// * **modules** — cloud wins for `enabled` flags; local
-    ///   overrides survive for per-module tuning knobs that are
-    ///   set in the local config (e.g. custom FIM directories)
-    pub fn merge_cloud_config(&mut self, cloud: AgentConfig) {
-        // Module toggles: cloud is authoritative.
-        self.modules.fim.enabled = cloud.modules.fim.enabled;
-        self.modules.logcollector.enabled = cloud.modules.logcollector.enabled;
-        self.modules.inventory.enabled = cloud.modules.inventory.enabled;
-        self.modules.sca.enabled = cloud.modules.sca.enabled;
-        self.modules.active_response.enabled = cloud.modules.active_response.enabled;
-        self.modules.rootcheck.enabled = cloud.modules.rootcheck.enabled;
-        self.modules.local_detection.enabled = cloud.modules.local_detection.enabled;
-        self.modules.enhanced_inventory.enabled = cloud.modules.enhanced_inventory.enabled;
-        self.modules.agent_vitals.enabled = cloud.modules.agent_vitals.enabled;
+    /// * **per-module tuning** (e.g. custom FIM dirs) — kept from local
+    pub fn merge_cloud_config(&mut self, overrides: CloudModuleOverrides) {
+        macro_rules! apply {
+            ($field:expr, $src:expr) => {
+                if let Some(v) = $src {
+                    $field = v;
+                }
+            };
+        }
+
+        // Core modules
+        apply!(self.modules.fim.enabled, overrides.fim);
+        apply!(self.modules.logcollector.enabled, overrides.logcollector);
+        apply!(self.modules.inventory.enabled, overrides.inventory);
+        apply!(self.modules.sca.enabled, overrides.sca);
+        apply!(self.modules.active_response.enabled, overrides.active_response);
+        apply!(self.modules.rootcheck.enabled, overrides.rootcheck);
+        apply!(self.modules.local_detection.enabled, overrides.local_detection);
+        apply!(self.modules.enhanced_inventory.enabled, overrides.enhanced_inventory);
+        apply!(self.modules.agent_vitals.enabled, overrides.agent_vitals);
 
         // EDR modules
-        self.modules.process_monitor.enabled = cloud.modules.process_monitor.enabled;
-        self.modules.network_monitor.enabled = cloud.modules.network_monitor.enabled;
-        self.modules.dns_monitor.enabled = cloud.modules.dns_monitor.enabled;
-        self.modules.memory_scanner.enabled = cloud.modules.memory_scanner.enabled;
-        self.modules.identity_monitor.enabled = cloud.modules.identity_monitor.enabled;
-        self.modules.host_isolation.enabled = cloud.modules.host_isolation.enabled;
-        self.modules.dlp.enabled = cloud.modules.dlp.enabled;
+        apply!(self.modules.process_monitor.enabled, overrides.process_monitor);
+        apply!(self.modules.network_monitor.enabled, overrides.network_monitor);
+        apply!(self.modules.dns_monitor.enabled, overrides.dns_monitor);
+        apply!(self.modules.memory_scanner.enabled, overrides.memory_scanner);
+        apply!(self.modules.identity_monitor.enabled, overrides.identity_monitor);
+        apply!(self.modules.host_isolation.enabled, overrides.host_isolation);
+        apply!(self.modules.dlp.enabled, overrides.dlp);
 
         // Device control / MDM
-        self.modules.device_control.enabled = cloud.modules.device_control.enabled;
-        self.modules.mdm.enabled = cloud.modules.mdm.enabled;
-        self.modules.posture.enabled = cloud.modules.posture.enabled;
-        self.modules.software.enabled = cloud.modules.software.enabled;
+        apply!(self.modules.device_control.enabled, overrides.device_control);
+        apply!(self.modules.mdm.enabled, overrides.mdm);
+        apply!(self.modules.posture.enabled, overrides.posture);
+        apply!(self.modules.software.enabled, overrides.software);
 
         // Management modules
-        self.modules.query.enabled = cloud.modules.query.enabled;
-        self.modules.jit_admin.enabled = cloud.modules.jit_admin.enabled;
-        self.modules.script_runner.enabled = cloud.modules.script_runner.enabled;
-        self.modules.remote_support.enabled = cloud.modules.remote_support.enabled;
+        apply!(self.modules.query.enabled, overrides.query);
+        apply!(self.modules.jit_admin.enabled, overrides.jit_admin);
+        apply!(self.modules.script_runner.enabled, overrides.script_runner);
+        apply!(self.modules.remote_support.enabled, overrides.remote_support);
 
         // App control: cloud is authoritative for both enable and mode.
-        self.modules.app_control.enabled = cloud.modules.app_control.enabled;
-        self.modules.app_control.mode = cloud.modules.app_control.mode.clone();
+        apply!(self.modules.app_control.enabled, overrides.app_control);
+        if let Some(mode) = overrides.app_control_mode {
+            self.modules.app_control.mode = mode;
+        }
 
         // Updater: cloud provides the server URL and public key.
-        self.modules.updater.enabled = cloud.modules.updater.enabled;
-        if !cloud.modules.updater.server_url.is_empty() {
-            self.modules.updater.server_url = cloud.modules.updater.server_url;
+        apply!(self.modules.updater.enabled, overrides.updater);
+        if let Some(url) = overrides.updater_manifest_url {
+            if !url.is_empty() {
+                self.modules.updater.server_url = url;
+            }
         }
-        if !cloud.modules.updater.public_key.is_empty() {
-            self.modules.updater.public_key = cloud.modules.updater.public_key;
+        if let Some(pk) = overrides.updater_public_key {
+            if !pk.is_empty() {
+                self.modules.updater.public_key = pk;
+            }
         }
 
         info!("merged cloud-provisioned config into local config");
     }
+}
+
+/// Cloud module overrides with `Option` semantics.
+///
+/// Each field is `None` when the cloud response did not mention
+/// that module, and `Some(bool)` when the cloud explicitly set
+/// its `enabled` flag. This lets [`AgentConfig::merge_cloud_config`]
+/// distinguish "cloud disabled this" from "cloud didn't say anything
+/// about this" — preserving local operator overrides for omitted
+/// modules.
+#[derive(Debug, Default)]
+pub struct CloudModuleOverrides {
+    pub fim: Option<bool>,
+    pub logcollector: Option<bool>,
+    pub inventory: Option<bool>,
+    pub sca: Option<bool>,
+    pub active_response: Option<bool>,
+    pub rootcheck: Option<bool>,
+    pub local_detection: Option<bool>,
+    pub enhanced_inventory: Option<bool>,
+    pub agent_vitals: Option<bool>,
+    pub process_monitor: Option<bool>,
+    pub network_monitor: Option<bool>,
+    pub dns_monitor: Option<bool>,
+    pub memory_scanner: Option<bool>,
+    pub identity_monitor: Option<bool>,
+    pub host_isolation: Option<bool>,
+    pub dlp: Option<bool>,
+    pub device_control: Option<bool>,
+    pub mdm: Option<bool>,
+    pub posture: Option<bool>,
+    pub software: Option<bool>,
+    pub query: Option<bool>,
+    pub jit_admin: Option<bool>,
+    pub script_runner: Option<bool>,
+    pub remote_support: Option<bool>,
+    pub app_control: Option<bool>,
+    pub app_control_mode: Option<String>,
+    pub updater: Option<bool>,
+    pub updater_manifest_url: Option<String>,
+    pub updater_public_key: Option<String>,
 }
