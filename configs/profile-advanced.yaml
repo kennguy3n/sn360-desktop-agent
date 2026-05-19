@@ -92,11 +92,13 @@ modules:
 
   host_isolation:
     enabled: true
-    # REQUIRED: replace with your control-plane CIDR(s) so the agent
+    # REQUIRED: add your control-plane CIDR(s) here so the agent
     # keeps management connectivity during isolation.  Without at
-    # least one entry the module silently refuses IsolateHost jobs.
-    control_plane_cidrs:
-      - "${SN360_CONTROL_PLANE_CIDR}"
+    # least one valid entry the module refuses IsolateHost jobs.
+    # Example:
+    #   control_plane_cidrs:
+    #     - "10.20.0.0/16"
+    control_plane_cidrs: []
 
   memory_scanner:
     enabled: true

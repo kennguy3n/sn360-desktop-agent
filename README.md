@@ -82,7 +82,7 @@ Profile templates use `${SN360_GATEWAY_URL}` as a placeholder —
 you **must** replace it with your actual gateway address before
 starting the agent:
 
-**Linux / macOS:**
+**Linux:**
 
 ```bash
 # Download the profile from the release page (or copy from the source
