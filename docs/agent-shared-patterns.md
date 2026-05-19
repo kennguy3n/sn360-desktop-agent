@@ -71,9 +71,9 @@ Agent Gateway, plus a legacy-comms path for backward compatibility.
 
 | Agent | Crate | Key file |
 |-------|-------|----------|
-| SDA | `sda-fim` | `crates/sda-fim/src/module.rs` |
+| SDA | `sda-fim` | `crates/sda-fim/src/lib.rs` |
 | VM | `vma-fim` | `crates/vma-fim/src/module.rs` |
-| K8s | `ska-fim` | `crates/ska-fim/src/module.rs` |
+| K8s | `ska-fim` | `crates/ska-fim/src/lib.rs` |
 
 Shared design: inotify/kqueue/ReadDirectoryChangesW for realtime
 events, periodic baseline sweeps with SHA-256, configurable
@@ -83,7 +83,7 @@ directories and exclusion patterns.
 
 | Agent | Crate | Key file |
 |-------|-------|----------|
-| SDA | `sda-lde` | `crates/sda-lde/src/lib.rs` |
+| SDA | `sda-local-detection` | `crates/sda-local-detection/src/lib.rs` |
 | VM | `vma-local-detection` | `crates/vma-local-detection/src/lib.rs` |
 | K8s | `ska-lde` | `crates/ska-lde/src/lib.rs` |
 
