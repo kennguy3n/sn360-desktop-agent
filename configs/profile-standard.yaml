@@ -37,7 +37,7 @@ modules:
       - path: "/home"
         recursive: true
         realtime: true
-        ignore:
+        exclude:
           - ".cache"
           - ".local/share/Trash"
 

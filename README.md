@@ -96,7 +96,7 @@ are active:
 |---------|-----------------|--------|
 | **Basic** | FIM, log collection, inventory, SCA, TRDS | ~8-12 MB |
 | **Standard** | Basic + EDR + network telemetry | ~20-30 MB |
-| **Advanced** | Standard + DLP, identity, memory scanning, device control, MDM, host isolation | ~40-60 MB |
+| **Advanced** | Standard + DLP, identity, memory scanning, device control, MDM, host isolation, rootcheck, enhanced inventory | ~40-60 MB |
 
 Profile configs are in [`configs/`](./configs/). See
 [`docs/feature-profiles.md`](./docs/feature-profiles.md) for details.
