@@ -1,4 +1,4 @@
-//! Phase E3.12 — hermetic end-to-end coverage for the EDR network +
+//! Hermetic end-to-end coverage for the EDR network +
 //! DNS telemetry pipeline.
 //!
 //! This suite stitches together:

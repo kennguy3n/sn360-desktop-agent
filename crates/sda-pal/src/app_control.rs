@@ -1,11 +1,11 @@
-//! Application-control provider (Phase 4).
+//! Application-control provider.
 //!
 //! This module hosts the cross-platform PAL surface for binary
-//! authorization / application control — the Phase-4 capability
-//! described in `docs/architecture.md` § 4.1 (Trait surface) and
+//! authorization / application control as described in
+//! `docs/architecture.md` § 4.1 (Trait surface) and
 //! `docs/device-control.md` § 8 (Application control).
 //!
-//! Phase-4 scope is intentionally limited:
+//! Current scope:
 //!
 //! * The trait surface is the binding spec.
 //! * Per-OS implementations are stubs that report
@@ -25,7 +25,7 @@
 //! `Box<dyn AppControlProvider>` so the supervisor can swap a real
 //! provider for the stub in tests.
 //!
-//! ## macOS Santa stub (Task 4.6)
+//! ## macOS Santa stub
 //!
 //! On macOS the [`MacAppControlProvider`] is a clean-room stub that
 //! shells out to `santactl status --json` to detect Santa's
@@ -33,8 +33,8 @@
 //! into the rule format Santa expects. When Santa is not present
 //! (the binary is missing or returns a non-zero exit) the stub
 //! gracefully degrades to [`AppControlMode::Disabled`] rather than
-//! erroring out — this matches `docs/device-control.md` § 8 (Phase-4 default
-//! is monitor-only opt-in).
+//! erroring out — this matches `docs/device-control.md` § 8
+//! (default is monitor-only opt-in).
 
 use chrono::{DateTime, Utc};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey, PUBLIC_KEY_LENGTH, SIGNATURE_LENGTH};
@@ -46,7 +46,7 @@ use serde::{Deserialize, Serialize};
 pub enum AppControlMode {
     /// Backend is installed and observing. Allow / deny decisions
     /// are LOGGED but never blocked. `docs/device-control.md` § 8 mandates this
-    /// as the Phase-4 default.
+    /// as the default.
     Monitor,
     /// Backend is installed and actively blocking unauthorized
     /// binaries. Requires explicit tenant opt-in plus dual-control
@@ -148,8 +148,7 @@ pub enum AppControlError {
     /// greater than the most recently applied version.
     #[error("app-control policy version regressed: applied={applied} new={new}")]
     PolicyRegressed { applied: u64, new: u64 },
-    /// The host platform has no app-control backend (Phase-4
-    /// stubs).
+    /// The host platform has no app-control backend.
     #[error("app-control not supported on this platform")]
     NotSupported,
     /// The underlying OS backend returned an error.
@@ -159,8 +158,8 @@ pub enum AppControlError {
 
 /// Cross-platform app-control surface.
 ///
-/// Implementations MUST be `Send + Sync`. Phase-4 stubs are
-/// zero-sized and trivially satisfy these bounds.
+/// Implementations MUST be `Send + Sync`.  Per-OS stub providers
+/// are zero-sized and trivially satisfy these bounds.
 pub trait AppControlProvider: Send + Sync {
     /// Returns the operating mode currently observed on the host.
     fn current_mode(&self) -> Result<AppControlMode, AppControlError>;
@@ -230,18 +229,18 @@ pub fn verify_policy(
 }
 
 // =====================================================================
-// Per-OS Phase-4 stubs
+// Per-OS stub providers
 // =====================================================================
 
-/// Linux Phase-4 placeholder. Will host the clean-room
-/// dm-verity-aware enforcement backend in a later phase; today
-/// every call reports [`AppControlMode::Disabled`] and accepts
-/// policies without forwarding them to a real backend.
+/// Linux stub provider.  The rich dm-verity-aware enforcement
+/// backend lives in `sda-app-control::linux`; this PAL-level stub
+/// reports [`AppControlMode::Disabled`] and accepts policies
+/// without forwarding them to a real backend.
 #[cfg(target_os = "linux")]
 pub mod linux_impl {
     use super::*;
 
-    /// Phase-4 Linux stub for [`AppControlProvider`].
+    /// Linux stub for [`AppControlProvider`].
     #[derive(Debug, Default)]
     pub struct LinuxAppControlProvider;
 
@@ -261,9 +260,9 @@ pub mod linux_impl {
             &self,
             _payload: &AppControlPolicyPayload,
         ) -> Result<(), AppControlError> {
-            // Phase-4 stub: accept the policy so the supervisor's
-            // happy-path stays exercised, but don't actually push
-            // anything to dm-verity yet.
+            // Stub: accept the policy so the supervisor's
+            // happy-path stays exercised.  The real dm-verity push
+            // lives in sda-app-control::linux.
             Ok(())
         }
     }
@@ -272,11 +271,11 @@ pub mod linux_impl {
 #[cfg(target_os = "linux")]
 pub use linux_impl::LinuxAppControlProvider;
 
-/// macOS Phase-4 stub backed by Santa / North Pole Santa.
+/// macOS app-control stub backed by Santa / North Pole Santa.
 ///
-/// Task 4.6: this is a clean-room wrapper around `santactl` that
-/// translates [`SignedAppControlPolicy`] rules into Santa's
-/// `santactl rule --add` format. Phase 4 ships only the
+/// This is a clean-room wrapper around `santactl` that translates
+/// [`SignedAppControlPolicy`] rules into Santa's
+/// `santactl rule --add` format.  Currently ships only the
 /// translation layer + status probe; the actual `santactl`
 /// invocation is short-circuited so unit tests do not require
 /// Santa to be installed on the CI host.
@@ -338,7 +337,7 @@ pub mod mac_impl {
         args
     }
 
-    /// Phase-4 macOS stub for [`AppControlProvider`].
+    /// macOS stub for [`AppControlProvider`].
     #[derive(Debug, Default)]
     pub struct MacAppControlProvider;
 
@@ -353,7 +352,7 @@ pub mod mac_impl {
         /// reports an error so the caller can degrade to
         /// `Disabled` cleanly.
         pub fn probe_santa_status() -> Option<SantaStatus> {
-            // Phase-4: invoke santactl if it is on PATH, otherwise
+            // Invoke santactl if it is on PATH, otherwise
             // bail out. Errors are swallowed deliberately —
             // `docs/device-control.md` § 8 says graceful degradation to
             // Disabled is the right default.
@@ -379,9 +378,9 @@ pub mod mac_impl {
             &self,
             _payload: &AppControlPolicyPayload,
         ) -> Result<(), AppControlError> {
-            // Phase-4 stub: real Santa rule pushes land in a later
-            // phase. We accept verified policies so the higher
-            // layers exercise the happy path.
+            // Stub: accept verified policies so the higher layers
+            // exercise the happy path.  Real Santa rule pushes are
+            // not yet wired.
             Ok(())
         }
     }
@@ -390,15 +389,15 @@ pub mod mac_impl {
 #[cfg(target_os = "macos")]
 pub use mac_impl::{santa_rule_args, MacAppControlProvider, SantaStatus};
 
-/// Windows Phase-4 placeholder. Will host the WDAC + AppLocker
-/// PowerShell shim in a later phase; today every call reports
+/// Windows stub provider.  The rich WDAC + AppLocker backend lives
+/// in `sda-app-control::wdac`; this PAL-level stub reports
 /// [`AppControlMode::Disabled`] and accepts policies without
 /// forwarding them to a real backend.
 #[cfg(target_os = "windows")]
 pub mod windows_impl {
     use super::*;
 
-    /// Phase-4 Windows stub for [`AppControlProvider`].
+    /// Windows stub for [`AppControlProvider`].
     #[derive(Debug, Default)]
     pub struct WindowsAppControlProvider;
 
@@ -611,7 +610,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // macOS Santa stub coverage (Task 4.6)
+    // macOS Santa stub coverage
     // -----------------------------------------------------------------
 
     #[cfg(target_os = "macos")]

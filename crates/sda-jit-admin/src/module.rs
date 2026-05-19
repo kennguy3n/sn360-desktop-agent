@@ -1,4 +1,4 @@
-//! Phase 3.2 / 3.3 supervisor task.
+//! JIT-admin supervisor task.
 //!
 //! Wires together
 //! - [`crate::state_machine::StateMachine`],
@@ -109,7 +109,7 @@ pub struct JitAdminHandle {
     pub sender: Option<JitAdminSender>,
 }
 
-/// Phase 3.2 / 3.3 supervisor handle.
+/// JIT-admin supervisor handle.
 pub struct JitAdminModule;
 
 impl JitAdminModule {
@@ -255,7 +255,7 @@ struct Supervisor {
     admin: Arc<dyn AdminManager>,
     bus: EventBus,
     last_heartbeat: Mutex<Option<DateTime<Utc>>>,
-    /// Phase 3.5 drift detector. Compares
+    /// Drift detector.  Compares
     /// [`AdminManager::list_admins`] against the active grant ledger
     /// on `drift_check_interval_secs` cadence and emits a paired
     /// `DeviceControlFinding` + `EvidenceRecord` per discrepancy.
@@ -366,7 +366,7 @@ impl Supervisor {
         now: DateTime<Utc>,
     ) {
         let mut record = GrantRecord::new_requested(id.clone(), requested_by, user, until, now);
-        // Phase 3.7 — build the transition evidence BEFORE the
+        // Build the transition evidence BEFORE the
         // persist so its id is appended to `record.evidence_ids`
         // and survives in the on-disk ledger. `request_received`
         // covers the entry into the grant lifecycle so the audit
@@ -437,7 +437,7 @@ impl Supervisor {
                         return;
                     }
                 };
-                // Phase 3.7 — build evidence BEFORE the persist so
+                // Build evidence BEFORE the persist so
                 // its id lands in `granted.evidence_ids` and the
                 // on-disk ledger reflects the audit chain.
                 let granted_reason = granted.last_reason.clone();
@@ -535,7 +535,7 @@ impl Supervisor {
                 return;
             }
         };
-        // Phase 3.7 — build evidence BEFORE the persist so its id
+        // Build evidence BEFORE the persist so its id
         // lands in `denied.evidence_ids`.
         let denied_reason = denied.last_reason.clone();
         let evidence =
@@ -616,7 +616,7 @@ impl Supervisor {
                 return;
             }
         };
-        // Phase 3.7 — build evidence BEFORE the persist so its id
+        // Build evidence BEFORE the persist so its id
         // lands in `revoked.evidence_ids` (operator / timer /
         // heartbeat-loss / power / boot-sweep all funnel here).
         let revoked_reason = format!("{reason:?}");
@@ -669,7 +669,7 @@ impl Supervisor {
                 return;
             }
         };
-        // Phase 3.7 — build evidence BEFORE the persist so its id
+        // Build evidence BEFORE the persist so its id
         // lands in `expired.evidence_ids` (boot-sweep finalisation
         // of stale Requested/Approved records).
         let evidence = Self::append_transition_evidence(&mut expired, "expired", None);
@@ -683,7 +683,7 @@ impl Supervisor {
         self.emit_evidence(&evidence);
     }
 
-    /// Phase 3.5 drift scan. Calls
+    /// Drift scan.  Calls
     /// [`AdminManager::list_admins`] and feeds the result into the
     /// pure-logic [`DriftDetector`]. For each [`Drift`] entry the
     /// supervisor publishes:
@@ -720,7 +720,7 @@ impl Supervisor {
         }
     }
 
-    /// Phase 3.7 — build a transition evidence record AND wire
+    /// Build a transition evidence record AND wire
     /// its id into the grant's [`GrantRecord::evidence_ids`] audit
     /// chain. Callers MUST persist `record` after calling this so
     /// the appended id survives in the ledger; they then call
@@ -1546,7 +1546,7 @@ mod tests {
         assert!(grn.state.is_terminal());
     }
 
-    /// Phase 3.5 — drift detector finds an externally-added admin
+    /// Drift detector finds an externally-added admin
     /// (mock `AdminManager` returns a user not tracked by any
     /// grant). The supervisor must emit a `DeviceControlFinding`
     /// + paired `EvidenceRecord` on the next `drift_tick`.
@@ -1622,7 +1622,7 @@ mod tests {
         assert_eq!(parsed["evidence"]["drift_kind"], "untracked_admin");
     }
 
-    /// Phase 3.5 — when `list_admins` returns only allow-listed
+    /// When `list_admins` returns only allow-listed
     /// users (root etc.), the drift scan must produce no findings.
     #[tokio::test(flavor = "current_thread")]
     async fn drift_scan_emits_nothing_when_ledger_matches_os() {
@@ -1660,7 +1660,7 @@ mod tests {
         );
     }
 
-    /// Phase 3.7 — every state transition must emit exactly one
+    /// Every state transition must emit exactly one
     /// `EvidenceRecord`. Walks a grant through
     /// Requested → Granted → Revoked and verifies three transition
     /// records appear on the bus (one per transition).
@@ -1737,7 +1737,7 @@ mod tests {
         );
     }
 
-    /// Phase 3.7 — the deny path produces exactly one transition
+    /// The deny path produces exactly one transition
     /// evidence record (`operation = "denied"`).
     #[tokio::test(flavor = "current_thread")]
     async fn deny_path_emits_evidence_record() {

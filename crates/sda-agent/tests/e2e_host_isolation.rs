@@ -1,4 +1,4 @@
-//! Phase E3.12 — hermetic end-to-end coverage for the EDR host
+//! Hermetic end-to-end coverage for the EDR host
 //! isolation pipeline.
 //!
 //! This suite stitches together:

@@ -1,20 +1,18 @@
-//! Phase 1 Device Control end-to-end suite (task 1.17).
+//! Device Control end-to-end suite.
 //!
-//! Exercises the five canonical `docs/device-control.md` § 1 scenarios end-to-
-//! end on top of the in-process [`EventBus`]:
+//! Exercises the five canonical `docs/device-control.md` § 1 scenarios
+//! end-to-end on top of the in-process [`EventBus`]:
 //!
 //! 1. Admin / root inventory produces `Finding` events
 //!    (`DeviceControlFinding`).
 //! 2. Posture snapshots emit `DevicePostureState` events.
 //! 3. The `sda-enhanced-inventory` running-software bridge emits
 //!    `SoftwareInventoryDelta` events when `device_control.enabled =
-//!    true` (task 1.10).
-//! 4. The `sda-agent-vitals` heartbeat emits `AgentVitals` events
-//!    (task 1.12).
+//!    true`.
+//! 4. The `sda-agent-vitals` heartbeat emits `AgentVitals` events.
 //! 5. The Device Control router emits paired
 //!    `DeviceControlActionResult` + `EvidenceRecord` events for both
-//!    accepted-but-not-implemented Phase-1 jobs and refused jobs
-//!    (task 1.13).
+//!    accepted (skipped-ack) jobs and refused jobs.
 //!
 //! Plus the load-bearing **idle-footprint** invariant: with
 //! `modules.device_control.enabled = false`, none of the Device
@@ -22,7 +20,7 @@
 //!
 //! The harness is intentionally hermetic — every scenario is driven
 //! through the same public APIs the supervisor wires up in
-//! `sda-agent::main`. No real Wazuh manager, network, or OS
+//! `sda-agent::main`. No real server, network, or OS
 //! enumeration is required, so `make e2e-device-control` runs in
 //! milliseconds on every CI host.
 
@@ -192,7 +190,7 @@ async fn admin_inventory_emits_device_control_finding() {
             assert_eq!(got, payload);
             // Re-parse the canonical JSON to confirm it round-trips
             // and the count rendering produced the canonical English
-            // text mandated by Task 1.11.
+            // text mandated by the spec.
             let f: Finding = serde_json::from_str(&got).expect("decode finding");
             assert_eq!(f.kind, FindingKind::PermanentAdmin);
             assert!(
@@ -209,7 +207,7 @@ async fn admin_inventory_emits_device_control_finding() {
 
 /// `docs/device-control.md` § 1 — "4 laptops haven't checked in for 14+ days"
 /// is the missing-device case; here we exercise the posture surface
-/// that feeds it. The posture module's Phase 2 loop will publish
+/// that feeds it.  The posture module's loop publishes
 /// canonical-JSON snapshots; this test pins the wire format the
 /// loop must produce.
 #[tokio::test]
@@ -258,7 +256,7 @@ async fn posture_snapshot_emits_device_posture_state() {
 
 /// `docs/device-control.md` § 1 — "Software not on your approved list was
 /// installed on 3 devices" — feeds off the running-software delta
-/// bridge added by Task 1.10. The unit tests in
+/// bridge.  The unit tests in
 /// `sda-enhanced-inventory` cover the actual bridging logic; here
 /// we verify the bus-side wire shape so any future renames or
 /// payload changes break this test.
@@ -399,13 +397,13 @@ async fn router_emits_action_result_and_evidence_record() {
     };
     let mut chain = EvidenceChain::new();
 
-    // Accepted Phase-1 job: emits Skipped ack + linked evidence.
+    // Accepted job: emits Skipped ack + linked evidence.
     let job = happy_signed_job(
         ActionKind::UpdatePackage,
         json!({"package_id": "p", "to_version": "1", "channel": "stable"}),
     );
-    // The router gate-keeps Phase 1 with `Phase1Stub`, which
-    // refuses every signature. We use a local accepting hook here
+    // The router gate-keeps with `Phase1Stub`, which refuses
+    // every signature.  We use a local accepting hook here
     // (matching the pattern in router unit tests) so the E2E flow
     // exercises both accepted and refused branches end-to-end.
     struct AcceptingHooks;
@@ -505,7 +503,7 @@ async fn router_emits_action_result_and_evidence_record() {
 
 /// `docs/device-control.md` § 11 — with `modules.device_control.enabled = false`,
 /// the running-software bridge must NOT mirror inventory snapshots
-/// onto the Device Control event surface. Re-validates Task 1.10's
+/// onto the Device Control event surface.  Re-validates the
 /// `device_control_enabled` gate end-to-end.
 ///
 /// This is the load-bearing check: the agent's idle footprint with

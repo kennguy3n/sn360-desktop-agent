@@ -119,7 +119,7 @@ impl Finding {
 /// Validate that `evidence` matches the per-kind shape table in
 /// `docs/wire-protocols/device-control.md` § 5.3.
 ///
-/// Phase 1 enforces *structural* presence of the required keys
+/// Enforces *structural* presence of the required keys
 /// (e.g. `package` for `OutdatedApp`), not full type correctness —
 /// the control plane Risk Engine is the canonical validator. We
 /// accept extra fields here because the JSON blob may carry forward
@@ -149,7 +149,7 @@ pub(crate) fn validate_evidence_shape(
         FindingKind::VulnerabilityMatch => &["cve", "package", "version"],
         FindingKind::AdminDrift => &["drift_kind", "user"],
         FindingKind::DeviceControlBundleVerificationFailure => &["reason"],
-        // --- Desktop MDM findings (Phase M1–M3) ---
+        // --- Desktop MDM findings ---
         FindingKind::DiskEncryptionOff => &["detected_at"],
         FindingKind::FirewallOff => &["detected_at"],
         FindingKind::ScreenLockOff => &["detected_at"],
@@ -184,7 +184,7 @@ pub fn render_plain_english(kind: FindingKind, evidence: &serde_json::Value) -> 
         v.get(key)?.as_i64()
     }
     match kind {
-        // --- Desktop MDM findings (Phase M1–M3) ---
+        // --- Desktop MDM findings ---
         FindingKind::DiskEncryptionOff => {
             "Disk encryption is OFF — enable BitLocker / FileVault / LUKS.".to_string()
         }

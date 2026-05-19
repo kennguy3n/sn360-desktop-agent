@@ -1,10 +1,10 @@
 //! osquery sidecar lifecycle (spawn / health-check / shutdown).
 //!
-//! Phase 1 only ships the *resolution* and *probe* primitives —
+//! Currently ships only the *resolution* and *probe* primitives —
 //! we look up the configured binary path, decide whether the
 //! sidecar can be launched at all, and emit a structured warning
 //! if it can't. Actually spawning the child process and connecting
-//! to its extension socket lands in Phase 2 alongside the executor.
+//! to its extension socket is not yet wired.
 //!
 //! Splitting this out now lets the [`crate::QueryModule::start`]
 //! supervisor make the right scheduling decision (idle vs. active

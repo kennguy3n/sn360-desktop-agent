@@ -1,5 +1,5 @@
 //! `sda-agent-vitals` — periodic agent-vitals heartbeat for the
-//! SN360 Desktop Agent (Phase 1).
+//! SN360 Desktop Agent.
 //!
 //! This crate emits [`EventKind::AgentVitals`](sda_event_bus::EventKind::AgentVitals)
 //! events every `interval_secs` (default 60s; `Priority::Low` per

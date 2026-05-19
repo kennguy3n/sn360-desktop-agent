@@ -1,4 +1,4 @@
-//! Host isolation module (Phase E3 of the EDR Parity workstream).
+//! Host isolation module (part of the EDR Parity workstream).
 //!
 //! Consumes `IsolateHost` / `UnisolateHost` `SignedActionJob`s,
 //! validates them via the existing 10-step signed-job pipeline
@@ -499,7 +499,7 @@ fn parse_extra_allow_ips(strings: &[String]) -> Result<Vec<IpNet>, String> {
 ///    [`sda_core::config::HostIsolationConfig::always_allow_dns`]; on
 ///    Linux we parse `/etc/resolv.conf`, on Windows / macOS the
 ///    discovery is a TODO that returns an empty list (the per-OS
-///    helper lands with the Phase E3 production follow-ups).
+///    helper lands with the production follow-ups).
 ///
 /// Loopback is appended unconditionally by the PAL
 /// (`normalize_allow_ips`); we do not double-add it here.  The
@@ -548,7 +548,7 @@ pub fn build_allow_ips(cfg: &HostIsolationConfig, extras: &[IpNet]) -> Vec<IpNet
 ///   The Windows path will iterate the registered network adapters'
 ///   `NameServer` values; the macOS path will read `scutil --dns` or
 ///   the equivalent SystemConfiguration API.  Both land with the
-///   Phase E3 per-OS production follow-ups; until then this returns
+///   per-OS production follow-ups; until then this returns
 ///   an empty list and operators on those platforms should add their
 ///   resolvers explicitly via `extra_allow_ips` on the isolation job
 ///   (or via `control_plane_cidrs` if they prefer them config-driven).
@@ -992,7 +992,7 @@ mod tests {
         let _ = handle.task.await;
     }
 
-    /// Regression for the Phase E3 review finding: enforcing the
+    /// Regression: enforcing the
     /// non-empty `control_plane_cidrs` invariant documented on
     /// `HostIsolationConfig::control_plane_cidrs`.  Isolating with
     /// only loopback + DNS in the allow-list severs the management

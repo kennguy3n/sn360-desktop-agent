@@ -1,4 +1,4 @@
-//! Revocation watchdog (Phase 3.3).
+//! Revocation watchdog.
 //!
 //! See `docs/device-control.md` § 7 (Just-in-Time admin) — revocation triggers:
 //!
@@ -7,9 +7,9 @@
 //!    from for `heartbeat_loss_secs`, every active grant is
 //!    revoked.
 //! 3. **Power transition** — suspend / sleep / lock both revoke
-//!    immediately (Phase 3 MVP only handles transitions delivered
+//!    immediately (the current implementation only handles transitions delivered
 //!    through [`PowerEvent`]; deeper OS-event subscription lands in
-//!    Phase 4).
+//!    in a follow-up).
 //! 4. **Boot-time idempotent revoke** — on agent startup, every
 //!    grant whose `until` is already in the past is force-revoked.
 //!

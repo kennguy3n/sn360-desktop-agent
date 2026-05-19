@@ -1,4 +1,4 @@
-//! HTTP/2 transport primitives (Phase 5.6 / proposal § 8.2).
+//! HTTP/2 transport primitives (proposal § 8.2).
 //!
 //! This module is the building block for the opt-in HTTP/2 uplink to
 //! an SDA-aware server. It exposes [`build_client_config`], which

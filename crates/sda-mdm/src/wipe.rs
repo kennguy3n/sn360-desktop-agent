@@ -1,4 +1,4 @@
-//! Remote-wipe sub-module (Phase M2.1).
+//! Remote-wipe sub-module.
 //!
 //! Handles inbound [`sda_device_control::signed_job::SignedActionJob`]s
 //! whose [`sda_device_control::types::ActionKind`] is `RemoteWipe`.
@@ -363,9 +363,8 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn handle_defers_when_wait_for_ac_and_on_battery() {
-        // Regression test for the wait_for_ac bug Devin Review
-        // flagged as #15: per-OS PAL `wipe()` impls ignored
-        // `WipeOpts.wait_for_ac`. The handler now short-circuits
+        // Regression: per-OS PAL `wipe()` impls ignored
+        // `WipeOpts.wait_for_ac`.  The handler now short-circuits
         // at this layer.
         let (bus, _srv) = EventBus::new(8, 8);
         let wipes = Arc::new(AtomicUsize::new(0));

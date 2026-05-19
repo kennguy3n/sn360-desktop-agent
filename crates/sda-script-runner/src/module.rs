@@ -1,11 +1,11 @@
-//! Phase 2.7 script-runner supervisor task.
+//! Script-runner supervisor task.
 //!
 //! The supervisor wires together [`ScriptRunner`] (the engine) with
 //! the agent's [`EventBus`] (where outcomes are emitted) and an
 //! [`mpsc`] request channel (where the device-control router pushes
 //! verified [`RunScript`] jobs).
 //!
-//! In Phase 2.7 (MVP) the request channel is exposed via
+//! The request channel is exposed via
 //! [`ScriptRunnerHandle::sender`] so the wiring in
 //! `crates/sda-agent/src/main.rs` can hand it to the
 //! `sda-device-control` router. The router posts a
@@ -40,7 +40,7 @@ use crate::runner::{ScriptOutcome, ScriptRequest, ScriptRunner, ScriptRunnerConf
 /// absorb bursts.
 const REQUEST_QUEUE_DEPTH: usize = 16;
 
-/// Phase 2.7 supervisor handle for the script-runner module.
+/// Supervisor handle for the script-runner module.
 pub struct ScriptRunnerModule;
 
 /// Caller-side handle for the script-runner request queue.
@@ -193,7 +193,7 @@ impl ScriptRunnerModule {
 ///
 /// This is intentionally minimal compared to the full
 /// `sda_device_control::EvidenceRecord` — the script runner does not
-/// own a Phase-1 chain, so we ship a self-contained payload that the
+/// own a chain, so we ship a self-contained payload that the
 /// server can promote into the evidence chain. Folding script runs
 /// into the device-wide evidence chain is a follow-up.
 #[derive(Debug, Clone, Serialize, Deserialize)]

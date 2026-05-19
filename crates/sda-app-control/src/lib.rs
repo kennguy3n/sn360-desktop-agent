@@ -1,4 +1,4 @@
-//! Application-control orchestration module (Phase 4, Task 4.5).
+//! Application-control orchestration module.
 //!
 //! Sits between `sda-pal::app_control` (the OS-level binding to
 //! Santa / WDAC / dm-verity) and the agent supervisor. It owns:
@@ -6,9 +6,9 @@
 //! * **Policy verification** ([`policy`]): Ed25519 signature
 //!   validation + per-rule canonical-hash check, layered on top of
 //!   [`sda_pal::app_control::verify_policy`].
-//! * **Monitor mode** ([`monitor`]): the Phase-4 default. Allow /
-//!   deny decisions are LOGGED but never block. Required by
-//!   `docs/device-control.md` § 8 ("Phase 4 ships in monitor-only mode").
+//! * **Monitor mode** ([`monitor`]): the default. Allow / deny
+//!   decisions are LOGGED but never block.  Required by
+//!   `docs/device-control.md` § 8 ("ships in monitor-only mode").
 //! * **Enforce mode** ([`enforce`]): policy is pushed to the OS
 //!   backend so unauthorized binaries are blocked. Requires explicit
 //!   tenant opt-in and a [`enforce::DualControlRollback`] handle so

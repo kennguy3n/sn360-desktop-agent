@@ -1,8 +1,8 @@
 //! Minimal client for the osquery extension socket.
 //!
-//! Phase 1 ships a *placeholder* client that knows the wire format
+//! Ships a *placeholder* client that knows the wire format
 //! but does not actually open the socket — the executor lands in
-//! Phase 2 alongside JIT admin and software-management. The shape
+//! alongside JIT admin and software-management.  The shape
 //! is fully defined here so unit tests for [`crate::scheduler`] can
 //! mock it out without touching the real Thrift transport.
 
@@ -36,7 +36,7 @@ pub struct QueryResultSet {
 pub enum ClientError {
     /// The osquery extension socket could not be reached.
     ///
-    /// Phase 1 callers map this onto a warning + `Skipped`
+    /// Callers map this onto a warning + `Skipped`
     /// scheduling decision so a missing osquery binary doesn't
     /// crash the agent.
     #[error("osquery extension socket unavailable: {0}")]
@@ -59,10 +59,10 @@ pub trait OsqueryClient: Send + Sync {
     fn execute(&self, query_id: &str, sql: &str) -> Result<QueryResultSet, ClientError>;
 }
 
-/// Phase 1 placeholder: always returns
+/// Placeholder: always returns
 /// [`ClientError::Unavailable`].
 ///
-/// Replaced in Phase 2 by a real `osquery_thrift::Client` wired up
+/// Will be replaced by a real `osquery_thrift::Client` wired up
 /// to the spawned sidecar process. The scheduler treats the
 /// `Unavailable` error as a soft failure and emits a Low-priority
 /// warning event rather than crashing the agent.
@@ -74,7 +74,7 @@ pub struct UnavailableClient {
 impl OsqueryClient for UnavailableClient {
     fn execute(&self, _query_id: &str, _sql: &str) -> Result<QueryResultSet, ClientError> {
         Err(ClientError::Unavailable(if self.reason.is_empty() {
-            "osquery sidecar not yet wired (Phase 2)".into()
+            "osquery sidecar not yet wired".into()
         } else {
             self.reason.clone()
         }))

@@ -1,4 +1,4 @@
-//! Phase E1.8 — hermetic end-to-end coverage for the EDR process
+//! Hermetic end-to-end coverage for the EDR process
 //! telemetry pipeline.
 //!
 //! This suite stitches together:

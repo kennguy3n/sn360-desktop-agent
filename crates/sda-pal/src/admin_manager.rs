@@ -1,21 +1,19 @@
 //! Admin / root account inventory and JIT-grant management.
 //!
 //! This module is the cross-platform PAL surface for Device Control's
-//! admin/root review and JIT-admin (Phase 3) features. The
+//! admin/root review and JIT-admin features.  The
 //! [`AdminManager`] trait is implemented per OS via `cfg`-gated impls
 //! that ship in this crate; callers (e.g. `sda-device-control`) should
 //! always go through the trait and never reach for the OS-specific
 //! types directly.
 //!
-//! Phase 1 scope: `list_admins()` is functional on every supported
-//! OS.
-//!
-//! Phase 3 (this file): `grant_admin` / `revoke_admin` /
-//! `observed_grants` issue real time-boxed admin grants on every
-//! supported platform and persist them in a JSON state file under
-//! the agent's cache directory. The actual privileged commands are
-//! invoked through a [`CommandRunner`] indirection so that the per-OS
-//! grant/revoke logic can be unit-tested without root.
+//! `list_admins()` is functional on every supported OS.
+//! `grant_admin` / `revoke_admin` / `observed_grants` issue real
+//! time-boxed admin grants on every supported platform and persist
+//! them in a JSON state file under the agent's cache directory.
+//! The actual privileged commands are invoked through a
+//! [`CommandRunner`] indirection so that the per-OS grant/revoke
+//! logic can be unit-tested without root.
 //!
 //! See `docs/architecture.md` § 4.1 (Trait surface) for the trait
 //! definition and `docs/wire-protocols/device-control.md` § 5
@@ -40,8 +38,8 @@ pub enum AdminError {
     /// I/O error invoking the OS helper (e.g. binary not on PATH).
     #[error("admin manager IO error: {0}")]
     Io(#[from] io::Error),
-    /// Operation is not implemented for this phase / platform yet.
-    #[error("not implemented in Phase 1")]
+    /// Operation is not implemented on this platform yet.
+    #[error("not implemented on this platform")]
     NotImplemented,
     /// Caller-supplied input failed validation (bad username, etc.).
     #[error("admin manager input invalid: {0}")]
@@ -55,8 +53,8 @@ pub enum AdminError {
 ///
 /// `username` is the local-OS-visible login (UTF-8). `source`
 /// distinguishes `"local"` vs. `"domain"` (Windows AD) vs.
-/// `"cloud"` (Entra ID, Jamf Connect, …) — Phase 1 only emits
-/// `"local"` and (on Windows) `"domain"`. `since` is the best-effort
+/// `"cloud"` (Entra ID, Jamf Connect, …) — currently only `"local"`
+/// and (on Windows) `"domain"` are emitted.  `since` is the best-effort
 /// observation timestamp; agents that cannot derive it from event-log
 /// metadata leave it `None`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -89,9 +87,8 @@ pub struct UserRef {
 
 /// Opaque handle to an active or historical JIT-admin grant.
 ///
-/// Phase 3 will lookup `id` in a server-issued grant ledger to revoke
-/// the grant or audit it; Phase 1 only ships the type so downstream
-/// callers can compile against the final trait shape.
+/// The agent looks up `id` in a server-issued grant ledger to
+/// revoke the grant or audit it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GrantHandle {
     /// Server-issued, opaque grant ID.
@@ -105,22 +102,19 @@ pub struct GrantHandle {
 /// Cross-platform admin/root account inventory and JIT-admin control.
 ///
 /// The full trait is the binding spec from
-/// `docs/architecture.md` § 4.1 (Trait surface). Phase 1 only requires
-/// `list_admins` to be functional; the grant/revoke/observed methods
-/// land in Phase 3.
+/// `docs/architecture.md` § 4.1 (Trait surface).
 pub trait AdminManager: Send + Sync {
     /// Enumerate every account that currently has admin/root rights
     /// on this device.
     fn list_admins(&self) -> Result<Vec<AdminAccount>, AdminError>;
 
-    /// Grant `user` admin rights until `until`. Phase 3.
+    /// Grant `user` admin rights until `until`.
     fn grant_admin(&self, user: &UserRef, until: DateTime<Utc>) -> Result<GrantHandle, AdminError>;
 
-    /// Revoke a previously-issued grant. Phase 3.
+    /// Revoke a previously-issued grant.
     fn revoke_admin(&self, handle: &GrantHandle) -> Result<(), AdminError>;
 
     /// Return every grant the agent has observed on this device.
-    /// Phase 3.
     fn observed_grants(&self) -> Result<Vec<GrantHandle>, AdminError>;
 }
 
@@ -1159,7 +1153,7 @@ mod tests {
     #[test]
     fn admin_error_not_implemented_message() {
         let err = AdminError::NotImplemented;
-        assert_eq!(err.to_string(), "not implemented in Phase 1");
+        assert_eq!(err.to_string(), "not implemented on this platform");
     }
 
     #[test]
@@ -1415,11 +1409,11 @@ bin:x:2:2:bin:/bin:/usr/sbin/nologin
         /// Round 7 ledger-failure path; no `Granted` record is
         /// persisted, so the watchdog branches (timer / heartbeat
         /// / power / boot sweep) cannot revoke the orphan; drift
-        /// detection (Phase 3.5) is not yet implemented.
+        /// detection is not yet implemented.
         ///
         /// This test simulates step 3 by pre-populating the state
         /// file with garbage so `read_grants` returns
-        /// `StateCorrupt`. With the fix in place the supervisor's
+        /// `StateCorrupt`.  With the fix in place the supervisor's
         /// `grant_admin` call still fails (correct behaviour from
         /// the supervisor's perspective) but the sudoers drop-in
         /// is removed before returning, so the device stays in a
@@ -1510,11 +1504,11 @@ bin:x:2:2:bin:/bin:/usr/sbin/nologin
         /// `grant_admin` so it never even reaches the Round 7
         /// ledger-failure path; no `Granted` record is persisted,
         /// the watchdog branches cannot revoke the orphan, and
-        /// drift detection (Phase 3.5) is not yet implemented.
+        /// drift detection is not yet implemented.
         ///
         /// This test simulates step 2 by pre-populating the state
         /// file with garbage so `read_grants` returns
-        /// `StateCorrupt`. With the fix in place the supervisor's
+        /// `StateCorrupt`.  With the fix in place the supervisor's
         /// `grant_admin` call still fails, but the reverse
         /// `dseditgroup -d` is issued before returning so the
         /// device stays in a safe state.
@@ -1608,7 +1602,7 @@ The command completed successfully.
             assert_eq!(admins[0].source, "local");
             assert_eq!(admins[1].username, "CONTOSO\\alice");
             assert_eq!(admins[1].source, "domain");
-            // Regression test (PR #4 review): `.\bob` is the Windows
+            // Regression test: `.\bob` is the Windows
             // shorthand for a *local* account; the parser previously
             // misclassified it as `domain` because the simple
             // backslash-presence test ignored the special "." prefix.
@@ -1684,8 +1678,7 @@ The command completed successfully.
         /// sees `Err` from `grant_admin` so it never even reaches
         /// the Round 7 ledger-failure path; no `Granted` record is
         /// persisted, the watchdog branches cannot revoke the
-        /// orphan, and drift detection (Phase 3.5) is not yet
-        /// implemented.
+        /// orphan, and drift detection is not yet implemented.
         ///
         /// This test simulates step 2 by pre-populating the state
         /// file with garbage so `read_grants` returns

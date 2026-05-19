@@ -1,4 +1,4 @@
-//! USB / removable-media policy enforcement (Phase D2).
+//! USB / removable-media policy enforcement.
 //!
 //! Implements the agent-side half of the SN360 Device Control
 //! workstream defined in [`docs/device-control.md`][prop].
@@ -409,7 +409,7 @@ pub struct Decision {
 
 impl Decision {
     /// Build the canonical-JSON audit envelope expected by the
-    /// `sn360-device-control` Wazuh decoder. The structure is:
+    /// `sn360-device-control` decoder. The structure is:
     ///
     /// ```json
     /// {

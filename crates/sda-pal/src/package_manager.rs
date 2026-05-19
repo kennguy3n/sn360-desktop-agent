@@ -1,5 +1,5 @@
 //! Cross-platform package management — the PAL surface that backs
-//! the Phase 2 `sda-software` module.
+//! the `sda-software` module.
 //!
 //! Mirrors `docs/architecture.md` § 4 (PAL) and
 //! `docs/device-control.md` § 2.1 (PAL traits). Every concrete
@@ -431,7 +431,7 @@ pub mod macos_impl {
     ///
     /// Listing uses `pkgutil --pkgs` (which enumerates installer
     /// receipts under `/var/db/receipts/`). Install/update/uninstall
-    /// for Phase 2.3 are wired against the macOS native `installer`
+    /// are wired against the macOS native `installer`
     /// CLI; the orchestration lives in `sda-software` which is
     /// responsible for downloading the artefact, verifying the
     /// pinned SHA-256, and handing the local `.pkg` path through.
@@ -526,7 +526,7 @@ pub mod macos_impl {
             }
             // Delegate the actual file removal to the orchestrator;
             // returning the parsed list here would balloon the
-            // surface area of PackageManager. For Phase 2 we mark
+            // surface area of PackageManager. We mark
             // uninstall as "issued"; the orchestrator records the
             // ActionResult.
             Ok(())

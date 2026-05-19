@@ -1,4 +1,4 @@
-//! Windows WDK minifilter backend (Phase E6.1).
+//! Windows WDK minifilter backend.
 //!
 //! Production architecture (NOT exercised in CI — requires the
 //! Windows Driver Kit + WHQL signing + SYSTEM privilege):
@@ -18,7 +18,7 @@
 //!
 //! Build pipeline lives in `packaging/windows-driver/`; see
 //! `docs/device-control/PRODUCTISATION-WINDOWS.md` for the WHCP
-//! signing flow that this minifilter shares with the Phase D2.3
+//! signing flow that this minifilter shares with the USB-policy
 //! device-control driver.
 //!
 //! In CI we never load a real driver. The [`MockWindowsKernelChannel`]
@@ -113,7 +113,7 @@ impl KernelChannel for MockWindowsKernelChannel {
 /// Attempt to attach to the real `\\.\\pipe\\sn360-kernel` named
 /// pipe. Without the `kernel-windows` feature this always returns
 /// [`AttachError::NotPresent`] — the runtime supervisor falls back
-/// to the user-mode ETW backend from Phase E1.
+/// to the user-mode ETW backend.
 pub fn attach_to_named_pipe() -> AttachResult<Box<dyn KernelChannel>> {
     #[cfg(all(feature = "kernel-windows", target_os = "windows"))]
     {

@@ -71,8 +71,8 @@ pub struct AgentVersion {
 
 /// Closed enumeration of finding kinds.
 ///
-/// `docs/wire-protocols/device-control.md` § 3.4. Phase 1 shipped the first eight variants;
-/// `AdminDrift` was added in Phase 3 to surface JIT-admin drift
+/// `docs/wire-protocols/device-control.md` § 3.4. The first eight variants shipped initially;
+/// `AdminDrift` was added later to surface JIT-admin drift
 /// findings emitted by `sda-jit-admin::drift::DriftDetector`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -90,13 +90,13 @@ pub enum FindingKind {
     /// `sda-jit-admin::drift::DriftDetector` per `docs/device-control.md` § 7.
     AdminDrift,
     /// USB / removable-media policy bundle verification failure
-    /// (Phase D2.7). Emitted when a freshly-pulled bundle slice
+    /// (USB policy).  Emitted when a freshly-pulled bundle slice
     /// cannot be parsed or its metadata sentinel is missing —
     /// the agent keeps the previously-applied policy set in
     /// effect (closed-by-default) and surfaces the failure as a
     /// high-severity finding so the dashboard can alert.
     DeviceControlBundleVerificationFailure,
-    // --- Desktop MDM findings (Phase M1–M3) ---
+    // --- Desktop MDM findings ---
     DiskEncryptionOff,
     FirewallOff,
     ScreenLockOff,
@@ -124,7 +124,7 @@ pub enum ActionKind {
     StartRemoteSupport,
     EndRemoteSupport,
     QueryAdHoc,
-    // --- Desktop MDM actions (Phase M1–M3) ---
+    // --- Desktop MDM actions ---
     RemoteWipe,
     RemoteLock,
     EnterLostMode,
@@ -135,7 +135,7 @@ pub enum ActionKind {
     EnableDiskEncryption,
     EnableFirewall,
     SetScreenLock,
-    // --- EDR Parity actions (Phase E3) ---
+    // --- EDR Parity actions ---
     IsolateHost,
     UnisolateHost,
 }
@@ -181,11 +181,11 @@ pub enum JobRefused {
     ArgsParseError,
     /// Catch-all for refusals not covered above.
     PreconditionFailed,
-    /// Phase 1 placeholder: the action is recognised but the
-    /// executor sub-module is not yet implemented (e.g. Phase 3
+    /// Placeholder: the action is recognised but the
+    /// executor sub-module is not yet implemented (e.g. JIT-admin
     /// JIT admin grant).
     NotImplemented,
-    // --- Desktop MDM refusals (Phase M2) ---
+    // --- Desktop MDM refusals ---
     /// Dual-control wipe: the inbound job carried fewer than two
     /// distinct approver signatures.
     WipeRequiresDualControl,

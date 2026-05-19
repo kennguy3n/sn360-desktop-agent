@@ -90,7 +90,7 @@ pub const DEFAULT_BUNDLE_METADATA_PATH: &str = "/var/lib/sn360-desktop-agent/bun
 /// (mtime-based comparison).
 pub const WATCHER_INTERVAL: Duration = Duration::from_secs(5);
 
-/// Top-level Phase D2 module.
+/// Top-level USB policy module.
 pub struct UsbPolicyModule;
 
 impl UsbPolicyModule {

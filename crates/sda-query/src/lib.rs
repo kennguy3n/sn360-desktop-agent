@@ -1,18 +1,17 @@
 //! `sda-query` — osquery sidecar wrapper for the SN360 Desktop
-//! Agent (Phase 1 MVP).
+//! Agent.
 //!
 //! The Query module wraps an off-process [osquery] daemon (the
 //! "sidecar") so the agent can run scheduled SQL queries against
 //! the host without re-implementing the per-OS inventory logic
-//! itself. Phase 1 lands the *scaffolding* — the supervisor task,
-//! the [`scheduler::Scheduler`], the resource budget, and the
-//! probe code that decides whether a sidecar can even be launched.
+//! itself.  This crate ships the supervisor task, the
+//! [`scheduler::Scheduler`], the resource budget, and the probe
+//! code that decides whether a sidecar can even be launched.
 //!
 //! Spawning the child process and connecting to its Thrift
-//! extension socket is Phase 2 work and lives behind
-//! [`client::UnavailableClient`] for now. See
-//! `docs/device-control.md` § 2 (Modules — `sda-query`) for the
-//! delivery plan.
+//! extension socket is not yet wired; see
+//! [`client::UnavailableClient`].  See `docs/device-control.md`
+//! § 2 (Modules — `sda-query`) for the delivery plan.
 //!
 //! [osquery]: https://osquery.io/
 
@@ -30,17 +29,16 @@ use sda_core::signal::ShutdownSignal;
 use sda_event_bus::EventBus;
 use tracing::{info, warn};
 
-/// Phase 1 entry point.
+/// Query module entry point.
 ///
-/// In Phase 1 the supervisor task only logs its status and parks
-/// on the shared shutdown signal. The real loop — probe sidecar,
-/// spawn it, run scheduled queries, emit
-/// `EventKind::QueryResult` events — lands in Phase 2 once the
-/// extension-socket client is ready.
+/// Currently the supervisor task logs its status and parks on the
+/// shared shutdown signal.  The real loop — probe sidecar, spawn
+/// it, run scheduled queries, emit `EventKind::QueryResult`
+/// events — will land once the extension-socket client is ready.
 ///
-/// Crucially, when `modules.query.enabled = false` (the default),
-/// this task is never spawned at all. The agent's idle footprint
-/// is unchanged.
+/// When `modules.query.enabled = false` (the default), this task
+/// is never spawned at all.  The agent's idle footprint is
+/// unchanged.
 pub struct QueryModule;
 
 impl QueryModule {
@@ -50,8 +48,8 @@ impl QueryModule {
         mut shutdown: ShutdownSignal,
     ) -> ModuleHandle {
         info!(
-            "query module starting (Phase 1 scaffold; \
-             scheduler online, sidecar exec lands in Phase 2)"
+            "query module starting (scaffold; \
+             scheduler online, sidecar exec not yet wired)"
         );
         let task = tokio::spawn(async move {
             shutdown.wait().await;
@@ -78,9 +76,9 @@ mod tests {
 
     #[test]
     fn unavailable_path_is_handled_gracefully() {
-        // Mirrors task 1.5's "module gracefully handles missing
-        // osquery binary" requirement: probe + Unavailable client
-        // both surface a structured error rather than a panic.
+        // The module gracefully handles a missing osquery binary:
+        // probe + Unavailable client both surface a structured
+        // error rather than a panic.
         let r = probe(Some(Path::new("/path/that/does/not/exist")));
         assert!(matches!(r, ProbeResult::Missing { .. }));
 

@@ -1,31 +1,31 @@
-//! 10-step signed-job validation pipeline.
+//! Signed-job validation pipeline.
 //!
 //! Mirrors `docs/device-control.md` § 4 (Signed-job lifecycle) and
 //! `docs/wire-protocols/device-control.md` § 7.4 (Validation
 //! rules).
 //!
-//! Phase 1 scope: this module implements the *deterministic* steps
-//! of the pipeline (parse, schema version, window check, tenant /
-//! device match, action allow-list, args parse). The
-//! infrastructure-dependent steps — Ed25519 signature verification
-//! against a rotation set, pricing-tier lookup, and maintenance /
-//! quiet-hours window evaluation — are surfaced as trait hooks so
-//! Phase 2/3 can plug in real implementations without changing the
-//! pipeline layout.
+//! The pipeline implements both the deterministic steps (parse,
+//! schema version, window check, tenant / device match, action
+//! allow-list, args parse) and the infrastructure-dependent steps
+//! (Ed25519 signature verification against a rotation set, tier
+//! lookup, maintenance-window evaluation) through pluggable
+//! [`JobValidationHooks`].  [`ProductionHooks`] is the real
+//! implementation backed by an Ed25519 key-rotation set;
+//! [`Phase1Stub`] is a conservative placeholder that rejects all
+//! signatures (useful for unit tests exercising other pipeline
+//! steps in isolation).
 //!
 //! The pipeline returns `Result<(), JobRefused>`; on `Err(reason)`
 //! the caller MUST emit an `ActionResult` with `status = Refused`
-//! and `refused_reason = Some(reason)` per `docs/wire-protocols/device-control.md` § 8.3.
+//! and `refused_reason = Some(reason)` per
+//! `docs/wire-protocols/device-control.md` § 8.3.
 //!
 //! This module also exposes [`process_job`], the higher-level entry
-//! point that the agent's job dispatcher calls. `process_job` runs
+//! point that the agent's job dispatcher calls.  `process_job` runs
 //! the validation pipeline, builds an [`ActionResult`] (refused or
-//! Phase-1 no-op ack), then chains an [`EvidenceRecord`] off the
+//! skipped-ack), then chains an [`EvidenceRecord`] off the
 //! supplied [`EvidenceChain`] and publishes both onto the event
-//! bus. Phase 1 has no per-`ActionKind` executor — accepted jobs
-//! ack with `status = Skipped` and `exit_code = None` so the audit
-//! chain stays continuous even before the install / JIT / script
-//! orchestrators land in Phase 2/3 (see task 1.13).
+//! bus.
 
 use chrono::{DateTime, Duration, Utc};
 use ed25519_dalek::Verifier;
@@ -46,20 +46,16 @@ use crate::windows::{MaintenanceWindowPolicy, WindowDecision};
 /// § 7.4 step 5).
 pub const CLOCK_SKEW_TOLERANCE: Duration = Duration::seconds(60);
 
-/// Hooks the router calls to delegate decisions that depend on
-/// infrastructure not built in Phase 1.
+/// Hooks the router calls to delegate infrastructure-dependent
+/// decisions.
 ///
-/// Phase 1 callers wire up [`Phase1Stub`], which:
+/// [`ProductionHooks`] is backed by a real Ed25519 key rotation
+/// set from the TRDS bundle.  [`Phase1Stub`] is a conservative
+/// placeholder that:
 /// - rejects every signature with [`JobRefused::UnknownKeyId`]
-///   unless the test stub overrides it;
-/// - permits the maintenance window for *all* actions (so unit
-///   tests for steps 1–8 and 10 can fire);
-/// - allows every `ActionKind` (the action-orchestration tier check
-///   lives in `sn360-security-platform`).
-///
-/// Phase 2 will replace `Phase1Stub` with a real `KeyStore`
-/// implementation; Phase 3 will plug the maintenance / quiet-hours
-/// evaluator from `crates/sda-core`.
+///   (safe default for test harnesses);
+/// - permits the maintenance window for *all* actions;
+/// - allows every `ActionKind`.
 pub trait JobValidationHooks {
     /// Step 3 + 4: look up `key_id` in the local rotation set and
     /// verify the Ed25519 signature over the canonical pre-image.
@@ -106,16 +102,16 @@ pub trait JobValidationHooks {
     }
 }
 
-/// Phase 1 placeholder hooks — see module docs.
+/// Conservative placeholder hooks — see module docs.
 #[derive(Debug, Default)]
 pub struct Phase1Stub;
 
 impl JobValidationHooks for Phase1Stub {
     fn verify_signature(&self, _job: &SignedActionJob) -> Result<(), JobRefused> {
-        // No real key store yet; conservatively reject every
-        // signature so Phase 1 deployments cannot accidentally
-        // execute a forged job. Tests should use [`AcceptingHooks`]
-        // (test-only) to exercise the rest of the pipeline.
+        // Conservatively reject every signature so test
+        // deployments cannot accidentally execute a forged job.
+        // Tests should use [`AcceptingHooks`] (test-only) to
+        // exercise the rest of the pipeline.
         Err(JobRefused::UnknownKeyId)
     }
     fn action_permitted(&self, _action: ActionKind) -> bool {
@@ -234,8 +230,8 @@ impl JobValidationHooks for ProductionHooks {
     }
 
     fn in_window(&self, _now: DateTime<Utc>) -> bool {
-        // Phase 2 will plug the maintenance / quiet-hours evaluator;
-        // for now permit all windows so enrolled agents can process
+        // The maintenance / quiet-hours evaluator plugs in via
+        // `ProductionHooks`; permit all windows so enrolled agents can process
         // jobs immediately.
         true
     }
@@ -456,12 +452,12 @@ pub struct ProcessedJob {
     pub evidence: EvidenceRecord,
 }
 
-/// Run a `SignedActionJob` through the Phase 1 pipeline.
+/// Run a `SignedActionJob` through the validation pipeline.
 ///
 /// Steps:
 /// 1. [`validate`] the job against the 10-step pipeline.
 /// 2. Produce an [`ActionResult`] — either the refusal projection
-///    (when validation rejected the job) or a Phase 1 *no-op ack*
+///    (when validation rejected the job) or a *skipped ack*
 ///    (`status = Skipped`, no executor wired in this build) when
 ///    validation accepted it.
 /// 3. Build a chained [`EvidenceRecord`] using `chain.next_prev_hash()`
@@ -470,9 +466,8 @@ pub struct ProcessedJob {
 /// 4. Return the [`ProcessedJob`] for the caller to publish.
 ///
 /// Both refused and accepted-but-not-implemented jobs produce
-/// evidence records — the audit chain is **continuous** even before
-/// Phase 2/3 executors land, so any tampering with the in-flight
-/// chain is detectable from day one (task 1.13).
+/// evidence records — the audit chain is **continuous** so any
+/// tampering with the in-flight chain is detectable.
 pub fn process_job<H: JobValidationHooks>(
     job: &SignedActionJob,
     self_identity: &AgentIdentity,
@@ -505,11 +500,11 @@ pub fn process_job<H: JobValidationHooks>(
             agent: agent.clone(),
         },
     )
-    .expect("Phase 1 evidence build/validate must not fail for synthesised records");
+    .expect("evidence build/validate must not fail for synthesised records");
 
     chain
         .append(&evidence)
-        .expect("Phase 1 chain append must not fail for canonical records");
+        .expect("chain append must not fail for canonical records");
 
     ProcessedJob {
         action_result,
@@ -523,7 +518,7 @@ pub fn process_job<H: JobValidationHooks>(
 ///
 /// This is the production entry point used by the agent. The
 /// underlying [`process_job`] is preserved so existing call sites
-/// and unit tests that pre-date Phase 2.8 continue to work.
+/// and existing unit tests continue to work.
 ///
 /// Three outcomes are possible:
 ///
@@ -578,11 +573,11 @@ pub fn process_job_with_window_policy<H: JobValidationHooks>(
             agent: agent.clone(),
         },
     )
-    .expect("Phase 2.8 evidence build/validate must not fail for synthesised records");
+    .expect("evidence build/validate must not fail for synthesised records");
 
     chain
         .append(&evidence)
-        .expect("Phase 2.8 chain append must not fail for canonical records");
+        .expect("chain append must not fail for canonical records");
 
     ProcessedJob {
         action_result,
@@ -618,7 +613,7 @@ fn phase2_window_deferred_ack(job: &SignedActionJob, now: DateTime<Utc>) -> Acti
 /// Publish the `DeviceControlActionResult` and `EvidenceRecord`
 /// payloads for a [`ProcessedJob`] onto the event bus.
 ///
-/// Both events use [`Priority::High`] per the Phase 0 sign-off
+/// Both events use [`Priority::High`] per the priority sign-off
 /// (`docs/architecture.md` § 5.2 — Device Control results sit just below
 /// `Critical`). Failures to enqueue onto the server-bound queue are
 /// logged at WARN; we deliberately do **not** call `bus.publish`
@@ -660,10 +655,11 @@ pub async fn emit_processed_job(bus: &EventBus, processed: &ProcessedJob) {
     }
 }
 
-/// Phase 1 acceptance projection: `status = Skipped`, no exit code,
+/// Default acceptance projection: `status = Skipped`, no exit code,
 /// `started_at == finished_at` so the record reads "router accepted
-/// the job but no executor exists in this build". Phase 2 swaps
-/// this for the per-`ActionKind` executor's actual outcome.
+/// the job but no per-action executor ran".  When a real executor is
+/// wired for an `ActionKind`, it replaces this projection with its
+/// actual outcome.
 fn phase1_skipped_ack(job: &SignedActionJob, now: DateTime<Utc>) -> ActionResult {
     let (output, output_truncated) = bound_output(format!(
         "phase1_no_op_ack: action {:?} accepted but no executor wired in this build",
@@ -725,7 +721,7 @@ fn refusal_human_readable(reason: JobRefused) -> &'static str {
         JobRefused::ArgsParseError => "args_parse_error",
         JobRefused::PreconditionFailed => "precondition_failed",
         JobRefused::NotImplemented => "not_implemented",
-        // Desktop MDM (Phase M1–M3) — dual-control + local-key
+        // Desktop MDM — dual-control + local-key
         // refusals. See `crates/sda-device-control/src/types.rs`.
         JobRefused::WipeRequiresDualControl => "wipe_requires_dual_control",
         JobRefused::LocalKeyNotAuthorisedForAction => "local_key_not_authorised_for_action",
@@ -959,7 +955,7 @@ mod tests {
 
     // -- step 11 (dual-control) + step 12 (local-ephemeral-key) ---
 
-    /// Approver-aware hooks for Phase M2 router tests. Three knobs:
+    /// Approver-aware hooks for router tests. Three knobs:
     ///   * `approvers` maps `key_id` to an approver `Uuid`. Unknown
     ///     `key_id` resolves to `None` (so step 11 refuses with
     ///     `WipeRequiresDualControl`).
@@ -1204,7 +1200,7 @@ mod tests {
         assert_eq!(r.unwrap_err(), JobRefused::WipeRequiresDualControl);
     }
 
-    // -- process_job / evidence-chain emission tests (task 1.13) ---
+    // -- process_job / evidence-chain emission tests ---
 
     use crate::evidence::{phase1_stub_signature, EvidenceChain, FIRST_RECORD_PREV_HASH};
     use crate::types::{ActionStatus, AgentVersion, Platform, PlatformArch, PlatformOs};
@@ -1304,7 +1300,7 @@ mod tests {
         assert_eq!(processed.action_result.status, ActionStatus::Skipped);
         assert!(processed.action_result.refused_reason.is_none());
         // Refused/Skipped both have started_at == finished_at on
-        // Phase 1: no executor side effect ran.
+        // No executor side effect ran (skipped-ack projection).
         assert_eq!(
             processed.action_result.started_at,
             processed.action_result.finished_at
@@ -1427,7 +1423,7 @@ mod tests {
         );
         // The ActionResult's `output` field is bounded to 64 KiB,
         // but the evidence's `output_sha256` must hash the full
-        // output bytes. In Phase 1 the no-op ack output is short
+        // output bytes.  The skipped-ack output is short
         // enough to fit, so the hashed bytes equal the bytes on
         // the ActionResult itself.
         let mut h = Sha256::new();
@@ -1438,7 +1434,7 @@ mod tests {
 
     #[test]
     fn process_job_evidence_signature_is_phase1_stub() {
-        // Phase 1 places a deterministic stub signature on every
+        // Places a deterministic stub signature on every
         // evidence record. Verifiers that see PHASE1_STUB_KEY_ID
         // must treat the record as untrusted, but the bytes must
         // round-trip through the canonical pre-image.
@@ -1547,9 +1543,9 @@ mod tests {
         }
     }
 
-    /// Phase 2.8 — `process_job_with_window_policy` happy path: an
-    /// always-open policy delegates straight through to the regular
-    /// pipeline and produces the Phase 1 skipped-ack projection.
+    /// `process_job_with_window_policy` happy path: an always-open
+    /// policy delegates straight through to the regular pipeline
+    /// and produces the skipped-ack projection.
     #[test]
     fn window_policy_always_open_passes_through_to_phase1_ack() {
         let mut chain = EvidenceChain::new();
@@ -1573,7 +1569,7 @@ mod tests {
         processed.evidence.validate().expect("evidence valid");
     }
 
-    /// Phase 2.8 — outside the maintenance window: the wrapper
+    /// Outside the maintenance window: the wrapper
     /// produces an `ActionStatus::Skipped` ack carrying the
     /// `outside_maintenance_window` marker; the job is *not*
     /// refused, so retry semantics are preserved.
@@ -1617,7 +1613,7 @@ mod tests {
         processed.evidence.validate().expect("evidence valid");
     }
 
-    /// Phase 2.8 — quiet hours block execution even when the
+    /// Quiet hours block execution even when the
     /// maintenance window itself permits it.
     #[test]
     fn window_policy_quiet_hours_defers() {
@@ -1658,7 +1654,7 @@ mod tests {
             .contains("outside_maintenance_window"));
     }
 
-    /// Phase 2.8 — a maintenance window with zero allowed days is
+    /// A maintenance window with zero allowed days is
     /// permanently un-runnable. The wrapper should refuse rather
     /// than queue forever.
     #[test]

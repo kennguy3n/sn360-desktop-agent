@@ -1,4 +1,4 @@
-//! Phase 5 management-compat end-to-end suite (task 5.7).
+//! Management-compat end-to-end suite.
 //!
 //! Hermetic exercises of the [`sda_management_compat`] shim that
 //! translates Fleet-flavoured GitOps YAML into SDA-native

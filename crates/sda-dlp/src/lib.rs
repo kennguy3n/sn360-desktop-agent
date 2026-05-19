@@ -1,4 +1,4 @@
-//! Data-Loss-Prevention module (Phase E5 of EDR Parity).
+//! Data-Loss-Prevention module (part of the EDR Parity workstream).
 //!
 //! Inspects file-write events from the FIM stream and matches their
 //! bounded content against a regex pattern set (US SSN, UK NI, PCI

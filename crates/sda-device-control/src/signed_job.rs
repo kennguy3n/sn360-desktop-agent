@@ -313,7 +313,7 @@ pub struct QueryAdHocArgs {
     pub max_rows: u32,
 }
 
-/// Args for `IsolateHost` (Phase E3 of the EDR Parity workstream).
+/// Args for `IsolateHost`.
 ///
 /// The agent always merges `extra_allow_ips` with the configured
 /// `modules.host_isolation.control_plane_cidrs`, loopback, and
@@ -354,7 +354,7 @@ pub enum JobArgs {
     StartRemoteSupport(StartRemoteSupportArgs),
     EndRemoteSupport(EndRemoteSupportArgs),
     QueryAdHoc(QueryAdHocArgs),
-    // --- Desktop MDM args (Phase M1–M3) ---
+    // --- Desktop MDM args ---
     RemoteWipe(RemoteWipeArgs),
     RemoteLock(RemoteLockArgs),
     EnterLostMode(EnterLostModeArgs),
@@ -365,7 +365,7 @@ pub enum JobArgs {
     EnableDiskEncryption(EnableDiskEncryptionArgs),
     EnableFirewall(EnableFirewallArgs),
     SetScreenLock(SetScreenLockArgs),
-    // --- EDR Parity args (Phase E3) ---
+    // --- EDR Parity args ---
     IsolateHost(IsolateHostArgs),
     UnisolateHost(UnisolateHostArgs),
 }
@@ -446,7 +446,7 @@ impl JobArgs {
                 }
                 JobArgs::QueryAdHoc(v)
             }
-            // --- Desktop MDM action args (Phase M1–M3) ---
+            // --- Desktop MDM action args ---
             ActionKind::RemoteWipe => {
                 let v: RemoteWipeArgs = from_value(args)?;
                 if v.reason.trim().is_empty() {
@@ -508,7 +508,7 @@ impl JobArgs {
                 }
                 JobArgs::SetScreenLock(v)
             }
-            // --- EDR Parity action args (Phase E3) ---
+            // --- EDR Parity action args ---
             ActionKind::IsolateHost => {
                 let v: IsolateHostArgs = from_value(args)?;
                 // Parse every CIDR up-front so the router can refuse

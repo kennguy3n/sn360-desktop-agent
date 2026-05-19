@@ -7,7 +7,7 @@
 //! emitted by the control-plane Risk Engine. We define the type
 //! here so the agent can decode incoming recommendations for
 //! informational use (e.g. surfacing them to a future on-device
-//! tray UI in Phase 4).
+//! tray UI).
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

@@ -1,6 +1,6 @@
 //! Cross-platform process telemetry PAL trait.
 //!
-//! Backs the `sda-process-monitor` module (Phase E1 of the EDR
+//! Backs the `sda-process-monitor` module (part of the EDR
 //! Parity workstream). See `docs/architecture.md` § 4 (Platform
 //! abstraction layer) for the trait spec and per-OS implementation
 //! matrix, and `docs/security.md` § 5 (License audit) +

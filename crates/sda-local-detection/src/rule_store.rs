@@ -102,7 +102,7 @@ pub enum BehavioralRuleKind {
     },
     /// Fire when a `ProcessCreated` event has a process name matching
     /// `name_regex` and an ancestor chain matching
-    /// `parent_chain_regex` (Phase E1.7).  The parent chain is the
+    /// `parent_chain_regex`.  The parent chain is the
     /// `" > "`-joined list of ancestor names included by
     /// `sda-local-detection`'s process arm in `handle_event`.
     ProcessChain {

@@ -1,6 +1,6 @@
 //! System-stats collector for the agent-vitals heartbeat.
 //!
-//! Phase 1 ships a deliberately minimal collector that captures the
+//! Ships a deliberately minimal collector that captures the
 //! fields named in `docs/architecture.md` § 3.1 and `docs/architecture.md` § 6:
 //!
 //! * `rss_kb` — resident set size of the agent process
@@ -19,10 +19,10 @@
 //! | `rss_kb`      | `/proc/self/status`        | `task_info`-style    | `GetProcessMemoryInfo` |
 //! | `cpu_percent` | `/proc/self/stat` deltas   | `task_info` deltas   | `GetProcessTimes` |
 //!
-//! The Phase 1 PR keeps the platform readers as best-effort stubs:
+//! The platform readers are best-effort stubs:
 //! when the OS-specific helpers are not yet implemented the
 //! collector returns `0` so the heartbeat still flows. The full PAL
-//! implementation lands in Phase 1.7 alongside `ResourceLimits`.
+//! implementation lands alongside `ResourceLimits`.
 //!
 //! `Collector` is implemented as a trait so unit tests can drive a
 //! deterministic `MockCollector` without poking real syscalls.
@@ -49,7 +49,7 @@ pub struct VitalsSnapshot {
     /// UTC timestamp the snapshot was taken at.
     pub last_seen: DateTime<Utc>,
     /// Best-effort IP-geolocation set by the Desktop MDM
-    /// `lost_mode` reporter (Phase M2.3). `None` on devices that have
+    /// `lost_mode` reporter. `None` on devices that have
     /// never entered lost mode. Serialised onto the
     /// [`sda_event_bus::EventKind::AgentVitals`] payload only when
     /// present so the existing wire schema is unchanged for devices
@@ -66,7 +66,7 @@ pub trait Collector: Send + Sync + 'static {
 }
 
 /// Best-effort production collector. On platforms whose readers have
-/// not landed yet (Phase 1.7) the integer fields fall back to `0`,
+/// not landed yet the integer fields fall back to `0`,
 /// which is faithfully emitted on the bus so the control plane can
 /// alert that the field is unobservable on this build.
 pub struct DefaultCollector {
@@ -77,7 +77,7 @@ pub struct DefaultCollector {
     /// Optional cross-module last-known-location store. The Desktop
     /// MDM `lost_mode` reporter writes into this; we read from it
     /// when assembling each snapshot so the next AgentVitals payload
-    /// carries the freshest position (Phase M2.3).
+    /// carries the freshest position.
     location_store: Option<LastKnownLocationStore>,
 }
 
@@ -152,9 +152,9 @@ fn read_rss_kb() -> u64 {
 
 #[cfg(target_os = "linux")]
 fn read_cpu_percent() -> f32 {
-    // Phase 1 stub: a single-shot read of /proc/self/stat would
+    // Stub: a single-shot read of /proc/self/stat would
     // require persistent state to compute deltas. The full deltas
-    // implementation lands in Phase 1.7 alongside the macOS and
+    // implementation lands alongside the macOS and
     // Windows readers; until then we emit 0 so the heartbeat flows
     // and the control plane can alert that the field is unobservable.
     0.0

@@ -127,9 +127,9 @@ mod tests {
 
     #[test]
     fn store_logs_and_falls_back_on_poisoned_lock() {
-        // Regression test for the bug Devin Review flagged: every
-        // `RwLock` access in this store silently swallowed
-        // `PoisonError` via `.ok()`. A panic in the lost-mode
+        // Regression: every `RwLock` access in this store
+        // silently swallowed `PoisonError` via `.ok()`.  A panic
+        // in the lost-mode
         // reporter holding the write lock would then suppress all
         // future heartbeat reads with no log output. The new
         // implementation logs `warn!` on poison and keeps the

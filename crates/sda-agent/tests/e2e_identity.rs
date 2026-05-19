@@ -1,4 +1,4 @@
-//! Phase E5.8 — hermetic end-to-end coverage for the EDR identity
+//! Hermetic end-to-end coverage for the EDR identity
 //! attack detection pipeline (sda-identity-monitor + LDE).
 //!
 //! This suite stitches together:

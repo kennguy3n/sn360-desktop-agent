@@ -1,9 +1,9 @@
-//! OS-patch orchestration sub-module (Phase M1.4).
+//! OS-patch orchestration sub-module.
 //!
 //! Implements the maintenance-window driven OS-patch loop per
 //! `docs/desktop-mdm.md` § 6 (OS patch orchestration).
 //!
-//! Phase M1 scope:
+//! Current scope:
 //!
 //! * [`tick`] is called by the supervisor at the maintenance-window
 //!   tick (the same timer driven by `sda-software`). It consults a

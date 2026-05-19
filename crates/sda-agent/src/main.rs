@@ -1,16 +1,25 @@
 //! SN360 Desktop Agent — binary entry point.
 //!
-//! Orchestrates startup, enrollment, server connection, keepalive,
-//! and graceful shutdown of the agent.
+//! Orchestrates startup, cloud-config pull, module loading,
+//! keepalive, and graceful shutdown of the agent.
 //!
 //! The legacy SIEM (Wazuh-compatible) transport — enrollment,
 //! connection, keepalive, event forwarding, server-receive, and the
 //! shutdown message — is gated behind the `legacy-siem` Cargo
-//! feature. When the feature is disabled the agent still starts all
-//! local modules (FIM, LogCollector, Inventory, SCA, Rootcheck, LDE,
-//! Enhanced Inventory, Active Response, Updater) but does not open
-//! any outbound connection. A native SN360 transport will replace
-//! the legacy path in a follow-up.
+//! feature.  When the feature is disabled the agent still starts all
+//! local modules but does not open any outbound connection.  A
+//! native SN360 transport will replace the legacy path.
+//!
+//! Modules managed by this binary (each gated by its own
+//! `modules.<name>.enabled` flag unless noted):
+//!
+//! | Category              | Modules |
+//! |-----------------------|---------|
+//! | Core telemetry        | FIM, LogCollector, Inventory, Enhanced Inventory, SCA, Rootcheck |
+//! | Detection / response  | Local Detection Engine (LDE), Active Response, Process Monitor, Network Monitor, DNS Monitor, Memory Scanner, Identity Monitor, DLP |
+//! | Device management     | Device Control (router + USB policy), Host Isolation, Posture, Software, MDM (wipe/lock/lost-mode/config-profiles/escrow), App Control |
+//! | Automation            | JIT Admin, Script Runner, Remote Support, Query (osquery sidecar) |
+//! | Lifecycle             | Updater, Agent Vitals heartbeat, Tamper-protection watchdog |
 
 mod privilege;
 mod tamper;
@@ -62,7 +71,7 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    info!("wazuh desktop agent starting");
+    info!("SN360 desktop agent starting");
 
     // 2. Load configuration (from CLI arg or default path)
     let mut config = match first_positional_arg(std::env::args()) {
@@ -291,7 +300,7 @@ async fn main() -> Result<()> {
         });
 
         // 10b. Spawn server message receive loop.
-        //      Reads incoming frames from the Wazuh server, parses them, and
+        //      Reads incoming frames from the server, parses them, and
         //      publishes them as `EventKind::ServerCommand` events on the bus
         //      so modules like active_response can act on server-pushed
         //      commands.  The loop uses a short timeout on each receive so
@@ -452,7 +461,7 @@ async fn main() -> Result<()> {
         agent.register_module(lde_handle);
     }
 
-    // 12f-bis. Start Process Monitor module (Phase E1) if enabled.
+    // 12f-bis. Start Process Monitor module if enabled.
     //           Default is `false`; flipping `process_monitor.enabled`
     //           to `true` lights up cross-platform process telemetry
     //           (Created / Terminated / ImageLoaded) with parent-chain
@@ -467,7 +476,7 @@ async fn main() -> Result<()> {
         agent.register_module(pm_handle);
     }
 
-    // 12f-ter. Network Monitor module (Phase E3) — Off by default.
+    // 12f-ter. Network Monitor module — Off by default.
     //          Flipping `network_monitor.enabled = true` lights up
     //          cross-platform TCP/UDP connection telemetry
     //          (`EventKind::NetworkConnection`) with PID
@@ -483,7 +492,7 @@ async fn main() -> Result<()> {
         agent.register_module(nm_handle);
     }
 
-    // 12f-quater. DNS Monitor module (Phase E3) — Off by default.
+    // 12f-quater. DNS Monitor module — Off by default.
     //             Subscribes to the per-OS DNS source
     //             (systemd-resolved on Linux, ETW on Windows,
     //             NEDNSProxyProvider on macOS) and emits
@@ -500,11 +509,11 @@ async fn main() -> Result<()> {
         agent.register_module(dm_handle);
     }
 
-    // 12f-quinquies-bis. Memory Scanner module (Phase E4) — Off by
+    // 12f-quinquies-bis. Memory Scanner module — Off by
     //                    default. Flipping `memory_scanner.enabled =
     //                    true` lights up the periodic RWX-region
     //                    scanner that hands bounded byte slices to
-    //                    the YARA matcher (`scan_bytes` from E4.5)
+    //                    the YARA matcher (`scan_bytes`)
     //                    and the optional AMSI provider (Windows,
     //                    feature `amsi`). Self-pid exclusion is
     //                    enforced both at the PAL trait level
@@ -524,16 +533,15 @@ async fn main() -> Result<()> {
         agent.register_module(ms_handle);
     }
 
-    // 12f-quinquies-ter. Identity Monitor module (Phase E5) — Off by
+    // 12f-quinquies-ter. Identity Monitor module — Off by
     //                    default. Subscribes to FIM / process / ETW
     //                    feeds and emits `EventKind::IdentityAlert`
     //                    with MITRE ATT&CK technique IDs for
     //                    LSASS access (Windows T1003.001),
     //                    /etc/shadow + /proc/kcore access (Linux
     //                    T1003.008 / T1003), and keychain access
-    //                    (macOS T1555.001). See E5 in
-    //                    `docs/edr.md` § 5 (Identity attack
-    //                    detection).
+    //                    (macOS T1555.001).  See `docs/edr.md`
+    //                    § 5 (Identity attack detection).
     if config.modules.identity_monitor.enabled {
         info!("starting identity monitor module");
         let im_handle = sda_identity_monitor::IdentityMonitorModule::start(
@@ -544,7 +552,7 @@ async fn main() -> Result<()> {
         agent.register_module(im_handle);
     }
 
-    // 12f-quinquies-quater. DLP module (Phase E5) — Off by
+    // 12f-quinquies-quater. DLP module — Off by
     //                       default. Subscribes to `FileCreated` /
     //                       `FileModified` from FIM and scans
     //                       bounded byte windows against the
@@ -563,7 +571,7 @@ async fn main() -> Result<()> {
         agent.register_module(dlp_handle);
     }
 
-    // 12f-quinquies. Host Isolation module (Phase E3) — Off by
+    // 12f-quinquies. Host Isolation module — Off by
     //                default. Consumes `IsolateHost` /
     //                `UnisolateHost` `SignedActionJob`s once the
     //                Device Control router learns to forward them
@@ -590,7 +598,7 @@ async fn main() -> Result<()> {
     let _host_isolation_submitter: Option<sda_host_isolation::HostIsolationSubmitter> =
         if config.modules.host_isolation.enabled {
             // Build the agent identity from the enrolled (tenant_id,
-            // device_id) populated during cloud-config pull (WS2.1).
+            // device_id) populated during cloud-config pull.
             let maybe_identity = config
                 .agent
                 .tenant_id
@@ -657,11 +665,11 @@ async fn main() -> Result<()> {
         agent.register_module(up_handle);
     }
 
-    // 12i. Device Control modules (Phase 1 scaffold).
+    // 12i. Device Control module.
     //      Off by default; flipping `device_control.enabled` to
-    //      `true` lights up the Device Control router, which in
-    //      Phase 1 only parks on the shutdown signal — the per-
-    //      action executors land in Phase 2/3. Idle footprint is
+    //      `true` lights up the Device Control router.  The
+    //      per-action executors are wired through the router's
+    //      `JobValidationHooks` trait.  Idle footprint is
     //      bit-for-bit identical to a pre-Device-Control build
     //      when this flag is `false`.
     if config.modules.device_control.enabled {
@@ -673,10 +681,10 @@ async fn main() -> Result<()> {
         );
         agent.register_module(dc_handle);
 
-        // Phase D2: USB / removable-media policy enforcement is a
+        // USB / removable-media policy enforcement is a
         // sub-module of Device Control gated by its own enable
         // flag so a tenant can flip it on independently of the
-        // existing Phase 1 schemas.
+        // existing device-control schemas.
         if config.modules.device_control.usb_policy.enabled {
             info!("starting USB-policy enforcement module");
             let usb_handle = sda_device_control::UsbPolicyModule::start(
@@ -688,7 +696,7 @@ async fn main() -> Result<()> {
         }
     }
 
-    // 12i-bis. ShieldNet Desktop MDM module (Phase M1–M3).
+    // 12i-bis. ShieldNet Desktop MDM module.
     //           ON by default (`modules.mdm.enabled = true`).
     //           Spawns the auto-remediation supervisor, config-profile
     //           watcher, one-shot recovery-key escrow, and parks the
@@ -702,7 +710,7 @@ async fn main() -> Result<()> {
     // from it when assembling the next `AgentVitals` payload. Without
     // this rendezvous the heartbeat's `last_known_location` field would
     // always be `None` in production even while the reporter is
-    // actively writing — the bug Devin Review flagged as #11.
+    // actively writing.
     let mdm_location_store = sda_core::location::LastKnownLocationStore::new();
     if config.modules.mdm.enabled {
         info!("starting desktop MDM module");
@@ -809,8 +817,8 @@ async fn main() -> Result<()> {
         agent.register_module(mdm_handle);
     }
 
-    // 12j. Query (osquery sidecar) module — Phase 1 MVP.
-    //      Default is disabled. The supervisor probes the configured
+    // 12j. Query (osquery sidecar) module.
+    //      Default is disabled.  The supervisor probes the configured
     //      osquery binary, runs scheduled queries, and emits
     //      `EventKind::QueryResult` events on the bus.
     if config.modules.query.enabled {
@@ -835,12 +843,12 @@ async fn main() -> Result<()> {
         agent.register_module(p_handle);
     }
 
-    // 12l. Software module (Phase 2.5 scaffold).
-    //      Off by default. When enabled the supervisor refreshes the
-    //      signed catalogue at `modules.software.refresh_interval_secs`
-    //      and exposes install/update/uninstall actions through the
-    //      `PackageManager` PAL trait. The Phase 2.5 scaffold parks
-    //      until Phase 2.6 wires the live fetch loop.
+    // 12l. Software management module.
+    //      Off by default.  When enabled the supervisor periodically
+    //      fetches the signed catalogue from `catalogue_url`, verifies
+    //      its Ed25519 signature against the pinned key, and exposes
+    //      install/update/uninstall actions through the
+    //      `PackageManager` PAL trait.
     if config.modules.software.enabled {
         info!("starting software module");
         let sw_handle = sda_software::SoftwareModule::start(
@@ -851,7 +859,7 @@ async fn main() -> Result<()> {
         agent.register_module(sw_handle);
     }
 
-    // 12l-bis. Script runner (Phase 2.7).
+    // 12l-bis. Script runner.
     //          Off by default. Executes signed, allow-listed scripts
     //          with hard wall-clock and output-byte budgets, then
     //          emits `ScriptRunResult` + `EvidenceRecord` events.
@@ -868,7 +876,7 @@ async fn main() -> Result<()> {
         );
     agent.register_module(script_runner_handle);
 
-    // 12l-ter. JIT admin module (Phase 3.2 / 3.3).
+    // 12l-ter. JIT admin module.
     //          Off by default. Owns the grant lifecycle state
     //          machine, on-disk grant ledger, and revocation
     //          watchdog (timer / heartbeat / power / boot-sweep).
@@ -904,11 +912,11 @@ async fn main() -> Result<()> {
             None
         };
 
-    // 12l-quater. Remote-support module (Phase 4.2).
-    //              Off by default. `docs/device-control.md` § 9 mandates a
+    // 12l-quater. Remote-support module.
+    //              Off by default.  `docs/device-control.md` § 9 mandates a
     //              consent banner on every session — the production
     //              default is `NativeConsentPrompt`, which shows an
-    //              OS-native dialog. If no dialog tool is available
+    //              OS-native dialog.  If no dialog tool is available
     //              (headless server), it falls back to deny.
     //              The module's `start()` parks on the request
     //              channel; dropping the sender ends the loop, so
@@ -936,8 +944,8 @@ async fn main() -> Result<()> {
         None
     };
 
-    // 12l-quinquies. App-control module (Phase 4.5).
-    //                Off by default. Phase-4 acceptance criteria
+    // 12l-quinquies. App-control module.
+    //                Off by default.  Acceptance criteria
     //                mandate `Monitor` mode by
     //                default; `Enforce` requires explicit tenant
     //                opt-in plus a trusted signing key configured
@@ -967,7 +975,7 @@ async fn main() -> Result<()> {
         None
     };
 
-    // 12m. Agent-vitals heartbeat (Phase 1.12).
+    // 12m. Agent-vitals heartbeat.
     //      Per `docs/architecture.md` § 3 (Event flow) the heartbeat
     //      is always-on when Device Control is enabled. The cadence
     //      defaults to 60s (`Priority::Low` per
@@ -1064,7 +1072,7 @@ async fn main() -> Result<()> {
     }
 
     agent.shutdown().await;
-    info!("wazuh desktop agent stopped");
+    info!("SN360 desktop agent stopped");
 
     Ok(())
 }
@@ -1143,7 +1151,7 @@ fn map_event_to_message(agent_id: &str, kind: &EventKind) -> Option<WazuhMessage
         }
         EventKind::ServerMessage { payload } => (MessageType::Generic, payload.clone()),
 
-        // --- Device Control event mapping (Phase 1) ---
+        // --- Device Control event mapping ---
         //
         // Each Device Control `EventKind` carries an opaque pre-encoded
         // canonical-JSON `payload` produced by `sda-device-control`.
@@ -1187,7 +1195,7 @@ fn map_event_to_message(agent_id: &str, kind: &EventKind) -> Option<WazuhMessage
             (MessageType::UsbDevicePolicyDecision, payload.clone())
         }
 
-        // --- Desktop MDM event mapping (Phase M1–M3) ---
+        // --- Desktop MDM event mapping ---
         EventKind::MdmWipeResult { payload } => (MessageType::MdmWipeResult, payload.clone()),
         EventKind::MdmLockResult { payload } => (MessageType::MdmLockResult, payload.clone()),
         EventKind::MdmLostModeEntered { payload } => {
@@ -1209,7 +1217,7 @@ fn map_event_to_message(agent_id: &str, kind: &EventKind) -> Option<WazuhMessage
             (MessageType::MdmAutoRemediationResult, payload.clone())
         }
 
-        // --- EDR Parity event mapping (Phase E1-E3) ---
+        // --- EDR Parity event mapping ---
         EventKind::ProcessCreated { payload } => (MessageType::ProcessCreated, payload.clone()),
         EventKind::ProcessTerminated { payload } => {
             (MessageType::ProcessTerminated, payload.clone())
@@ -1606,7 +1614,7 @@ fn first_positional_arg<I: IntoIterator<Item = String>>(args: I) -> Option<Strin
 }
 
 /// Wire the enhanced-inventory → device-control software-inventory
-/// bridge (Task 1.10).
+/// bridge.
 ///
 /// The `device_control_bridge_enabled` flag on
 /// `EnhancedInventoryConfig` is `#[serde(default, skip)]` and is

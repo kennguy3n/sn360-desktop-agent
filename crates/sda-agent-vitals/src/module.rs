@@ -5,7 +5,7 @@
 //! agent supervisor can spawn alongside `QueryModule` and
 //! `PostureModule`.
 //!
-//! The Phase 1 module:
+//! The module:
 //!
 //! 1. Spawns a [`tokio::time::Interval`] at the configured cadence
 //!    (default 60s — `Priority::Low` per `docs/architecture.md` § 3.1).
@@ -51,7 +51,7 @@ impl VitalsCounters {
     }
 }
 
-/// Phase 1 supervisor handle for the agent-vitals module.
+/// Supervisor handle for the agent-vitals module.
 pub struct VitalsModule;
 
 impl VitalsModule {

@@ -29,7 +29,7 @@ pub enum AgentState {
 /// The main agent runtime.
 ///
 /// Manages the agent lifecycle, module loading, event bus,
-/// and communication with the Wazuh server.
+/// and server communication.
 pub struct Agent {
     config: AgentConfig,
     state: AgentState,
@@ -171,7 +171,7 @@ impl Agent {
     /// Take ownership of the server event receiver.
     ///
     /// This is used by the communication layer to receive events
-    /// that need to be forwarded to the Wazuh server.
+    /// that need to be forwarded to the server.
     pub fn take_server_rx(&mut self) -> Option<tokio::sync::mpsc::Receiver<sda_event_bus::Event>> {
         self.server_rx.take()
     }

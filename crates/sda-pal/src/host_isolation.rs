@@ -1,6 +1,6 @@
 //! Cross-platform host-isolation PAL trait.
 //!
-//! Backs the `sda-host-isolation` module (Phase E3 of the EDR
+//! Backs the `sda-host-isolation` module (part of the EDR
 //! Parity workstream). See `docs/architecture.md` § 4 (Platform
 //! abstraction layer) for the trait spec and per-OS implementation
 //! matrix.
@@ -338,7 +338,7 @@ mod windows_impl {
             // lands alongside the Windows production follow-up
             // (`docs/architecture.md` § 4.2 — the Per-OS
             // implementation matrix records the production-grade
-            // follow-ups for the Phase E3 host-isolation surface).
+            // follow-ups for the host-isolation surface).
             let mut g = self.state.lock().unwrap();
             g.isolated = true;
             g.allow_ips = allow;
@@ -405,7 +405,7 @@ mod macos_impl {
             // `com.sn360.host_isolation` path lands alongside the
             // macOS production follow-up (docs/architecture.md
             // § 4.2 — the Per-OS implementation matrix records the
-            // production-grade follow-ups for Phase E3 host-isolation).
+            // production-grade follow-ups for host-isolation).
             let mut g = self.state.lock().unwrap();
             g.isolated = true;
             g.allow_ips = allow;

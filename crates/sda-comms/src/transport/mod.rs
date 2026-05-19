@@ -1,4 +1,4 @@
-//! Opt-in alternative transports (Phase 5.6 / proposal § 8.2).
+//! Opt-in alternative transports (proposal § 8.2).
 //!
 //! The agent's default path remains the legacy Wazuh TCP/UDP
 //! protocol implemented in [`crate::connection`]. The submodules here

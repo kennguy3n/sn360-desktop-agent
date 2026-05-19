@@ -1,4 +1,4 @@
-//! Phase E4.8 — hermetic end-to-end coverage for the EDR memory
+//! Hermetic end-to-end coverage for the EDR memory
 //! scanner (`sda-memory-scanner`).
 //!
 //! The memory-scanner module periodically enumerates committed

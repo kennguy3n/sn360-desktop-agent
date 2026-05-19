@@ -34,7 +34,7 @@ pub enum MessageType {
     /// Local Detection Engine alert (edge-generated detection).
     LocalDetection,
 
-    // --- Device Control message types (Phase 1) ---
+    // --- Device Control message types ---
     //
     // Device Control traffic uses the SN360 native protocol path
     // (TLS 1.3 + MessagePack/JSON envelopes routed by the Agent
@@ -78,11 +78,11 @@ pub enum MessageType {
     AgentVitals,
     /// Signed Device Control evidence record.
     EvidenceRecord,
-    /// USB / removable-media policy decision (Phase D2). One per
+    /// USB / removable-media policy decision.  One per
     /// OS attach event the supervisor evaluates.
     UsbDevicePolicyDecision,
 
-    // --- Desktop MDM message types (Phase M1–M3) ---
+    // --- Desktop MDM message types ---
     /// Result of a `RemoteWipe` action.
     MdmWipeResult,
     /// Result of a `RemoteLock` action.
@@ -165,7 +165,7 @@ impl MessageType {
             MessageType::AgentVitals => "agent-vitals",
             MessageType::EvidenceRecord => "evidence-record",
             MessageType::UsbDevicePolicyDecision => "usb-device-policy-decision",
-            // Desktop MDM (Phase M1–M3). These wire strings are part
+            // Desktop MDM.  These wire strings are part
             // of the public contract — any change is a major schema
             // version bump (see `docs/wire-protocols/device-control.md` § 10).
             MessageType::MdmWipeResult => "mdm-wipe-result",

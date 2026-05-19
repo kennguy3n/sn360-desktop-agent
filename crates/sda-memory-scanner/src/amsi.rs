@@ -1,6 +1,6 @@
 //! Windows AMSI (Antimalware Scan Interface) provider.
 //!
-//! Phase E4.7 — wires AMSI into the memory-scanner pipeline so
+//! Wires AMSI into the memory-scanner pipeline so
 //! PowerShell / VBScript / JavaScript content that the OS sends
 //! through AMSI for inspection is also visible to the SDA Local
 //! Detection Engine.

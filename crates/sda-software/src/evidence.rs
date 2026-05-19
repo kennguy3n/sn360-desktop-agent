@@ -1,5 +1,5 @@
 //! Evidence emission for software install / update / uninstall /
-//! rollback actions (Task 2.11).
+//! rollback actions.
 //!
 //! Per `docs/wire-protocols/device-control.md` § 9 every software action
 //! the agent executes — successful or otherwise — produces an
@@ -136,7 +136,7 @@ impl SoftwareEvidenceEmitter {
         self.chain.is_empty()
     }
 
-    /// Build, sign (Phase 1 stub), and append a single evidence
+    /// Build, sign, and append a single evidence
     /// record covering one install / update / uninstall action.
     pub fn record_action(
         &mut self,

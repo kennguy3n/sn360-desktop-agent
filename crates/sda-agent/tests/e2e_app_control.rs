@@ -1,8 +1,7 @@
-//! Phase 4 app-control end-to-end suite (task 4.12).
+//! App-control end-to-end suite.
 //!
-//! Hermetic exercises of the Phase 4 app-control surface shipped in
-//! PR #7 (PAL trait + supervisor + monitor / enforce controllers)
-//! and extended in this PR (Tasks 4.7 / 4.8 — WDAC / AppLocker /
+//! Hermetic exercises of the app-control surface (PAL trait +
+//! supervisor + monitor / enforce controllers, WDAC / AppLocker /
 //! Linux dm-verity-aware backends).
 //!
 //! The harness reuses the in-process [`EventBus`] so every scenario
@@ -154,7 +153,7 @@ async fn drain_for(rx: &mut mpsc::Receiver<Event>, budget: Duration) -> Vec<Even
 
 // ---------- Scenario 1: monitor-mode logs decisions ------------------------
 
-/// Monitor mode is the Phase 4 default. A
+/// Monitor mode is the default.  A
 /// signed policy must be applied without ever pushing to the OS
 /// backend, and observation must emit an `AppControlDecision`
 /// event. `docs/device-control.md` § 8 acceptance #1: monitor mode is default.
@@ -273,7 +272,7 @@ async fn mode_mismatch_is_rejected() {
 // ---------- Scenario 4: anti-regression ------------------------------------
 
 /// Replaying the same policy version is
-/// rejected by the policy verifier (anti-rollback guard from PR #7).
+/// rejected by the policy verifier (anti-rollback guard).
 #[tokio::test(flavor = "current_thread")]
 async fn policy_version_regression_is_rejected() {
     let (bus, _rx) = make_bus();

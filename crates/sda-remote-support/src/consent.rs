@@ -2,7 +2,7 @@
 //!
 //! `docs/device-control.md` § 9 mandates that **every** remote-support session
 //! show a consent banner and block until the end-user accepts. This
-//! module owns that gate. Phase 4 ships:
+//! module owns that gate.  This crate ships:
 //!
 //! * [`ConsentManager`] — the orchestration surface; takes a
 //!   pluggable [`ConsentPrompt`] so production code can wire it to a
@@ -50,11 +50,13 @@ pub trait ConsentPrompt: Send + Sync {
     fn ask(&self, session_id: &str, operator_id: &str) -> ConsentDecision;
 }
 
-/// Phase-4 default prompt: deny every request.
+/// Fail-closed consent prompt: deny every request.
 ///
-/// Used when the operator has wired a `RemoteSupportModule` but
-/// has not yet supplied a real desktop UI surface. Failing closed
-/// here matches the agent's privacy-first posture.
+/// Used as a safety net when the operator wires a
+/// `RemoteSupportModule` without supplying a real desktop UI
+/// surface.  The production default is [`NativeConsentPrompt`];
+/// this stub exists so code that cannot show a dialog still
+/// refuses every session rather than silently approving.
 #[derive(Debug, Default)]
 pub struct StubConsentPrompt;
 

@@ -1,6 +1,6 @@
 //! Cross-platform network telemetry PAL trait.
 //!
-//! Backs the `sda-network-monitor` module (Phase E3 of the EDR
+//! Backs the `sda-network-monitor` module (part of the EDR
 //! Parity workstream). See `docs/architecture.md` § 4 (Platform
 //! abstraction layer) for the trait spec and per-OS implementation
 //! matrix.
