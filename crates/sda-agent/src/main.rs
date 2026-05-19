@@ -23,9 +23,9 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 #[cfg(feature = "legacy-siem")]
 use tokio::sync::Mutex;
-use tracing::{info, warn};
 #[cfg(feature = "legacy-siem")]
 use tracing::error;
+use tracing::{info, warn};
 
 #[cfg(feature = "legacy-siem")]
 use sda_comms::connection::{ConnectionConfig, ConnectionManager, TransportProtocol};
@@ -741,7 +741,7 @@ async fn main() -> Result<()> {
             })
             .filter(|(tid, _)| !tid.is_nil())
             .map(|(tid, did)| {
-                use sha2::{Sha256, Digest};
+                use sha2::{Digest, Sha256};
                 // Deterministic seed from device identity for stable
                 // escrow key derivation across agent restarts.
                 let mut hasher = Sha256::new();
@@ -750,7 +750,10 @@ async fn main() -> Result<()> {
                 hasher.update(did.as_bytes());
                 let seed_bytes = hasher.finalize();
                 let signing_key = ed25519_dalek::SigningKey::from_bytes(
-                    seed_bytes.as_slice().try_into().expect("SHA-256 is 32 bytes"),
+                    seed_bytes
+                        .as_slice()
+                        .try_into()
+                        .expect("SHA-256 is 32 bytes"),
                 );
                 let key_id = format!("device:{}", did);
                 info!(tenant_id = %tid, device_id = %did, "MDM recovery escrow identity wired");
@@ -1471,29 +1474,68 @@ async fn pull_cloud_config(gateway_url: &str) -> Result<CloudConfig> {
     }
 
     toggle!(cfg.modules.fim.enabled, preset.modules.fim);
-    toggle!(cfg.modules.logcollector.enabled, preset.modules.logcollector);
+    toggle!(
+        cfg.modules.logcollector.enabled,
+        preset.modules.logcollector
+    );
     toggle!(cfg.modules.inventory.enabled, preset.modules.inventory);
     toggle!(cfg.modules.sca.enabled, preset.modules.sca);
     toggle!(cfg.modules.rootcheck.enabled, preset.modules.rootcheck);
-    toggle!(cfg.modules.active_response.enabled, preset.modules.active_response);
-    toggle!(cfg.modules.local_detection.enabled, preset.modules.local_detection);
-    toggle!(cfg.modules.enhanced_inventory.enabled, preset.modules.enhanced_inventory);
-    toggle!(cfg.modules.device_control.enabled, preset.modules.device_control);
+    toggle!(
+        cfg.modules.active_response.enabled,
+        preset.modules.active_response
+    );
+    toggle!(
+        cfg.modules.local_detection.enabled,
+        preset.modules.local_detection
+    );
+    toggle!(
+        cfg.modules.enhanced_inventory.enabled,
+        preset.modules.enhanced_inventory
+    );
+    toggle!(
+        cfg.modules.device_control.enabled,
+        preset.modules.device_control
+    );
     toggle!(cfg.modules.posture.enabled, preset.modules.posture);
     toggle!(cfg.modules.software.enabled, preset.modules.software);
     toggle!(cfg.modules.jit_admin.enabled, preset.modules.jit_admin);
-    toggle!(cfg.modules.remote_support.enabled, preset.modules.remote_support);
+    toggle!(
+        cfg.modules.remote_support.enabled,
+        preset.modules.remote_support
+    );
     toggle!(cfg.modules.mdm.enabled, preset.modules.mdm);
-    toggle!(cfg.modules.process_monitor.enabled, preset.modules.process_monitor);
-    toggle!(cfg.modules.network_monitor.enabled, preset.modules.network_monitor);
+    toggle!(
+        cfg.modules.process_monitor.enabled,
+        preset.modules.process_monitor
+    );
+    toggle!(
+        cfg.modules.network_monitor.enabled,
+        preset.modules.network_monitor
+    );
     toggle!(cfg.modules.dns_monitor.enabled, preset.modules.dns_monitor);
-    toggle!(cfg.modules.host_isolation.enabled, preset.modules.host_isolation);
-    toggle!(cfg.modules.memory_scanner.enabled, preset.modules.memory_scanner);
-    toggle!(cfg.modules.identity_monitor.enabled, preset.modules.identity_monitor);
+    toggle!(
+        cfg.modules.host_isolation.enabled,
+        preset.modules.host_isolation
+    );
+    toggle!(
+        cfg.modules.memory_scanner.enabled,
+        preset.modules.memory_scanner
+    );
+    toggle!(
+        cfg.modules.identity_monitor.enabled,
+        preset.modules.identity_monitor
+    );
     toggle!(cfg.modules.dlp.enabled, preset.modules.dlp);
     toggle!(cfg.modules.query.enabled, preset.modules.query);
-    toggle!(cfg.modules.agent_vitals.enabled, preset.modules.agent_vitals);
-    toggle!(cfg.modules.script_runner.enabled, preset.modules.script_runner);
+    toggle!(
+        cfg.modules.agent_vitals.enabled,
+        preset.modules.agent_vitals
+    );
+    toggle!(
+        cfg.modules.script_runner.enabled,
+        preset.modules.script_runner
+    );
 
     if let Some(ref u) = preset.modules.updater {
         cfg.modules.updater.enabled = u.enabled;

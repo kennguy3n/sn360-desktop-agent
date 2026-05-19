@@ -45,11 +45,7 @@ impl PostureModule {
         let interval_secs = config.modules.posture.interval_secs;
         let defer_on_battery = config.modules.posture.defer_on_battery;
 
-        info!(
-            interval_secs,
-            defer_on_battery,
-            "posture module starting"
-        );
+        info!(interval_secs, defer_on_battery, "posture module starting");
 
         let task = tokio::spawn(async move {
             let provider = match sda_pal::posture::default_posture_provider() {
@@ -61,9 +57,8 @@ impl PostureModule {
                 }
             };
             let mut tracker = DeltaTracker::new();
-            let mut interval = tokio::time::interval(
-                std::time::Duration::from_secs(interval_secs.max(10)),
-            );
+            let mut interval =
+                tokio::time::interval(std::time::Duration::from_secs(interval_secs.max(10)));
 
             // Take the first snapshot immediately.
             interval.tick().await;

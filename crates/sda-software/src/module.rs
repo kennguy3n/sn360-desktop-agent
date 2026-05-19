@@ -93,9 +93,7 @@ impl SoftwareModule {
                 .build()
                 .expect("build software http client");
 
-            let mut interval = tokio::time::interval(
-                std::time::Duration::from_secs(refresh_secs),
-            );
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(refresh_secs));
 
             // First tick fires immediately so we fetch on startup.
             interval.tick().await;

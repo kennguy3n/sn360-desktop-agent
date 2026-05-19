@@ -184,27 +184,29 @@ fn linux_dialog(title: &str, message: &str, timeout: std::time::Duration) -> Opt
     if let Ok(output) = std::process::Command::new("zenity")
         .args([
             "--question",
-            "--title", title,
-            "--text", message,
-            "--ok-label", "Allow",
-            "--cancel-label", "Deny",
-            "--timeout", &timeout.as_secs().to_string(),
+            "--title",
+            title,
+            "--text",
+            message,
+            "--ok-label",
+            "Allow",
+            "--cancel-label",
+            "Deny",
+            "--timeout",
+            &timeout.as_secs().to_string(),
         ])
         .output()
     {
         return match output.status.code() {
-            Some(0) => Some(true),    // Allow
-            Some(1) => Some(false),   // Deny
-            Some(5) => None,          // Timeout
+            Some(0) => Some(true),  // Allow
+            Some(1) => Some(false), // Deny
+            Some(5) => None,        // Timeout
             _ => Some(false),
         };
     }
 
     if let Ok(output) = std::process::Command::new("kdialog")
-        .args([
-            "--title", title,
-            "--yesno", message,
-        ])
+        .args(["--title", title, "--yesno", message])
         .output()
     {
         return Some(output.status.success());

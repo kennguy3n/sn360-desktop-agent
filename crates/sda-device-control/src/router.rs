@@ -142,9 +142,7 @@ pub struct ProductionHooks {
 impl ProductionHooks {
     /// Build from a list of `(key_id, verifying_key)` pairs,
     /// typically extracted from the TRDS signing-key bundle.
-    pub fn new(
-        keys: Vec<(String, ed25519_dalek::VerifyingKey)>,
-    ) -> Self {
+    pub fn new(keys: Vec<(String, ed25519_dalek::VerifyingKey)>) -> Self {
         Self {
             keys: keys.into_iter().collect(),
             permitted_actions: None,
@@ -154,7 +152,10 @@ impl ProductionHooks {
 
     /// Restrict permitted actions to the given set. Called when
     /// the cloud config specifies a tier-based allow-list.
-    pub fn with_permitted_actions(mut self, actions: std::collections::HashSet<ActionKind>) -> Self {
+    pub fn with_permitted_actions(
+        mut self,
+        actions: std::collections::HashSet<ActionKind>,
+    ) -> Self {
         self.permitted_actions = Some(actions);
         self
     }
@@ -179,10 +180,7 @@ impl ProductionHooks {
         if let Some(obj) = value.as_object_mut() {
             // The signature was computed over the job with these
             // fields set to their "empty" sentinel values.
-            obj.insert(
-                "signature".into(),
-                serde_json::Value::Array(Vec::new()),
-            );
+            obj.insert("signature".into(), serde_json::Value::Array(Vec::new()));
             obj.insert(
                 "additional_signatures".into(),
                 serde_json::Value::Array(Vec::new()),
