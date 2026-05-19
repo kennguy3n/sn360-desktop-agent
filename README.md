@@ -100,10 +100,10 @@ sudo systemctl enable --now sn360-desktop-agent
 
 ```powershell
 Invoke-WebRequest -Uri "https://<release-server>/configs/profile-standard.yaml" `
-  -OutFile "$env:ProgramData\SN360DesktopAgent\config.yaml"
-(Get-Content "$env:ProgramData\SN360DesktopAgent\config.yaml") `
+  -OutFile "${env:ProgramFiles}\SN360DesktopAgent\config.yaml"
+(Get-Content "${env:ProgramFiles}\SN360DesktopAgent\config.yaml") `
   -replace '\$\{SN360_GATEWAY_URL\}', 'wss://gateway.example.com' |
-  Set-Content "$env:ProgramData\SN360DesktopAgent\config.yaml"
+  Set-Content "${env:ProgramFiles}\SN360DesktopAgent\config.yaml"
 Restart-Service sn360-desktop-agent
 ```
 
