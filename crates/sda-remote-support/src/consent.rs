@@ -39,10 +39,10 @@ pub enum ConsentDecision {
 /// proceed.
 ///
 /// Implementations MUST be `Send + Sync` because the supervisor
-/// holds them in a `Box<dyn ConsentPrompt>`. The Phase-4 default
-/// is [`StubConsentPrompt`]; real implementations will land in
-/// later phases (one per OS, wired into the desktop notification
-/// surface).
+/// holds them in a `Box<dyn ConsentPrompt>`. The production default
+/// is [`NativeConsentPrompt`], which shows an OS-native dialog.
+/// [`StubConsentPrompt`] is available as a fail-closed fallback
+/// (always denies).
 pub trait ConsentPrompt: Send + Sync {
     /// Show a prompt for `operator_id` and `session_id` and block
     /// until the user responds (or the implementation's internal

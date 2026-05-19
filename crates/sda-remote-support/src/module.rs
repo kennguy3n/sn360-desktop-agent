@@ -378,10 +378,16 @@ impl RemoteSupportModule {
                     biased;
                     request = rx.recv() => match request {
                         Some(req) => {
-                            let mut sup = supervisor.lock().await;
-                            if let Err(e) = sup.handle_request(req) {
-                                tracing::debug!(error = %e, "remote-support request failed");
-                            }
+                            // Run handle_request on the blocking thread pool
+                            // because NativeConsentPrompt spawns OS dialog
+                            // processes that block for up to 120 seconds.
+                            let sup_clone = supervisor.clone();
+                            let _ = tokio::task::spawn_blocking(move || {
+                                let mut sup = sup_clone.blocking_lock();
+                                if let Err(e) = sup.handle_request(req) {
+                                    tracing::debug!(error = %e, "remote-support request failed");
+                                }
+                            }).await;
                         }
                         None => break,
                     },

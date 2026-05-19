@@ -157,7 +157,7 @@ async fn main() -> Result<()> {
     //     `bootstrap_token_file`; the cloud config provides every
     //     module toggle and platform endpoint URL.
     if let Some(ref gw) = config.agent.tenant_gateway {
-        match pull_cloud_config(gw).await {
+        match pull_cloud_config(gw, config.agent.bootstrap_token_file.as_deref()).await {
             Ok(cloud) => {
                 // Store the enrolled identity so downstream modules
                 // (host isolation, device control, MDM) can use it.
@@ -1445,7 +1445,14 @@ struct CloudConfig {
 /// Gateway's `GET /api/v1/config` endpoint. The gateway returns a
 /// TierPreset JSON scoped to the tenant's tier. We map it into an
 /// `AgentConfig` for merging with the local config.
-async fn pull_cloud_config(gateway_url: &str) -> Result<CloudConfig> {
+///
+/// If `bootstrap_token_file` is set and readable, the token is sent
+/// as a `Bearer` header to authenticate the request. This aligns
+/// with the gateway's mTLS + token enrollment model.
+async fn pull_cloud_config(
+    gateway_url: &str,
+    bootstrap_token_file: Option<&std::path::Path>,
+) -> Result<CloudConfig> {
     let url = format!("{}/api/v1/config", gateway_url.trim_end_matches('/'));
     info!(url = %url, "pulling cloud config from gateway");
 
@@ -1454,12 +1461,36 @@ async fn pull_cloud_config(gateway_url: &str) -> Result<CloudConfig> {
         .build()
         .context("build http client")?;
 
-    let resp = client
+    let mut req = client
         .get(&url)
-        .header("User-Agent", "SN360-Desktop-Agent/1.0")
-        .send()
-        .await
-        .context("cloud config request")?;
+        .header("User-Agent", "SN360-Desktop-Agent/1.0");
+
+    // Attach bootstrap token as Bearer auth if available.
+    if let Some(path) = bootstrap_token_file {
+        match std::fs::read_to_string(path) {
+            Ok(token) => {
+                let token = token.trim();
+                if !token.is_empty() {
+                    req = req.bearer_auth(token);
+                    info!("using bootstrap token for cloud config auth");
+                } else {
+                    warn!(
+                        path = %path.display(),
+                        "bootstrap token file is empty, sending unauthenticated"
+                    );
+                }
+            }
+            Err(e) => {
+                warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "cannot read bootstrap token file, sending unauthenticated"
+                );
+            }
+        }
+    }
+
+    let resp = req.send().await.context("cloud config request")?;
 
     if !resp.status().is_success() {
         let status = resp.status();
