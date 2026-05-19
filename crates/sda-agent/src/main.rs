@@ -906,14 +906,13 @@ async fn main() -> Result<()> {
 
     // 12l-quater. Remote-support module (Phase 4.2).
     //              Off by default. `docs/device-control.md` § 9 mandates a
-    //              consent banner on every session — the Phase-4
-    //              default consent prompt is `StubConsentPrompt`,
-    //              which denies every request. The agent therefore
-    //              fails closed unless the operator wires a real
-    //              prompt later. The module's `start()` parks on
-    //              the request channel; dropping the sender ends
-    //              the loop, so we keep it alive for the lifetime
-    //              of `main`.
+    //              consent banner on every session — the production
+    //              default is `NativeConsentPrompt`, which shows an
+    //              OS-native dialog. If no dialog tool is available
+    //              (headless server), it falls back to deny.
+    //              The module's `start()` parks on the request
+    //              channel; dropping the sender ends the loop, so
+    //              we keep it alive for the lifetime of `main`.
     let _remote_support_sender: Option<
         tokio::sync::mpsc::UnboundedSender<sda_remote_support::module::RemoteSupportRequest>,
     > = if config.modules.remote_support.enabled {

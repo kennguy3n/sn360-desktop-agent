@@ -140,14 +140,30 @@ fn native_dialog(title: &str, message: &str, timeout: std::time::Duration) -> Op
 fn macos_dialog(title: &str, message: &str, timeout: std::time::Duration) -> Option<bool> {
     let script = format!(
         r#"display dialog "{}" with title "{}" buttons {{"Deny", "Allow"}} default button "Deny" giving up after {}"#,
-        message.replace('\\', "\\\\").replace('"', "\\\""),
-        title.replace('\\', "\\\\").replace('"', "\\\""),
+        message.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n"),
+        title.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', " "),
         timeout.as_secs(),
     );
-    let output = std::process::Command::new("osascript")
-        .arg("-e")
-        .arg(&script)
-        .output();
+    // Pipe the script via stdin instead of -e to avoid raw newline
+    // characters in the message breaking the single-line argument.
+    use std::io::Write;
+    let mut child = match std::process::Command::new("osascript")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("osascript failed to spawn: {e}");
+            return Some(false);
+        }
+    };
+    if let Some(ref mut stdin) = child.stdin {
+        let _ = stdin.write_all(script.as_bytes());
+    }
+    drop(child.stdin.take());
+    let output = child.wait_with_output();
     match output {
         Ok(o) if o.status.success() => {
             let stdout = String::from_utf8_lossy(&o.stdout);
