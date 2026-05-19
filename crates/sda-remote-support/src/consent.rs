@@ -140,16 +140,18 @@ fn native_dialog(title: &str, message: &str, timeout: std::time::Duration) -> Op
 
 #[cfg(target_os = "macos")]
 fn macos_dialog(title: &str, message: &str, timeout: std::time::Duration) -> Option<bool> {
+    // AppleScript does not recognise \n as an escape; use the
+    // `return` constant via string concatenation for line breaks.
+    let escaped_msg = message
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\" & return & \"");
+    let escaped_title = title
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', " ");
     let script = format!(
-        r#"display dialog "{}" with title "{}" buttons {{"Deny", "Allow"}} default button "Deny" giving up after {}"#,
-        message
-            .replace('\\', "\\\\")
-            .replace('"', "\\\"")
-            .replace('\n', "\\n"),
-        title
-            .replace('\\', "\\\\")
-            .replace('"', "\\\"")
-            .replace('\n', " "),
+        r#"display dialog "{escaped_msg}" with title "{escaped_title}" buttons {{"Deny", "Allow"}} default button "Deny" giving up after {}"#,
         timeout.as_secs(),
     );
     // Pipe the script via stdin instead of -e to avoid raw newline
