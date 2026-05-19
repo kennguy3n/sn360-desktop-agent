@@ -69,22 +69,22 @@ modules:
       - block_ip
       - kill_process
 
-  trds:
+  # EDR modules — process telemetry and local detection engine.
+  process_monitor:
+    enabled: true
+  local_detection:
     enabled: true
 
-  edr:
+  # Network telemetry modules.
+  network_monitor:
     enabled: true
-    process_telemetry: true
-    local_detection_engine: true
-
-  network_telemetry:
+  dns_monitor:
     enabled: true
-    dns_monitoring: true
 
   # Disabled in standard profile:
   host_isolation:
     enabled: false
-  memory_scan:
+  memory_scanner:
     enabled: false
   identity_monitor:
     enabled: false
@@ -92,7 +92,7 @@ modules:
     enabled: false
   device_control:
     enabled: false
-  desktop_mdm:
+  mdm:
     enabled: false
   rootcheck:
     enabled: false

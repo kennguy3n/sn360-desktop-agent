@@ -73,24 +73,24 @@ modules:
       - block_ip
       - kill_process
 
-  trds:
+  # EDR modules — process telemetry and local detection engine.
+  process_monitor:
+    enabled: true
+  local_detection:
     enabled: true
 
-  edr:
+  # Network telemetry modules.
+  network_monitor:
     enabled: true
-    process_telemetry: true
-    local_detection_engine: true
-
-  network_telemetry:
+  dns_monitor:
     enabled: true
-    dns_monitoring: true
 
   host_isolation:
     enabled: true
 
-  memory_scan:
+  memory_scanner:
     enabled: true
-    scan_interval: 3600
+    scan_interval_secs: 3600
 
   identity_monitor:
     enabled: true
@@ -101,22 +101,30 @@ modules:
   device_control:
     enabled: true
 
-  desktop_mdm:
+  mdm:
     enabled: true
-    auto_remediation: true
-    recovery_key_escrow: true
-    os_patch_orchestration: true
+    auto_remediate:
+      disk_encryption: true
+      firewall: true
+      screen_lock: true
+    recovery_key_escrow:
+      enabled: true
+    os_patch:
+      enabled: true
+      auto_install_security: true
 
   rootcheck:
     enabled: true
-    scan_interval: 43200
+    scan_interval_secs: 43200
 
   enhanced_inventory:
     enabled: true
-    collect:
-      - running_software
-      - browser_extensions
-      - sbom
+    running_software:
+      enabled: true
+    browser_extensions:
+      enabled: true
+    sbom:
+      enabled: true
 
 resource_limits:
   max_cpu_percent: 5

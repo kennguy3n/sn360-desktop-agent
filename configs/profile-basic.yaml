@@ -64,19 +64,22 @@ modules:
       - block_ip
       - kill_process
 
-  # TRDS rule distribution — always enabled so the agent receives
-  # updated detection rules even in basic profile.
-  trds:
+  # Local Detection Engine (includes TRDS rule distribution) — always
+  # enabled so the agent receives updated detection rules even in
+  # basic profile.
+  local_detection:
     enabled: true
 
   # Disabled in basic profile:
-  edr:
+  process_monitor:
     enabled: false
-  network_telemetry:
+  network_monitor:
+    enabled: false
+  dns_monitor:
     enabled: false
   host_isolation:
     enabled: false
-  memory_scan:
+  memory_scanner:
     enabled: false
   identity_monitor:
     enabled: false
@@ -84,7 +87,7 @@ modules:
     enabled: false
   device_control:
     enabled: false
-  desktop_mdm:
+  mdm:
     enabled: false
   rootcheck:
     enabled: false
