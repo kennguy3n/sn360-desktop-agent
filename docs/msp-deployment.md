@@ -44,7 +44,7 @@ bootstrap token.
 
 ```powershell
 msiexec /i sn360-desktop-agent-x64.msi /qn ^
-  SN360_GATEWAY_URL=https://gateway.example.com ^
+  SN360_GATEWAY_URL=wss://gateway.example.com ^
   SN360_BOOTSTRAP_TOKEN=tok-xxxx ^
   SN360_PROFILE=standard
 ```

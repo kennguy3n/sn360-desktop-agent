@@ -29,7 +29,7 @@ hygiene without the overhead of full EDR.
 - TRDS — rule distribution (always-on so the agent stays current)
 
 **Disabled:** EDR, network telemetry, host isolation, memory scanning,
-identity monitoring, DLP, device control, desktop MDM.
+identity monitoring, DLP, device control, MDM, rootcheck, enhanced inventory.
 
 **Config:** [`configs/profile-basic.yaml`](../configs/profile-basic.yaml)
 
@@ -44,7 +44,7 @@ rule bundles are Ed25519-signed and hot-swap atomically.
 - Network telemetry — TCP/UDP connections + DNS monitoring + IOC matching
 
 **Disabled:** Host isolation, memory scanning, identity monitoring,
-DLP, device control, desktop MDM.
+DLP, device control, MDM, rootcheck, enhanced inventory.
 
 **Config:** [`configs/profile-standard.yaml`](../configs/profile-standard.yaml)
 
