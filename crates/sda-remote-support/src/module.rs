@@ -27,7 +27,7 @@ use sda_pal::remote_support::{
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, Mutex};
 
-use crate::consent::{ConsentDecision, ConsentManager, ConsentPrompt, StubConsentPrompt};
+use crate::consent::{ConsentDecision, ConsentManager, ConsentPrompt, NativeConsentPrompt};
 use crate::session::{EndReason, Session, SessionState};
 
 /// Errors produced by the supervisor.
@@ -99,14 +99,14 @@ impl std::fmt::Debug for RemoteSupportSupervisor {
 
 impl RemoteSupportSupervisor {
     /// Build a supervisor with the platform-default provider and
-    /// the deny-all stub consent prompt.
+    /// the native OS consent dialog.
     pub fn with_defaults(config: RemoteSupportConfig, bus: Arc<EventBus>) -> Option<Self> {
         let provider = default_remote_support_provider()?;
         Some(Self::new(
             config,
             bus,
             provider,
-            Box::new(StubConsentPrompt),
+            Box::new(NativeConsentPrompt::new()),
         ))
     }
 
@@ -342,7 +342,7 @@ pub struct RemoteSupportModule {
 
 impl RemoteSupportModule {
     /// Build a module with the platform-default provider and the
-    /// deny-all stub consent prompt. Returns `None` on unsupported
+    /// native OS consent dialog. Returns `None` on unsupported
     /// hosts.
     pub fn with_defaults(config: RemoteSupportConfig, bus: Arc<EventBus>) -> Option<Self> {
         let supervisor = RemoteSupportSupervisor::with_defaults(config, bus)?;
