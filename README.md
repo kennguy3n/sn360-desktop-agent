@@ -62,7 +62,71 @@ script execution), rootkit detection, and posture snapshots (disk
 encryption, firewall, screen lock, OS patch level). Adaptive
 scheduling backs off scans on battery and during user activity.
 
-## Prerequisites
+## Installation
+
+For most deployments, install from pre-built packages — no build
+toolchain required.
+
+| Platform | Package | Command |
+|----------|---------|---------|
+| **Windows** | `.msi` | `msiexec /i sn360-desktop-agent-x64.msi /qn` |
+| **macOS** | `.pkg` | `sudo installer -pkg sn360-desktop-agent-arm64.pkg -target /` |
+| **Debian / Ubuntu** | `.deb` | `sudo apt install ./sn360-desktop-agent_*_amd64.deb` |
+| **RHEL / Fedora** | `.rpm` | `sudo dnf install ./sn360-desktop-agent-*.x86_64.rpm` |
+
+Download the latest packages from the release page or your SN360
+provider's distribution endpoint.
+
+After installing, deploy a feature profile as the agent config.
+Profile templates use `${SN360_GATEWAY_URL}` as a placeholder —
+you **must** replace it with your actual gateway address before
+starting the agent:
+
+**Linux:**
+
+```bash
+# Download the profile from the release page (or copy from the source
+# tree's configs/ directory if building from source):
+curl -o /tmp/profile-standard.yaml \
+  https://<release-server>/configs/profile-standard.yaml
+
+sudo cp /tmp/profile-standard.yaml /etc/sn360-desktop-agent/config.yaml
+sudo sed -i 's|${SN360_GATEWAY_URL}|wss://gateway.example.com|' \
+  /etc/sn360-desktop-agent/config.yaml
+sudo systemctl enable --now sn360-desktop-agent
+```
+
+**Windows (PowerShell):**
+
+```powershell
+Invoke-WebRequest -Uri "https://<release-server>/configs/profile-standard.yaml" `
+  -OutFile "${env:ProgramFiles}\SN360DesktopAgent\config.yaml"
+(Get-Content "${env:ProgramFiles}\SN360DesktopAgent\config.yaml") `
+  -replace '\$\{SN360_GATEWAY_URL\}', 'wss://gateway.example.com' |
+  Set-Content "${env:ProgramFiles}\SN360DesktopAgent\config.yaml"
+Restart-Service sn360-desktop-agent
+```
+
+For mass deployment via GPO, MDM, or configuration management, see
+[`docs/msp-deployment.md`](./docs/msp-deployment.md).
+
+## Feature profiles
+
+SDA ships three pre-configured profiles that control which modules
+are active:
+
+| Profile | What it includes | Memory |
+|---------|-----------------|--------|
+| **Basic** | FIM, log collection, inventory, SCA, TRDS, active response | ~8-12 MB |
+| **Standard** | Basic + EDR + network telemetry | ~20-30 MB |
+| **Advanced** | Standard + DLP, identity monitoring, memory scanning, device control, MDM, host isolation, rootcheck, enhanced inventory (running software, browser extensions, SBOM) | ~40-60 MB |
+
+Profile configs are in [`configs/`](./configs/). See
+[`docs/feature-profiles.md`](./docs/feature-profiles.md) for details.
+
+## Development
+
+### Prerequisites
 
 - **Rust 1.75+** (install via [rustup](https://rustup.rs/))
 - **Linux:** `pkg-config`, `libssl-dev`, `libyara-dev` (or the
@@ -76,7 +140,7 @@ scheduling backs off scans on battery and during user activity.
 YARA is a **required** runtime dependency of the Local Detection
 Engine. Build hosts must have YARA development headers available.
 
-## Quick start
+### Building from source
 
 ```bash
 # Clone the repository
@@ -293,6 +357,9 @@ The full configuration schema lives in
 | [`docs/platform-testing.md`](./docs/platform-testing.md) | CI matrix and manual procedures |
 | [`docs/release-process.md`](./docs/release-process.md) | Release runbook |
 | [`docs/benchmarks.md`](./docs/benchmarks.md) | Performance budgets and current numbers |
+| [`docs/feature-profiles.md`](./docs/feature-profiles.md) | Tiered feature profiles (Basic / Standard / Advanced) |
+| [`docs/msp-deployment.md`](./docs/msp-deployment.md) | MSP / MSSP mass deployment guide (GPO, SCCM, MDM, apt/yum) |
+| [`docs/agent-shared-patterns.md`](./docs/agent-shared-patterns.md) | Cross-agent shared patterns and crate mapping |
 | [`CHANGELOG.md`](./CHANGELOG.md) | Release notes |
 | [`CONTRIBUTING.md`](./CONTRIBUTING.md) | Branching, commits, tests, code review |
 | [`SECURITY.md`](./SECURITY.md) | Reporting a vulnerability |

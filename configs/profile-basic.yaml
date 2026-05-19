@@ -1,0 +1,110 @@
+# SN360 Desktop Agent — Basic Profile
+#
+# Lightweight monitoring for SMEs on day one. Enables foundational
+# endpoint hygiene (file integrity, log collection, software inventory)
+# and secure rule distribution. Suitable for organisations that need
+# visibility without the overhead of full EDR.
+#
+# Memory footprint: ~8-12 MB resident.
+# CPU: sub-0.05% idle.
+#
+# NOTE: paths and log sources below are Linux-specific.  For Windows
+# or macOS deployments, adjust FIM directories, logcollector sources,
+# and SCA policy_dir to match the target OS.  The agent's serde
+# defaults handle platform-specific paths for fields you omit.
+#
+# To use: copy to /etc/sn360-desktop-agent/config.yaml or pass via
+# --config flag.
+
+server:
+  address: "${SN360_GATEWAY_URL}"
+  port: 1514
+  protocol: "tcp"
+  keepalive_interval: 600
+
+enrollment:
+  port: 1515
+  auto_enroll: true
+
+modules:
+  fim:
+    enabled: true
+    scan_interval: 43200
+    directories:
+      - path: "/etc"
+        recursive: true
+        realtime: true
+      - path: "/usr/bin"
+        recursive: false
+        check_sha256: true
+      - path: "/usr/sbin"
+        recursive: false
+        check_sha256: true
+
+  logcollector:
+    enabled: true
+    sources:
+      - source_type: "journald"
+        format: "syslog"
+        units: ["sshd", "sudo", "systemd-logind"]
+
+  inventory:
+    enabled: true
+    interval: 3600
+    collect:
+      - os
+      - network
+      - packages
+      - hardware
+
+  sca:
+    enabled: true
+    policy_dir: "/etc/sn360-desktop-agent/sca"
+    scan_interval: 43200
+
+  active_response:
+    enabled: true
+    timeout: 30
+    actions:
+      - block_ip
+      - kill_process
+
+  # Local Detection Engine (includes TRDS rule distribution) — always
+  # enabled so the agent receives updated detection rules even in
+  # basic profile.
+  local_detection:
+    enabled: true
+
+  # Disabled in basic profile:
+  process_monitor:
+    enabled: false
+  network_monitor:
+    enabled: false
+  dns_monitor:
+    enabled: false
+  host_isolation:
+    enabled: false
+  memory_scanner:
+    enabled: false
+  identity_monitor:
+    enabled: false
+  dlp:
+    enabled: false
+  device_control:
+    enabled: false
+  mdm:
+    enabled: false
+  rootcheck:
+    enabled: false
+  enhanced_inventory:
+    enabled: false
+
+resource_limits:
+  max_cpu_percent: 2
+  max_memory_mb: 30
+  battery_mode: adaptive
+  idle_detection: true
+
+logging:
+  level: "info"
+  format: "text"
