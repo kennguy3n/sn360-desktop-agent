@@ -6,7 +6,7 @@ to talk to the SN360 control plane, and how SDA's "Non-Wazuh" modules
 (enhanced inventory, local detection) plug into the platform.
 
 The canonical platform-side companion to this document is
-[`docs/INTEGRATION_ASSESSMENT.md`](https://github.com/kennguy3n/sn360-security-platform/blob/main/docs/INTEGRATION_ASSESSMENT.md)
+[`docs/architecture/integration-architecture.md`](https://github.com/kennguy3n/sn360-security-platform/blob/main/docs/architecture/integration-architecture.md)
 in `sn360-security-platform`. Where this file says "see platform §X",
 that's the section to read.
 
@@ -16,7 +16,7 @@ that's the section to read.
 
 SDA connects to the SN360 Security Platform over three paths. The
 canonical wire-level documentation lives in the platform repo's
-[`docs/INTEGRATION_ASSESSMENT.md`](https://github.com/kennguy3n/sn360-security-platform/blob/main/docs/INTEGRATION_ASSESSMENT.md)
+[`docs/architecture/integration-architecture.md`](https://github.com/kennguy3n/sn360-security-platform/blob/main/docs/architecture/integration-architecture.md)
 §2 ("Integration Paths"). This section is the device-side summary.
 
 | Path | Endpoint | Wire format | Used by |
@@ -44,7 +44,9 @@ monotonicity, `WazuhCipher` lifecycle), see the protocol notes in
 
 The following SDA modules have **no Wazuh equivalent**. Their
 server-side counterparts are documented in the platform repo's
-[`docs/NON_WAZUH_COMPONENTS.md`](https://github.com/kennguy3n/sn360-security-platform/blob/main/docs/NON_WAZUH_COMPONENTS.md).
+[`ARCHITECTURE.md`](https://github.com/kennguy3n/sn360-security-platform/blob/main/ARCHITECTURE.md)
+and the per-service trees under
+[`services/`](https://github.com/kennguy3n/sn360-security-platform/tree/main/services).
 This section captures only what changes on the agent.
 
 ### 2.1 Enhanced Inventory (`sda-enhanced-inventory`)
@@ -100,8 +102,8 @@ bundle / NATS subject ultimately lands in.
 | **alert-forwarder** / **remoted-bridge** / **execd-bridge** | Path-A alert egress + legacy-protocol bridges | Transparent to the agent — same wire formats either way |
 
 For the per-service detail, see the platform repo's
-[`docs/NON_WAZUH_COMPONENTS.md`](https://github.com/kennguy3n/sn360-security-platform/blob/main/docs/NON_WAZUH_COMPONENTS.md)
-§3 ("Companion Microservices Summary").
+[`ARCHITECTURE.md`](https://github.com/kennguy3n/sn360-security-platform/blob/main/ARCHITECTURE.md)
+and the individual `services/<name>/README.md` trees.
 
 ---
 
@@ -127,8 +129,9 @@ follow from that contract.
 ## 5. Cross-Repo References
 
 - Canonical agent ↔ platform integration map:
-  [`sn360-security-platform/docs/INTEGRATION_ASSESSMENT.md`](https://github.com/kennguy3n/sn360-security-platform/blob/main/docs/INTEGRATION_ASSESSMENT.md).
-- Canonical Non-Wazuh component reference:
-  [`sn360-security-platform/docs/NON_WAZUH_COMPONENTS.md`](https://github.com/kennguy3n/sn360-security-platform/blob/main/docs/NON_WAZUH_COMPONENTS.md).
+  [`sn360-security-platform/docs/architecture/integration-architecture.md`](https://github.com/kennguy3n/sn360-security-platform/blob/main/docs/architecture/integration-architecture.md).
+- Canonical platform architecture overview (covers the non-Wazuh
+  SN360-original services):
+  [`sn360-security-platform/ARCHITECTURE.md`](https://github.com/kennguy3n/sn360-security-platform/blob/main/ARCHITECTURE.md).
 - Device-side architecture and PAL design:
   [`architecture.md`](./architecture.md).
